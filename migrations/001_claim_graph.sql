@@ -1,0 +1,19 @@
+-- 요건 DAG 저장 스키마 (PROJECT.md §7.3)
+--
+-- claim_nodes
+--   node_id      text PRIMARY KEY          -- 전역 유일 (공유 리프의 전제)
+--   claim_type   text NOT NULL             -- CLAIM_처분취소 / CLAIM_국가배상 ...
+--   description  text NOT NULL             -- 노드 카탈로그(GET /catalog → judge 도구 설명)에 노출
+--   gate_type    text NOT NULL CHECK (gate_type IN ('LEAF','AND','OR'))
+--   burden       text                      -- ★ §7.5 결정 후 CHECK 제약 확정
+--   is_leaf      boolean NOT NULL
+--   proposition  text                      -- LEAF만. 리프 판정 문장
+--   arithmetic   jsonb                     -- 산술 리프 스펙 (제소기간 등)
+--
+-- claim_edges
+--   parent_id    text REFERENCES claim_nodes(node_id)
+--   child_id     text REFERENCES claim_nodes(node_id)
+--   relation     text NOT NULL CHECK (relation IN ('ELEMENT','DEFENSE','REBUTTAL'))
+--   PRIMARY KEY (parent_id, child_id)
+--
+-- 적재는 ruleloader가 트랜잭션 하나로 claim_type 단위 전량 교체 (부분 적재 금지).

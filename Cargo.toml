@@ -1,0 +1,69 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/docmodel",
+    "crates/parsers",
+    "crates/checks",
+    "crates/llm",
+    "crates/retrieval",
+    "crates/engine",
+    "crates/sessdb",
+    "crates/server",
+    "crates/ruleloader",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+# 내부 crate (의존 방향: docmodel이 바닥, server가 전부를 모은다)
+docmodel = { path = "crates/docmodel" }
+parsers = { path = "crates/parsers" }
+checks = { path = "crates/checks" }
+llm = { path = "crates/llm" }
+retrieval = { path = "crates/retrieval" }
+engine = { path = "crates/engine" }
+sessdb = { path = "crates/sessdb" }
+
+# 비동기·서버 — 오케스트레이션 층에만 사용. engine/parsers/checks는 동기 유지 (PROJECT.md §10)
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"          # CancellationToken
+futures = "0.3"
+axum = { version = "0.8", features = ["multipart"] }   # multipart: 업로드 수신 (기본 기능에 없음)
+tower-http = { version = "0.6", features = ["catch-panic", "trace", "cors"] }
+
+# 직렬화
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# 저장 (코퍼스 = PostgreSQL, 세션 = RocksDB — PROJECT.md §9)
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros"] }
+pgvector = { version = "0.4", features = ["sqlx"] }
+rocksdb = "0.25"
+
+# HTTP·XML·압축 (LLM 호출·파서)
+reqwest = { version = "0.12", features = ["json"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
+zip = "2"
+
+# 엔진. gh-release = 미리 빌드된 libz3를 GitHub 릴리스에서 다운로드.
+# bundled(cmake 소스 빌드)는 디스크(수 GB)·시간을 크게 먹어 배제 — 디스크 여유 9.5G 실측에 맞춘 선택.
+z3 = { version = "0.21", features = ["gh-release"] }
+petgraph = "0.8"
+
+# PDF (pdfium 동적 라이브러리를 런타임 로드 — 바이너리 별도 설치)
+pdfium-render = "0.8"
+
+# 유틸
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"                 # bin 최상단에서만. lib은 thiserror enum 사용 (§11)
+moka = { version = "0.12", features = ["future"] }
+sha2 = "0.10"                # cache_key
+regex = "1"                  # clause 표시(조·항·호) 판별. Cargo.lock에 이미 있는 1.13.1로 풀린다
+uuid = { version = "1", features = ["v4"] }
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

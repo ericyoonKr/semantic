@@ -1,0 +1,10 @@
+[package]
+name = "sessdb"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rocksdb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

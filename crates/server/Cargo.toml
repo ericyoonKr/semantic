@@ -1,0 +1,27 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+docmodel = { workspace = true }
+parsers = { workspace = true }
+checks = { workspace = true }
+llm = { workspace = true }
+retrieval = { workspace = true }
+engine = { workspace = true }
+sessdb = { workspace = true }
+
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+moka = { workspace = true }         # engine_deps: LeafCache 메모리 앞단
+futures = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,20 @@
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+docmodel = { workspace = true }
+llm = { workspace = true }
+checks = { workspace = true }       # periods: 산술 리프 마감일
+z3 = { workspace = true }
+petgraph = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }   # CancellationToken
+futures = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

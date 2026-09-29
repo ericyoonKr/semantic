@@ -1,0 +1,17 @@
+[package]
+name = "retrieval"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+docmodel = { workspace = true }
+llm = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }      # embed_client: ② 추론 서버 HTTP
+sqlx = { workspace = true }
+pgvector = { workspace = true }
+moka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

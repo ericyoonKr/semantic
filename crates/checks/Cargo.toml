@@ -1,0 +1,11 @@
+[package]
+name = "checks"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+docmodel = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }        # refs: 참조 패턴
+serde = { workspace = true }
+thiserror = { workspace = true }

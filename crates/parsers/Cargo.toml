@@ -1,0 +1,12 @@
+[package]
+name = "parsers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+docmodel = { workspace = true }
+zip = { workspace = true }
+quick-xml = { workspace = true }
+pdfium-render = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
