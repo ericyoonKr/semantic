@@ -25,3 +25,6 @@ tracing = { workspace = true }
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+
+[dev-dependencies]
+axum = { workspace = true }
