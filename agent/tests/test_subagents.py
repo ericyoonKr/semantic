@@ -73,6 +73,7 @@ def test_fabricated_sources_and_quotes_are_dropped() -> None:
         {"claim": "원문에 없는 인용", "source": "근거 1", "quote": "이 조문은 지어낸 문장이다."},
         {"claim": "법령명을 지어 쓴 출처", "source": "가짜법 제1조 · 2000-01-01", "quote": LAW_BODY},
         {"claim": "공백만 다른 인용", "source": "근거 1", "quote": "이 조문 전문은  가짜 도구가\n돌려주는 고정 문장이다."},
+        {"claim": "공백을 끼운 인용", "source": "근거 1", "quote": "이 조문 전문은 가짜 도구 가 돌려주는 고정 문장 이다."},
     ]
     script = [
         delegate("researcher", "가짜법 제1조를 찾아 줘", "t1"),
@@ -86,6 +87,7 @@ def test_fabricated_sources_and_quotes_are_dropped() -> None:
     assert "원문에 없는 인용" not in result
     assert "법령명을 지어 쓴 출처" not in result
     assert "공백만 다른 인용" in result
+    assert "공백을 끼운 인용" in result
 
 
 def test_search_excerpt_alone_cannot_be_cited() -> None:

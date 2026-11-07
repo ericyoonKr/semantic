@@ -2,10 +2,15 @@ use unicode_normalization::char::canonical_combining_class;
 use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick};
 
 pub fn normalize_for_match(s: &str) -> (String, Vec<usize>) {
+    let (text, map, _) = normalize_with_ends(s);
+    (text, map)
+}
+
+fn normalize_with_ends(s: &str) -> (String, Vec<usize>, Vec<usize>) {
     let mut out = Normalized {
         text: String::with_capacity(s.len()),
         map: Vec::with_capacity(s.len()),
-        in_space: false,
+        ends: Vec::with_capacity(s.len()),
     };
     let mut segment = String::new();
     let mut segment_start = 0usize;
@@ -22,49 +27,37 @@ pub fn normalize_for_match(s: &str) -> (String, Vec<usize>) {
     if !segment.is_empty() {
         out.push_segment(&segment, segment_start);
     }
-    (out.text, out.map)
+    (out.text, out.map, out.ends)
 }
 
 pub fn locate_quote(paged: &str, quote: &str) -> Option<(u32, u32)> {
     let (q, _) = normalize_for_match(quote);
-    let q = q.trim_matches(' ');
     if q.is_empty() {
         return None;
     }
-    let (n, map) = normalize_for_match(paged);
-    let byte = n.find(q)?;
+    let (n, map, ends) = normalize_with_ends(paged);
+    let byte = n.find(&q)?;
     let start = n.get(..byte)?.chars().count();
     let end = start + q.chars().count();
     let orig_start = *map.get(start)?;
-    let last = *map.get(end.checked_sub(1)?)?;
-    let orig_end = map
-        .get(end..)?
-        .iter()
-        .copied()
-        .find(|&m| m > last)
-        .unwrap_or_else(|| paged.chars().count());
+    let orig_end = *ends.get(end.checked_sub(1)?)?;
     Some((u32::try_from(orig_start).ok()?, u32::try_from(orig_end).ok()?))
 }
 
 struct Normalized {
     text: String,
     map: Vec<usize>,
-    in_space: bool,
+    ends: Vec<usize>,
 }
 
 impl Normalized {
     fn push_segment(&mut self, segment: &str, start: usize) {
+        let end = start + segment.chars().count();
         for c in segment.nfc() {
-            if c.is_whitespace() {
-                if !self.in_space {
-                    self.text.push(' ');
-                    self.map.push(start);
-                    self.in_space = true;
-                }
-            } else {
+            if !c.is_whitespace() {
                 self.text.push(c);
                 self.map.push(start);
-                self.in_space = false;
+                self.ends.push(end);
             }
         }
     }
@@ -110,8 +103,10 @@ mod tests {
             locate_quote(PAGED, "2026년 1월 1일부터 1년으로 한다").map(|s| slice(PAGED, s)),
             Some("2026년 1월 1일부터   1년으로 한다".to_string())
         );
-        assert_eq!(locate_quote(PAGED, "2026년 1월 1일 부터 1년으로 한다."), None);
-        assert_eq!(locate_quote(PAGED, "   "), None);
+        assert_eq!(
+            locate_quote(PAGED, "2026년 1월 1일 부터 1년으로 한다.").map(|s| slice(PAGED, s)),
+            Some("2026년 1월 1일부터   1년으로 한다.".to_string())
+        );        assert_eq!(locate_quote(PAGED, "   "), None);
     }
 
     #[test]

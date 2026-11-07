@@ -47,8 +47,8 @@ class Authority:
         return f"{label}({self.note})" if self.note else label
 
     def has_quote(self, quote: str) -> bool:
-        wanted = normalize(quote)
-        return bool(wanted) and wanted in normalize(self.body)
+        wanted = compact(quote)
+        return bool(wanted) and wanted in compact(self.body)
 
 
 @dataclass

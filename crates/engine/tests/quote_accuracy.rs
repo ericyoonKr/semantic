@@ -112,5 +112,6 @@ async fn quote_check_accuracy_on_sample() -> TestResult {
     );
     assert_eq!(genuine_passed, GENUINE.len());
     assert_eq!(changed_blocked, CHANGED.len());
+    assert_eq!(inserted_passed, SPACE_INSERTED.len());
     Ok(())
 }
