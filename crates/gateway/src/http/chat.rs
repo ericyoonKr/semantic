@@ -8,9 +8,12 @@ use futures::StreamExt;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::audit::Event;
 use crate::error::GatewayError;
 use crate::filter::SseFilter;
 use crate::http::guard::{Signed, thread_id};
+use crate::http::sides::SideSink;
+use crate::quota::AskPermit;
 use crate::state::AppState;
 
 fn upstream(state: &AppState, method: reqwest::Method, path: &str, user: Uuid, request_id: &str) -> reqwest::RequestBuilder {
@@ -55,10 +58,24 @@ pub async fn create(State(state): State<AppState>, signed: Signed) -> Result<Jso
     Ok(Json(json!({ "session_id": id.to_string() })))
 }
 
+const STREAM_BROKEN: &str = "event: Error\ndata: {}\n\n";
+
+struct AskStream {
+    filter: SseFilter,
+    sides: SideSink,
+    _permit: AskPermit,
+}
+
 pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>, Json(body): Json<Value>) -> Result<Response, GatewayError> {
     let id = owned(&state, &signed, &raw).await?;
     let question = body.get("question").and_then(Value::as_str).ok_or(GatewayError::BadRequest)?;
     let rid = request_id();
+    if state.store.tokens_today(signed.user_id).await? >= state.cfg.daily_token_limit {
+        tracing::info!(request_id = %rid, "ask.daily_limit");
+        state.audit.spawn(Event::new("guard_block").user(signed.user_id).thread(id).request(&rid).detail(json!({ "guard": "daily_tokens" })));
+        return Err(GatewayError::DailyLimit);
+    }
+    let permit = state.quota.acquire(signed.user_id, id).await?;
     let res = upstream(&state, reqwest::Method::POST, &format!("/session/{id}/ask"), signed.user_id, &rid)
         .timeout(state.cfg.ask_deadline)
         .json(&json!({ "question": question }))
@@ -68,13 +85,18 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
     if !res.status().is_success() {
         return Err(GatewayError::Upstream);
     }
+    state.audit.spawn(Event::new("ask").user(signed.user_id).thread(id).request(&rid));
     state.store.touch_thread(id).await?;
-    let filter = SseFilter::new(rid, state.cfg.hidden_spans.clone());
-    let stream = res.bytes_stream().scan(filter, |filter, chunk| {
+    let sides = SideSink { store: state.store.clone(), audit: state.audit.clone(), user: signed.user_id, thread: id, request_id: rid.clone() };
+    let start = AskStream { filter: SseFilter::new(rid, state.cfg.hidden_spans.clone()), sides, _permit: permit };
+    let stream = res.bytes_stream().scan(start, |st, chunk| {
         let frames = match chunk {
-            Ok(bytes) => filter.push(&String::from_utf8_lossy(&bytes)),
-            Err(_) => filter.push("event: Error\ndata: {}\n\n"),
+            Ok(bytes) => st.filter.push(&String::from_utf8_lossy(&bytes)),
+            Err(_) => st.filter.push(STREAM_BROKEN),
         };
+        for side in st.filter.take_side() {
+            st.sides.handle(side);
+        }
         futures::future::ready(Some(Ok::<_, std::io::Error>(frames.concat())))
     });
     let mut out = Response::new(Body::from_stream(stream));
@@ -84,6 +106,10 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
 
 pub async fn upload(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>, headers: HeaderMap, body: Body) -> Result<Response, GatewayError> {
     let id = owned(&state, &signed, &raw).await?;
+    if state.memory.low() {
+        tracing::warn!(reason = "memory_low", "upload.refused");
+        return Err(GatewayError::Unavailable);
+    }
     let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_string();
     let res = upstream(&state, reqwest::Method::POST, &format!("/session/{id}/upload"), signed.user_id, &request_id())
         .header(reqwest::header::CONTENT_TYPE, content_type)
@@ -119,6 +145,7 @@ pub async fn remove(State(state): State<AppState>, signed: Signed, Path(raw): Pa
         return Err(GatewayError::Upstream);
     }
     state.store.remove_thread(signed.user_id, id).await?;
+    state.audit.spawn(Event::new("delete").user(signed.user_id).thread(id));
     Ok(StatusCode::NO_CONTENT)
 }
 

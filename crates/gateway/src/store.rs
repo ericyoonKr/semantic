@@ -1,4 +1,6 @@
+pub mod login;
 pub mod schema;
+pub mod usage;
 
 use std::time::Duration;
 
@@ -6,7 +8,7 @@ use sqlx::{AssertSqlSafe, PgPool};
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::auth::password::{HashCost, hash_password, verify_password};
+use crate::auth::password::{HashCost, hash_password};
 use crate::auth::token::{new_token, token_hash};
 use crate::error::GatewayError;
 
@@ -49,11 +51,11 @@ pub struct AuthStore {
     policy: AuthPolicy,
 }
 
-fn db(_: sqlx::Error) -> GatewayError {
+pub(crate) fn db(_: sqlx::Error) -> GatewayError {
     GatewayError::Internal
 }
 
-fn secs(d: Duration) -> f64 {
+pub(crate) fn secs(d: Duration) -> f64 {
     d.as_secs_f64()
 }
 
@@ -81,55 +83,7 @@ impl AuthStore {
         Ok(id)
     }
 
-    pub async fn login(&self, login_id: &str, password: &str) -> Result<NewSession, GatewayError> {
-        let row = sqlx::query(AssertSqlSafe(format!(
-            "SELECT user_id, password_hash, disabled, (locked_until IS NOT NULL AND locked_until > now()) AS locked
-             FROM {}.app_user WHERE login_id = $1",
-            self.schema
-        )))
-        .bind(login_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(db)?;
-        let Some(row) = row else {
-            return Err(GatewayError::LoginFailed);
-        };
-        let user_id: Uuid = row.try_get("user_id").map_err(db)?;
-        let stored: String = row.try_get("password_hash").map_err(db)?;
-        let disabled: bool = row.try_get("disabled").map_err(db)?;
-        let locked: bool = row.try_get("locked").map_err(db)?;
-        if locked {
-            return Err(GatewayError::Locked);
-        }
-        if disabled || !verify_password(password, &stored) {
-            self.record_failure(user_id).await?;
-            return Err(GatewayError::LoginFailed);
-        }
-        sqlx::query(AssertSqlSafe(format!("UPDATE {}.app_user SET failed_count = 0, locked_until = NULL WHERE user_id = $1", self.schema)))
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .map_err(db)?;
-        self.new_session(user_id).await
-    }
-
-    async fn record_failure(&self, user_id: Uuid) -> Result<(), GatewayError> {
-        sqlx::query(AssertSqlSafe(format!(
-            "UPDATE {}.app_user SET failed_count = failed_count + 1,
-               locked_until = CASE WHEN failed_count + 1 >= $2 THEN now() + make_interval(secs => $3) ELSE locked_until END
-             WHERE user_id = $1",
-            self.schema
-        )))
-        .bind(user_id)
-        .bind(self.policy.max_failures)
-        .bind(secs(self.policy.lock_for))
-        .execute(&self.pool)
-        .await
-        .map_err(db)?;
-        Ok(())
-    }
-
-    async fn new_session(&self, user_id: Uuid) -> Result<NewSession, GatewayError> {
+    pub(crate) async fn new_session(&self, user_id: Uuid) -> Result<NewSession, GatewayError> {
         let token = new_token();
         let csrf_token = new_token();
         sqlx::query(AssertSqlSafe(format!(

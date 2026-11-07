@@ -8,7 +8,10 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
 from semantic_agent.agent.authority import LEDGER, Ledger
+from semantic_agent.agent.budget import BudgetExceeded
 from semantic_agent.agent.build import MAIN_AGENT
+from semantic_agent.agent.injection import INJECTION_KIND
+from semantic_agent.agent.turn import TURN, Turn
 from semantic_agent.api.answer_gate import SentenceGate, log_drop
 from semantic_agent.tools.client import REQUEST_ID, unwrap_material
 from semantic_agent.tools.judge import needed_asks, verdict_text
@@ -17,6 +20,8 @@ log = logging.getLogger(__name__)
 
 LIMIT_STEPS = "제한에 걸려 중단됨: 최대 단계"
 LIMIT_TIME = "제한에 걸려 중단됨: 질문 시간"
+LIMIT_HEAD = "제한에 걸려 중단됨"
+WARNING_TEXT = {INJECTION_KIND: "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다"}
 
 
 def event(name: str, data: dict[str, Any]) -> str:
@@ -73,12 +78,32 @@ def _update_events(update: Any) -> list[str]:
     return out
 
 
+def turn_events(turn: Turn) -> list[str]:
+    warnings, audits = turn.drain()
+    out = [event("Warning", {"kind": kind, "message": WARNING_TEXT.get(kind, kind)}) for kind in warnings]
+    out += [event("Audit", item) for item in audits]
+    return out
+
+
+def usage_event(turn: Turn) -> str:
+    return event("Usage", {"tokens": turn.tokens, "calls": turn.calls})
+
+
+def _limit_events(gate: SentenceGate, message: str) -> list[str]:
+    out = [event("Token", {"text": piece}) for piece in gate.flush()]
+    out.append(event("Token", {"text": f"\n\n{message}"}))
+    out.append(event("Warning", {"kind": "limit", "message": message}))
+    return out
+
+
 async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: float) -> AsyncIterator[str]:
     request_id = str(cfg.get("configurable", {}).get("request_id", "-"))
     REQUEST_ID.set(request_id)
     ledger = Ledger()
     LEDGER.set(ledger)
-    gate = SentenceGate(ledger, log_drop(request_id))
+    turn = Turn()
+    TURN.set(turn)
+    gate = SentenceGate(ledger, log_drop(request_id, turn))
     stream = agent.astream(
         {"messages": [HumanMessage(content=question)]},
         cfg,
@@ -96,24 +121,29 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
                 elif mode == "updates":
                     for item in _update_events(payload):
                         yield item
+                for item in turn_events(turn):
+                    yield item
         for piece in gate.flush():
             yield event("Token", {"text": piece})
     except GraphRecursionError:
-        for piece in gate.flush():
-            yield event("Token", {"text": piece})
-        yield event("Token", {"text": f"\n\n{LIMIT_STEPS}"})
-        yield event("Warning", {"kind": "limit", "message": LIMIT_STEPS})
+        for item in _limit_events(gate, LIMIT_STEPS):
+            yield item
+    except BudgetExceeded as exc:
+        for item in _limit_events(gate, f"{LIMIT_HEAD}: {exc.device}"):
+            yield item
     except TimeoutError:
-        for piece in gate.flush():
-            yield event("Token", {"text": piece})
-        yield event("Token", {"text": f"\n\n{LIMIT_TIME}"})
-        yield event("Warning", {"kind": "limit", "message": LIMIT_TIME})
+        for item in _limit_events(gate, LIMIT_TIME):
+            yield item
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         log.error("ask failed type=%s request_id=%s", type(exc).__name__, request_id)
+        for item in [*turn_events(turn), usage_event(turn)]:
+            yield item
         yield event("Error", {"message": "답을 만들지 못했습니다", "request_id": request_id})
         return
     finally:
         await stream.aclose()
+    for item in [*turn_events(turn), usage_event(turn)]:
+        yield item
     yield event("Done", {"request_id": request_id})

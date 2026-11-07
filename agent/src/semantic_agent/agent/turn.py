@@ -1,0 +1,39 @@
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class Turn:
+    tokens: int = 0
+    calls: int = 0
+    warned: set[str] = field(default_factory=set)
+    warnings: list[str] = field(default_factory=list)
+    audits: list[dict[str, Any]] = field(default_factory=list)
+
+    def warn_once(self, kind: str) -> None:
+        if kind not in self.warned:
+            self.warned.add(kind)
+            self.warnings.append(kind)
+
+    def audit(self, kind: str, detail: dict[str, Any]) -> None:
+        self.audits.append({"kind": kind, "detail": detail})
+
+    def block(self, guard: str, **detail: Any) -> None:
+        self.audit("guard_block", {"guard": guard, **detail})
+
+    def drain(self) -> tuple[list[str], list[dict[str, Any]]]:
+        warnings, audits = self.warnings, self.audits
+        self.warnings, self.audits = [], []
+        return warnings, audits
+
+
+TURN: ContextVar[Turn | None] = ContextVar("turn", default=None)
+
+
+def current_turn() -> Turn:
+    turn = TURN.get()
+    if turn is None:
+        turn = Turn()
+        TURN.set(turn)
+    return turn

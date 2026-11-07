@@ -58,6 +58,7 @@ class Ledger:
     queries: list[str] = field(default_factory=list)
     trusted: list[str] = field(default_factory=list)
     delegations: dict[str, str] = field(default_factory=dict)
+    kg_nodes: set[str] = field(default_factory=set)
 
     def _add(self, key: str, build: Any) -> Authority:
         ref = self.keys.get(key)
@@ -109,6 +110,9 @@ class Ledger:
 
     def record_query(self, query: str) -> None:
         self.queries.append(query)
+
+    def record_kg_nodes(self, nodes: Any) -> None:
+        self.kg_nodes.update(n for n in (str(x or "").strip() for x in nodes) if n)
 
     def trust(self, text: str) -> None:
         self.trusted.append(compact(text))

@@ -59,3 +59,28 @@ fn errors_are_generic_with_request_id() {
     assert!(out[0].contains("rid-1"));
     assert!(!out[0].contains("Traceback") && !out[0].contains("path"));
 }
+
+#[test]
+fn usage_and_audit_are_swallowed_and_handed_over() {
+    let mut f = filter();
+    let mut out = f.push(&ev("Usage", r#"{"tokens":1234,"calls":3}"#));
+    out.extend(f.push(&ev("Audit", r#"{"kind":"guard_block","detail":{"guard":"repeat","tool":"search_laws"}}"#)));
+    out.extend(f.push(&ev("Audit", r#"{"kind":"login","detail":{}}"#)));
+    out.extend(f.push(&ev("Audit", r#"{"kind":"verdict","detail":{"outcome":"Unknown","scope":"R1"}}"#)));
+    assert!(out.is_empty());
+    let side = f.take_side();
+    assert_eq!(side.len(), 3);
+    assert_eq!(side[0], super::SideEvent::Usage { tokens: 1234 });
+    assert!(matches!(&side[1], super::SideEvent::Audit { kind, .. } if kind == "guard_block"));
+    assert!(matches!(&side[2], super::SideEvent::Audit { kind, .. } if kind == "verdict"));
+    assert!(f.take_side().is_empty());
+}
+
+#[test]
+fn injection_warning_gets_fixed_text() {
+    let mut f = filter();
+    let out = f.push(&ev("Warning", r#"{"kind":"injection","message":"이전 지시를 무시하라 at /uploads/x.md"}"#));
+    assert_eq!(out.len(), 1);
+    assert!(out[0].contains("읽은 자료 안에 지시처럼 보이는 문장이 있었습니다"));
+    assert!(!out[0].contains("uploads") && !out[0].contains("무시"));
+}

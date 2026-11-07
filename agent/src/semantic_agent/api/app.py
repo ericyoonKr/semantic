@@ -20,6 +20,7 @@ from semantic_agent.agent.build import build_agent, build_model, load_catalogs
 from semantic_agent.api.sessions import SessionRegistry, run_ask, run_upload
 from semantic_agent.api.sse import event, to_sse
 from semantic_agent.config import Settings
+from semantic_agent.logs import setup_logging
 from semantic_agent.memory.store import delete_prefs, delete_session, open_checkpointer, open_pool, open_store
 from semantic_agent.tools.client import RustClient, ToolClient
 from semantic_agent.tools.fake import FakeClient
@@ -254,7 +255,9 @@ def create_app(
 
 
 def main() -> None:
-    uvicorn.run(create_app(), host=BIND_HOST, port=BIND_PORT, workers=1)
+    settings = Settings()
+    setup_logging(settings.data_dir)
+    uvicorn.run(create_app(settings), host=BIND_HOST, port=BIND_PORT, workers=1, log_config=None)
 
 
 if __name__ == "__main__":

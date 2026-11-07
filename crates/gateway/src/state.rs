@@ -3,7 +3,10 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::audit::AuditStore;
 use crate::config::Config;
+use crate::memory::MemoryGuard;
+use crate::quota::AskQuota;
 use crate::store::AuthStore;
 
 #[derive(Clone)]
@@ -12,6 +15,9 @@ pub struct AppState {
     pub store: AuthStore,
     pub http: reqwest::Client,
     pub limiter: Arc<LoginLimiter>,
+    pub audit: AuditStore,
+    pub quota: Arc<AskQuota>,
+    pub memory: Arc<MemoryGuard>,
 }
 
 #[derive(Debug)]

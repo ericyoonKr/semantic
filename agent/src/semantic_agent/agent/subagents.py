@@ -10,6 +10,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 
+from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import append_system
 from semantic_agent.agent.guards import ToolGuard
 from semantic_agent.agent.prompts import DOC_READER_PROMPT, KG_EXPLORER_PROMPT, RESEARCHER_PROMPT, WRAP_UP_PROMPT
@@ -125,6 +126,7 @@ def _spec(
         "system_prompt": prompt,
         "tools": tools,
         "middleware": [
+            QuestionBudget(),
             FilesystemMiddleware(backend=backend, tools=file_tools or ["read_file"], _permissions=permissions),
             ToolAllowlist(visible),
             ToolGuard(),

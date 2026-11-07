@@ -17,7 +17,7 @@ class UploadsState(AgentState):
     uploads: NotRequired[list[dict[str, Any]]]
 
 
-def _file_text(state: Any, path: str) -> str:
+def file_text(state: Any, path: str) -> str:
     entry = (state.get("files") or {}).get(path)
     if not entry:
         return ""
@@ -71,7 +71,7 @@ class ContextMiddleware(AgentMiddleware):
         self._kg_catalog = kg_catalog
 
     async def compose(self, state: Any, store: BaseStore | None) -> str:
-        memo = _file_text(state, SESSION_MEMO) or "없음"
+        memo = file_text(state, SESSION_MEMO) or "없음"
         prefs = await _prefs_text(store) or "없음"
         return "\n\n".join(
             [

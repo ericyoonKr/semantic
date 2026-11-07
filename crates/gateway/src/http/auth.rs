@@ -8,10 +8,12 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::audit::Event;
 use crate::auth::token::{clear_cookie, session_cookie};
 use crate::error::GatewayError;
 use crate::http::guard::Signed;
 use crate::state::AppState;
+use crate::store::login::Attempt;
 
 #[derive(Deserialize)]
 pub struct LoginBody {
@@ -33,15 +35,28 @@ pub async fn login(
     if !state.limiter.allow(addr.ip()) {
         return Err(GatewayError::TooMany);
     }
-    let session = match state.store.login(&body.login_id, &body.password).await {
-        Ok(s) => s,
-        Err(e @ (GatewayError::LoginFailed | GatewayError::Locked)) => {
-            tracing::info!(kind = %e, "auth.login_failed");
+    let session = match state.store.attempt(&body.login_id, &body.password).await? {
+        Attempt::Signed(s) => s,
+        Attempt::Failed { user_id, locked_now } => {
+            tracing::info!(locked_now, "auth.login_failed");
+            let fail = Event::new("login_fail");
+            state.audit.spawn(match user_id {
+                Some(u) => fail.user(u),
+                None => fail,
+            });
+            if let (Some(u), true) = (user_id, locked_now) {
+                state.audit.spawn(Event::new("lock").user(u));
+            }
             return Err(GatewayError::LoginFailed);
         }
-        Err(e) => return Err(e),
+        Attempt::Locked { user_id } => {
+            tracing::info!("auth.login_while_locked");
+            state.audit.spawn(Event::new("login_fail").user(user_id).detail(json!({ "while_locked": true })));
+            return Err(GatewayError::LoginFailed);
+        }
     };
     tracing::info!("auth.login");
+    state.audit.spawn(Event::new("login").user(session.user_id));
     let res = Json(json!({ "csrf_token": session.csrf_token })).into_response();
     with_cookie(res, session_cookie(&session.token, 12 * 60 * 60))
 }

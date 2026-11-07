@@ -6,6 +6,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel
 
 from semantic_agent.agent.authority import current_ledger
+from semantic_agent.agent.turn import current_turn
 from semantic_agent.tools.client import JUDGE_FAIL, ToolClient, material, unwrap_material
 from semantic_agent.tools.kg import session_id
 
@@ -112,6 +113,8 @@ def make_judge_tool(client: ToolClient, catalog_text: str) -> BaseTool:
             return err
         text = format_verdict(data, missing)
         current_ledger().trust(text)
+        verdict = data.get("verdict") if isinstance(data.get("verdict"), dict) else {}
+        current_turn().audit("verdict", {"outcome": verdict.get("outcome"), "scope": verdict.get("scope")})
         return material("요건 판단", text)
 
     return judge

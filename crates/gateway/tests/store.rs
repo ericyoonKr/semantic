@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use gateway::GatewayError;
 use gateway::auth::password::HashCost;
+use gateway::audit::{AuditStore, Event};
+use gateway::store::login::Attempt;
 use gateway::store::{AuthPolicy, AuthStore};
+use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -85,6 +88,56 @@ async fn thread_ownership_is_per_user() -> Result<(), GatewayError> {
     assert_eq!(store.login_id_of(a).await?, "grader4");
     assert!(store.disable_user("grader4").await?);
     assert!(matches!(store.login("grader4", PASSWORD).await, Err(GatewayError::LoginFailed)));
+    drop_schema(&pool, &schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fifth_failure_reports_lock_and_usage_adds_up() -> Result<(), GatewayError> {
+    let Some((pool, schema, store)) = fixture(AuthPolicy::default()).await else { return Ok(()) };
+    let user = store.add_user("grader6", PASSWORD, cheap()).await?;
+    let mut locks = Vec::new();
+    for _ in 0..5 {
+        match store.attempt("grader6", "wrong password!!").await? {
+            Attempt::Failed { user_id, locked_now } => {
+                assert_eq!(user_id, Some(user));
+                locks.push(locked_now);
+            }
+            other => return Err(GatewayError::Config(format!("{other:?}"))),
+        }
+    }
+    assert_eq!(locks, vec![false, false, false, false, true]);
+    assert!(matches!(store.attempt("grader6", PASSWORD).await?, Attempt::Locked { .. }));
+    assert!(matches!(store.attempt("nobody", PASSWORD).await?, Attempt::Failed { user_id: None, locked_now: false }));
+    assert_eq!(store.tokens_today(user).await?, 0);
+    store.add_tokens(user, 1000).await?;
+    store.add_tokens(user, 234).await?;
+    store.add_tokens(user, -5).await?;
+    assert_eq!(store.tokens_today(user).await?, 1234);
+    drop_schema(&pool, &schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_rows_keep_only_given_fields_and_old_rows_go() -> Result<(), GatewayError> {
+    let Some((pool, schema, _store)) = fixture(AuthPolicy::default()).await else { return Ok(()) };
+    let audit_schema = format!("{schema}_audit");
+    let audit = AuditStore::open(pool.clone(), &audit_schema).await?;
+    let user = Uuid::new_v4();
+    audit.write(Event::new("ask").user(user).thread(Uuid::new_v4()).request("rid-a")).await?;
+    audit.write(Event::new("guard_block").user(user).request("rid-a").detail(json!({ "guard": "repeat", "tool": "search_laws" }))).await?;
+    audit.write(Event::new("verdict").user(user).request("rid-a").detail(json!({ "x": "a".repeat(5000) }))).await?;
+    let rows = audit.kinds_for("rid-a").await?;
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[1].1, json!({ "guard": "repeat", "tool": "search_laws" }));
+    assert_eq!(rows[2].1, json!({ "oversize": true }));
+    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {audit_schema}.event SET at = now() - interval '366 days' WHERE kind = 'ask'")))
+        .execute(&pool)
+        .await
+        .map_err(|_| GatewayError::Internal)?;
+    assert_eq!(audit.purge_older_than_year().await?, 1);
+    assert_eq!(audit.kinds_of_user(user).await?, vec!["guard_block".to_string(), "verdict".to_string()]);
+    drop_schema(&pool, &audit_schema).await;
     drop_schema(&pool, &schema).await;
     Ok(())
 }

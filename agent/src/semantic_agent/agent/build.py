@@ -16,6 +16,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_config
 from langgraph.store.base import BaseStore
 
+from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import ContextMiddleware
 from semantic_agent.agent.delegation import SubagentGate
 from semantic_agent.agent.guards import ScopeGuard, ToolGuard
@@ -76,6 +77,7 @@ def build_model(settings: Settings) -> ChatOpenAI:
         api_key=settings.llm_api_key,
         model=settings.llm_model,
         temperature=0,
+        stream_usage=True,
         extra_body={"priority": 0},
     )
 
@@ -115,6 +117,7 @@ def build_agent(
         tools=[make_judge_tool(client, catalogs.judge)],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
+            QuestionBudget(),
             ScopeGuard(),
             ContextMiddleware(catalogs.judge, catalogs.kg),
             TodoListMiddleware(system_prompt=PLAN_PROMPT),

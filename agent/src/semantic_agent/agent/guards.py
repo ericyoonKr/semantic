@@ -11,7 +11,9 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 from pydantic import ValidationError
 
-from semantic_agent.tools.client import material
+from semantic_agent.agent.injection import INJECTION_KIND, looks_injected
+from semantic_agent.agent.turn import current_turn
+from semantic_agent.tools.client import material, unwrap_material
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ class ScopeGuard(AgentMiddleware):
         if text is None or not is_out_of_scope(text):
             return None
         log.info("guard_block kind=out_of_scope")
+        current_turn().block("out_of_scope")
         return {"messages": [AIMessage(content=REFUSAL)], "jump_to": "end"}
 
 
@@ -104,6 +107,17 @@ def wrap_file_result(name: str, args: Any, result: ToolMessage | Command) -> Too
     return result.model_copy(update={"content": material(f"파일 {where}", result.content)})
 
 
+def result_text(result: ToolMessage | Command) -> str:
+    if isinstance(result, ToolMessage):
+        message: Any = result
+    else:
+        update = result.update if isinstance(result.update, dict) else {}
+        messages = update.get("messages") or [None]
+        message = messages[-1]
+    content = getattr(message, "content", "")
+    return content if isinstance(content, str) else str(content)
+
+
 class ToolGuard(AgentMiddleware):
     async def awrap_tool_call(
         self,
@@ -118,9 +132,15 @@ class ToolGuard(AgentMiddleware):
                 schema.model_validate(args)
             except ValidationError as exc:
                 log.info("guard_block kind=tool_args tool=%s", name)
+                current_turn().block("tool_args", tool=name)
                 return ToolMessage(content=_arg_error(exc), tool_call_id=call_id, name=name, status="error")
         messages = list((request.state or {}).get("messages", []))
         if repeat_count(messages, call_id, name, args) >= REPEAT_LIMIT:
             log.info("guard_block kind=repeat tool=%s", name)
+            current_turn().block("repeat", tool=name)
             return ToolMessage(content=REPEAT_BLOCK, tool_call_id=call_id, name=name, status="error")
-        return wrap_file_result(name, args, await handler(request))
+        result = wrap_file_result(name, args, await handler(request))
+        if looks_injected(unwrap_material(result_text(result))):
+            log.info("injection_warning tool=%s", name)
+            current_turn().warn_once(INJECTION_KIND)
+        return result

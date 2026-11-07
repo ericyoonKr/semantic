@@ -33,6 +33,14 @@ pub fn ddl(schema: &str) -> Vec<String> {
             )"
         ),
         format!("CREATE INDEX IF NOT EXISTS thread_owner_user ON {schema}.thread_owner (user_id, updated_at DESC)"),
+        format!(
+            "CREATE TABLE IF NOT EXISTS {schema}.usage (
+                user_id uuid NOT NULL REFERENCES {schema}.app_user ON DELETE CASCADE,
+                day date NOT NULL,
+                tokens bigint NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, day)
+            )"
+        ),
     ]
 }
 

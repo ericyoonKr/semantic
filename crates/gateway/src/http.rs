@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod chat;
 pub mod guard;
+pub mod sides;
 pub mod web;
 
 use axum::Router;

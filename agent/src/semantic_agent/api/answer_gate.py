@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from semantic_agent.agent.authority import Ledger, article_key, compact
+from semantic_agent.agent.turn import Turn
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def _trailing_space(text: str) -> str:
 @dataclass
 class SentenceGate:
     ledger: Ledger
-    on_drop: Callable[[tuple[str, ...]], None] = lambda reasons: None
+    on_drop: Callable[[tuple[str, ...], tuple[int, ...]], None] = lambda reasons, refs: None
     buf: str = ""
     dropped_last: bool = False
     drops: list[tuple[str, ...]] = field(default_factory=list)
@@ -104,7 +105,7 @@ class SentenceGate:
             self.dropped_last = False
             return [checked.text]
         self.drops.append(checked.reasons)
-        self.on_drop(checked.reasons)
+        self.on_drop(checked.reasons, tuple(dict.fromkeys(int(m.group(1)) for m in TAG.finditer(piece))))
         if self.dropped_last:
             return [_trailing_space(piece)] if _trailing_space(piece) else []
         self.dropped_last = True
@@ -128,8 +129,9 @@ class SentenceGate:
         return self._emit(piece) if piece else []
 
 
-def log_drop(request_id: str) -> Callable[[tuple[str, ...]], None]:
-    def write(reasons: tuple[str, ...]) -> None:
+def log_drop(request_id: str, turn: Turn) -> Callable[[tuple[str, ...], tuple[int, ...]], None]:
+    def write(reasons: tuple[str, ...], refs: tuple[int, ...]) -> None:
         log.info("answer_gate drop request_id=%s reasons=%s", request_id, ",".join(reasons))
+        turn.block("answer_gate", reasons=list(reasons), refs=list(refs))
 
     return write

@@ -7,6 +7,7 @@ const STATUS_WRITE: &str = "답을 쓰는 중";
 const WARN_DEGRADED: &str = "일부 자료를 찾지 못했습니다";
 const WARN_EXTRACT: &str = "이 파일의 일부를 읽지 못했습니다";
 const WARN_LIMIT: &str = "제한에 걸려 답을 끝까지 쓰지 못했습니다";
+const WARN_INJECTION: &str = "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다";
 const ERROR_TEXT: &str = "답을 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요";
 
 fn status_for(tool: &str) -> &'static str {
@@ -23,6 +24,12 @@ fn frame(name: &str, data: Value) -> String {
     format!("event: {name}\ndata: {data}\n\n")
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SideEvent {
+    Usage { tokens: i64 },
+    Audit { kind: String, detail: Value },
+}
+
 #[derive(Debug)]
 pub struct SseFilter {
     buffer: String,
@@ -30,11 +37,12 @@ pub struct SseFilter {
     last_status: Option<&'static str>,
     hidden: Vec<(String, String)>,
     hiding: Option<usize>,
+    side: Vec<SideEvent>,
 }
 
 impl SseFilter {
     pub fn new(request_id: impl Into<String>, hidden: Vec<(String, String)>) -> Self {
-        Self { buffer: String::new(), request_id: request_id.into(), last_status: None, hidden, hiding: None }
+        Self { buffer: String::new(), request_id: request_id.into(), last_status: None, hidden, hiding: None, side: Vec::new() }
     }
 
     pub fn push(&mut self, chunk: &str) -> Vec<String> {
@@ -47,6 +55,10 @@ impl SseFilter {
             }
         }
         out
+    }
+
+    pub fn take_side(&mut self) -> Vec<SideEvent> {
+        std::mem::take(&mut self.side)
     }
 
     fn translate(&mut self, block: &str) -> Option<String> {
@@ -89,12 +101,27 @@ impl SseFilter {
                     "degraded" => WARN_DEGRADED,
                     "extract" => WARN_EXTRACT,
                     "limit" => WARN_LIMIT,
+                    "injection" => WARN_INJECTION,
                     _ => return None,
                 };
                 Some(frame("Warning", json!({ "message": message })))
             }
             "Error" => Some(frame("Error", json!({ "message": ERROR_TEXT, "request_id": self.request_id }))),
             "Done" => Some(frame("Done", json!({}))),
+            "Usage" => {
+                let tokens = value.get("tokens").and_then(Value::as_i64)?;
+                self.side.push(SideEvent::Usage { tokens: tokens.max(0) });
+                None
+            }
+            "Audit" => {
+                let kind = value.get("kind").and_then(Value::as_str)?;
+                if !crate::audit::AGENT_KINDS.contains(&kind) {
+                    return None;
+                }
+                let detail = value.get("detail").cloned().unwrap_or_else(|| json!({}));
+                self.side.push(SideEvent::Audit { kind: kind.to_string(), detail });
+                None
+            }
             _ => None,
         }
     }

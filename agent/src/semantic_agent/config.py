@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     ask_timeout_s: float = 300.0
     internal_key: SecretStr = SecretStr("")
     fake_tools: bool = False
+    data_dir: str = ""
 
     @model_validator(mode="after")
     def _deadlines_nest(self) -> "Settings":
