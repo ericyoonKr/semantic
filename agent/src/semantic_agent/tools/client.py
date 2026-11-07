@@ -56,11 +56,12 @@ class ToolClient(Protocol):
 
 
 class RustClient:
-    def __init__(self, settings: Settings, http: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._timeouts = settings.rust_timeout_s
-        self._http = http or httpx.AsyncClient(
+        self._http = httpx.AsyncClient(
             base_url=settings.rust_api_url,
             headers={"x-internal-key": settings.internal_key.get_secret_value()},
+            transport=transport,
         )
 
     async def fetch(

@@ -5,21 +5,22 @@ from deepagents import (
     FilesystemPermission,
     GeneralPurposeSubagentProfile,
     HarnessProfile,
-    SubAgent,
     create_deep_agent,
     register_harness_profile,
 )
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
+from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.language_models import BaseChatModel
-from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_config
 from langgraph.store.base import BaseStore
 
 from semantic_agent.agent.context import ContextMiddleware
+from semantic_agent.agent.delegation import SubagentGate
 from semantic_agent.agent.guards import ScopeGuard, ToolGuard
-from semantic_agent.agent.prompts import KG_EXPLORER_PROMPT, SYSTEM_PROMPT
+from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
+from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.config import Settings
 from semantic_agent.memory.store import prefs_namespace
 from semantic_agent.tools.client import ToolClient
@@ -28,7 +29,6 @@ from semantic_agent.tools.kg import format_kg_catalog, make_kg_tools
 from semantic_agent.tools.search import make_search_tools
 
 MAIN_AGENT = "main"
-KG_EXPLORER = "kg_explorer"
 
 PERMISSIONS = [
     FilesystemPermission(operations=["write"], paths=["/uploads/**"], mode="deny"),
@@ -79,12 +79,6 @@ def _disable_general_purpose(model: BaseChatModel) -> None:
     )
 
 
-def build_tools(client: ToolClient, catalogs: Catalogs) -> tuple[list[BaseTool], list[BaseTool]]:
-    kg_tools = make_kg_tools(client)
-    main_tools = [*make_search_tools(client), *kg_tools, make_judge_tool(client, catalogs.judge)]
-    return main_tools, kg_tools
-
-
 def build_agent(
     model: BaseChatModel,
     client: ToolClient,
@@ -93,25 +87,23 @@ def build_agent(
     store: BaseStore,
 ) -> Any:
     _disable_general_purpose(model)
-    main_tools, kg_tools = build_tools(client, catalogs)
     backend = CompositeBackend(
         default=StateBackend(),
         routes={"/prefs/": StoreBackend(namespace=_prefs_namespace)},
     )
-    kg_explorer: SubAgent = {
-        "name": KG_EXPLORER,
-        "description": "지식그래프를 여러 단계(예: 위임망 3단계 넘게) 따라가야 할 때만 쓴다. 답변에 경로의 노드 번호를 모두 적는다.",
-        "system_prompt": KG_EXPLORER_PROMPT,
-        "tools": kg_tools,
-        "middleware": [ToolGuard()],
-        "permissions": PERMISSIONS,
-    }
+    subagents = make_subagents(backend, make_search_tools(client), make_kg_tools(client))
     return create_deep_agent(
         model=model,
-        tools=main_tools,
+        tools=[make_judge_tool(client, catalogs.judge)],
         system_prompt=SYSTEM_PROMPT,
-        middleware=[ScopeGuard(), ContextMiddleware(catalogs.judge, catalogs.kg), ToolGuard()],
-        subagents=[kg_explorer],
+        middleware=[
+            ScopeGuard(),
+            ContextMiddleware(catalogs.judge, catalogs.kg),
+            TodoListMiddleware(system_prompt=PLAN_PROMPT),
+            ToolGuard(),
+            SubagentGate(SUBAGENT_NAMES),
+        ],
+        subagents=subagents,
         permissions=PERMISSIONS,
         backend=backend,
         checkpointer=checkpointer,

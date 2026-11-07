@@ -56,7 +56,7 @@ async def _prefs_text(store: BaseStore | None) -> str:
     return "\n".join(content) if isinstance(content, list) else str(content)
 
 
-def _append(system: SystemMessage | None, text: str) -> SystemMessage:
+def append_system(system: SystemMessage | None, text: str) -> SystemMessage:
     blocks = list(system.content_blocks) if system else []
     blocks.append({"type": "text", "text": f"\n\n{text}" if blocks else text})
     return SystemMessage(content_blocks=blocks)
@@ -89,4 +89,4 @@ class ContextMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         text = await self.compose(request.state, request.runtime.store)
-        return await handler(request.override(system_message=_append(request.system_message, text)))
+        return await handler(request.override(system_message=append_system(request.system_message, text)))

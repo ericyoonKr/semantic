@@ -11,6 +11,8 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 from pydantic import ValidationError
 
+from semantic_agent.tools.client import material
+
 log = logging.getLogger(__name__)
 
 REFUSAL = (
@@ -20,6 +22,7 @@ REFUSAL = (
 )
 REPEAT_BLOCK = "같은 호출 되풀이 — 다른 방법 필요"
 REPEAT_LIMIT = 3
+FILE_TOOL_PATH_ARG = {"ls": "path", "glob": "path", "grep": "path", "read_file": "file_path"}
 
 DOCUMENT_WORDS = (
     "소장", "답변서", "준비서면", "계약서", "고소장", "고발장", "진정서", "탄원서", "내용증명",
@@ -92,6 +95,15 @@ def _arg_error(exc: ValidationError) -> str:
     return "인자 오류: " + "; ".join(parts)
 
 
+def wrap_file_result(name: str, args: Any, result: ToolMessage | Command) -> ToolMessage | Command:
+    if name not in FILE_TOOL_PATH_ARG or not isinstance(result, ToolMessage) or result.status == "error":
+        return result
+    if not isinstance(result.content, str) or result.content.startswith("<자료 "):
+        return result
+    where = (args or {}).get(FILE_TOOL_PATH_ARG[name]) or "/"
+    return result.model_copy(update={"content": material(f"파일 {where}", result.content)})
+
+
 class ToolGuard(AgentMiddleware):
     async def awrap_tool_call(
         self,
@@ -111,4 +123,4 @@ class ToolGuard(AgentMiddleware):
         if repeat_count(messages, call_id, name, args) >= REPEAT_LIMIT:
             log.info("guard_block kind=repeat tool=%s", name)
             return ToolMessage(content=REPEAT_BLOCK, tool_call_id=call_id, name=name, status="error")
-        return await handler(request)
+        return wrap_file_result(name, args, await handler(request))
