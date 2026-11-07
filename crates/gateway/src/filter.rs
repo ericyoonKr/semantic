@@ -1,0 +1,138 @@
+use serde_json::{Value, json};
+
+const STATUS_SEARCH: &str = "자료를 찾는 중";
+const STATUS_READ: &str = "문서를 읽는 중";
+const STATUS_JUDGE: &str = "판단하는 중";
+const STATUS_WRITE: &str = "답을 쓰는 중";
+const WARN_DEGRADED: &str = "일부 자료를 찾지 못했습니다";
+const WARN_EXTRACT: &str = "이 파일의 일부를 읽지 못했습니다";
+const WARN_LIMIT: &str = "제한에 걸려 답을 끝까지 쓰지 못했습니다";
+const ERROR_TEXT: &str = "답을 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요";
+
+fn status_for(tool: &str) -> &'static str {
+    match tool {
+        "ls" | "glob" | "grep" | "read_file" | "doc_reader" => STATUS_READ,
+        "judge" => STATUS_JUDGE,
+        "search_laws" | "search_cases" | "read_law" | "read_case" | "case_citations" | "kg_find" | "kg_expand" | "researcher"
+        | "kg_explorer" | "task" => STATUS_SEARCH,
+        _ => STATUS_WRITE,
+    }
+}
+
+fn frame(name: &str, data: Value) -> String {
+    format!("event: {name}\ndata: {data}\n\n")
+}
+
+#[derive(Debug)]
+pub struct SseFilter {
+    buffer: String,
+    request_id: String,
+    last_status: Option<&'static str>,
+    hidden: Vec<(String, String)>,
+    hiding: Option<usize>,
+}
+
+impl SseFilter {
+    pub fn new(request_id: impl Into<String>, hidden: Vec<(String, String)>) -> Self {
+        Self { buffer: String::new(), request_id: request_id.into(), last_status: None, hidden, hiding: None }
+    }
+
+    pub fn push(&mut self, chunk: &str) -> Vec<String> {
+        self.buffer.push_str(&chunk.replace("\r\n", "\n"));
+        let mut out = Vec::new();
+        while let Some(end) = self.buffer.find("\n\n") {
+            let block: String = self.buffer.drain(..end + 2).collect();
+            if let Some(f) = self.translate(&block) {
+                out.push(f);
+            }
+        }
+        out
+    }
+
+    fn translate(&mut self, block: &str) -> Option<String> {
+        let mut name = None;
+        let mut data = String::new();
+        for line in block.lines() {
+            if let Some(v) = line.strip_prefix("event:") {
+                name = Some(v.trim().to_string());
+            } else if let Some(v) = line.strip_prefix("data:") {
+                data.push_str(v.trim_start());
+            }
+        }
+        let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        match name?.as_str() {
+            "Status" => {
+                let tool = value.get("tool").and_then(Value::as_str).unwrap_or("");
+                let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+                let text = if phase == "end" { STATUS_WRITE } else { status_for(tool) };
+                if self.last_status == Some(text) {
+                    return None;
+                }
+                self.last_status = Some(text);
+                Some(frame("Status", json!({ "text": text })))
+            }
+            "Token" => {
+                let text = value.get("text").and_then(Value::as_str)?;
+                let visible = self.strip_hidden(text);
+                (!visible.is_empty()).then(|| frame("Token", json!({ "text": visible })))
+            }
+            "VerdictReady" => {
+                let text = value.get("text").and_then(Value::as_str)?;
+                Some(frame("VerdictReady", json!({ "text": text })))
+            }
+            "NeededFacts" => {
+                let asks: Vec<&str> = value.get("asks")?.as_array()?.iter().filter_map(Value::as_str).collect();
+                (!asks.is_empty()).then(|| frame("NeededFacts", json!({ "asks": asks })))
+            }
+            "Warning" => {
+                let message = match value.get("kind").and_then(Value::as_str)? {
+                    "degraded" => WARN_DEGRADED,
+                    "extract" => WARN_EXTRACT,
+                    "limit" => WARN_LIMIT,
+                    _ => return None,
+                };
+                Some(frame("Warning", json!({ "message": message })))
+            }
+            "Error" => Some(frame("Error", json!({ "message": ERROR_TEXT, "request_id": self.request_id }))),
+            "Done" => Some(frame("Done", json!({}))),
+            _ => None,
+        }
+    }
+
+    fn strip_hidden(&mut self, text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        loop {
+            match self.hiding {
+                Some(i) => {
+                    let close = self.hidden[i].1.as_str();
+                    match rest.find(close) {
+                        Some(p) => {
+                            rest = &rest[p + close.len()..];
+                            self.hiding = None;
+                        }
+                        None => return out,
+                    }
+                }
+                None => {
+                    let next = self.hidden.iter().enumerate().filter_map(|(i, (open, _))| rest.find(open.as_str()).map(|p| (p, i))).min();
+                    match next {
+                        Some((p, i)) => {
+                            out.push_str(&rest[..p]);
+                            rest = &rest[p + self.hidden[i].0.len()..];
+                            self.hiding = Some(i);
+                        }
+                        None => {
+                            out.push_str(rest);
+                            return out;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "filter_tests.rs"]
+mod tests;

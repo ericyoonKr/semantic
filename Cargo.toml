@@ -11,6 +11,7 @@ members = [
     "crates/server",
     "crates/ruleloader",
     "crates/kg",
+    "crates/gateway",
 ]
 
 [workspace.package]
@@ -33,18 +34,18 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 futures = "0.3"
 axum = { version = "0.8", features = ["multipart"] }
-tower-http = { version = "0.6", features = ["catch-panic", "trace", "cors"] }
+tower-http = { version = "0.6", features = ["catch-panic", "trace", "cors", "fs", "set-header", "limit"] }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros", "uuid"] }
 pgvector = { version = "0.4", features = ["sqlx"] }
 rocksdb = "0.25"
 rusqlite = { version = "0.37", features = ["bundled"] }
 
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 quick-xml = { version = "0.37", features = ["serialize"] }
 zip = "2"
 
@@ -58,6 +59,10 @@ thiserror = "2"
 anyhow = "1"
 moka = { version = "0.12", features = ["future"] }
 sha2 = "0.10"
+argon2 = "0.5"
+rpassword = "7"
+base64 = "0.22"
+rand_core = { version = "0.6", features = ["getrandom"] }
 regex = "1"
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4"] }
@@ -65,3 +70,6 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+rayon = "1"
+tower = { version = "0.5", features = ["util"] }

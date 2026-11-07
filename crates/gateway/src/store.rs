@@ -1,0 +1,219 @@
+pub mod schema;
+
+use std::time::Duration;
+
+use sqlx::{AssertSqlSafe, PgPool};
+use sqlx::Row;
+use uuid::Uuid;
+
+use crate::auth::password::{HashCost, hash_password, verify_password};
+use crate::auth::token::{new_token, token_hash};
+use crate::error::GatewayError;
+
+#[derive(Debug, Clone, Copy)]
+pub struct AuthPolicy {
+    pub max_failures: i32,
+    pub lock_for: Duration,
+    pub idle: Duration,
+    pub absolute: Duration,
+}
+
+impl Default for AuthPolicy {
+    fn default() -> Self {
+        Self {
+            max_failures: 5,
+            lock_for: Duration::from_secs(15 * 60),
+            idle: Duration::from_secs(30 * 60),
+            absolute: Duration::from_secs(12 * 60 * 60),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NewSession {
+    pub token: String,
+    pub csrf_token: String,
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveSession {
+    pub user_id: Uuid,
+    pub csrf_token_hash: String,
+}
+
+#[derive(Clone)]
+pub struct AuthStore {
+    pool: PgPool,
+    schema: String,
+    policy: AuthPolicy,
+}
+
+fn db(_: sqlx::Error) -> GatewayError {
+    GatewayError::Internal
+}
+
+fn secs(d: Duration) -> f64 {
+    d.as_secs_f64()
+}
+
+impl AuthStore {
+    pub async fn open(pool: PgPool, schema: &str, policy: AuthPolicy) -> Result<Self, GatewayError> {
+        if !schema::valid_schema_name(schema) {
+            return Err(GatewayError::Internal);
+        }
+        for stmt in schema::ddl(schema) {
+            sqlx::query(AssertSqlSafe(stmt)).execute(&pool).await.map_err(db)?;
+        }
+        Ok(Self { pool, schema: schema.to_string(), policy })
+    }
+
+    pub async fn add_user(&self, login_id: &str, password: &str, cost: HashCost) -> Result<Uuid, GatewayError> {
+        let hash = hash_password(password, cost)?;
+        let id = Uuid::new_v4();
+        sqlx::query(AssertSqlSafe(format!("INSERT INTO {}.app_user (user_id, login_id, password_hash) VALUES ($1, $2, $3)", self.schema)))
+            .bind(id)
+            .bind(login_id)
+            .bind(hash)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(id)
+    }
+
+    pub async fn login(&self, login_id: &str, password: &str) -> Result<NewSession, GatewayError> {
+        let row = sqlx::query(AssertSqlSafe(format!(
+            "SELECT user_id, password_hash, disabled, (locked_until IS NOT NULL AND locked_until > now()) AS locked
+             FROM {}.app_user WHERE login_id = $1",
+            self.schema
+        )))
+        .bind(login_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db)?;
+        let Some(row) = row else {
+            return Err(GatewayError::LoginFailed);
+        };
+        let user_id: Uuid = row.try_get("user_id").map_err(db)?;
+        let stored: String = row.try_get("password_hash").map_err(db)?;
+        let disabled: bool = row.try_get("disabled").map_err(db)?;
+        let locked: bool = row.try_get("locked").map_err(db)?;
+        if locked {
+            return Err(GatewayError::Locked);
+        }
+        if disabled || !verify_password(password, &stored) {
+            self.record_failure(user_id).await?;
+            return Err(GatewayError::LoginFailed);
+        }
+        sqlx::query(AssertSqlSafe(format!("UPDATE {}.app_user SET failed_count = 0, locked_until = NULL WHERE user_id = $1", self.schema)))
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        self.new_session(user_id).await
+    }
+
+    async fn record_failure(&self, user_id: Uuid) -> Result<(), GatewayError> {
+        sqlx::query(AssertSqlSafe(format!(
+            "UPDATE {}.app_user SET failed_count = failed_count + 1,
+               locked_until = CASE WHEN failed_count + 1 >= $2 THEN now() + make_interval(secs => $3) ELSE locked_until END
+             WHERE user_id = $1",
+            self.schema
+        )))
+        .bind(user_id)
+        .bind(self.policy.max_failures)
+        .bind(secs(self.policy.lock_for))
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
+    async fn new_session(&self, user_id: Uuid) -> Result<NewSession, GatewayError> {
+        let token = new_token();
+        let csrf_token = new_token();
+        sqlx::query(AssertSqlSafe(format!(
+            "INSERT INTO {}.login_session (token_hash, user_id, csrf_token_hash, expires_at)
+             VALUES ($1, $2, $3, now() + make_interval(secs => $4))",
+            self.schema
+        )))
+        .bind(token_hash(&token))
+        .bind(user_id)
+        .bind(token_hash(&csrf_token))
+        .bind(secs(self.policy.absolute))
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(NewSession { token, csrf_token, user_id })
+    }
+
+    pub async fn session(&self, token: &str) -> Result<ActiveSession, GatewayError> {
+        let row = sqlx::query(AssertSqlSafe(format!(
+            "UPDATE {}.login_session SET last_seen_at = now()
+             WHERE token_hash = $1 AND expires_at > now() AND last_seen_at > now() - make_interval(secs => $2)
+             RETURNING user_id, csrf_token_hash",
+            self.schema
+        )))
+        .bind(token_hash(token))
+        .bind(secs(self.policy.idle))
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db)?;
+        let row = row.ok_or(GatewayError::Unauthenticated)?;
+        Ok(ActiveSession {
+            user_id: row.try_get("user_id").map_err(db)?,
+            csrf_token_hash: row.try_get::<String, _>("csrf_token_hash").map_err(db)?.trim().to_string(),
+        })
+    }
+
+    pub async fn logout(&self, token: &str) -> Result<(), GatewayError> {
+        sqlx::query(AssertSqlSafe(format!("DELETE FROM {}.login_session WHERE token_hash = $1", self.schema)))
+            .bind(token_hash(token))
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub async fn purge_expired(&self) -> Result<u64, GatewayError> {
+        let done = sqlx::query(AssertSqlSafe(format!(
+            "DELETE FROM {}.login_session WHERE expires_at <= now() OR last_seen_at <= now() - make_interval(secs => $1)",
+            self.schema
+        )))
+        .bind(secs(self.policy.idle))
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(done.rows_affected())
+    }
+
+    pub async fn add_thread(&self, user_id: Uuid) -> Result<Uuid, GatewayError> {
+        let id = Uuid::new_v4();
+        sqlx::query(AssertSqlSafe(format!("INSERT INTO {}.thread_owner (thread_id, user_id) VALUES ($1, $2)", self.schema)))
+            .bind(id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(id)
+    }
+
+    pub async fn owns(&self, user_id: Uuid, thread_id: Uuid) -> Result<bool, GatewayError> {
+        let row = sqlx::query(AssertSqlSafe(format!("SELECT 1 FROM {}.thread_owner WHERE thread_id = $1 AND user_id = $2", self.schema)))
+            .bind(thread_id)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(row.is_some())
+    }
+
+    pub async fn threads(&self, user_id: Uuid) -> Result<Vec<Uuid>, GatewayError> {
+        let rows = sqlx::query(AssertSqlSafe(format!("SELECT thread_id FROM {}.thread_owner WHERE user_id = $1 ORDER BY updated_at DESC", self.schema)))
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db)?;
+        rows.iter().map(|r| r.try_get("thread_id").map_err(db)).collect()
+    }
+}
