@@ -10,6 +10,7 @@ members = [
     "crates/sessdb",
     "crates/server",
     "crates/ruleloader",
+    "crates/kg",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ llm = { path = "crates/llm" }
 retrieval = { path = "crates/retrieval" }
 engine = { path = "crates/engine" }
 sessdb = { path = "crates/sessdb" }
+kg = { path = "crates/kg" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
@@ -40,6 +42,7 @@ serde_yaml = "0.9"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros"] }
 pgvector = { version = "0.4", features = ["sqlx"] }
 rocksdb = "0.25"
+rusqlite = { version = "0.37", features = ["bundled"] }
 
 reqwest = { version = "0.12", features = ["json"] }
 quick-xml = { version = "0.37", features = ["serialize"] }
@@ -59,5 +62,6 @@ regex = "1"
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4"] }
 clap = { version = "4", features = ["derive"] }
+tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
