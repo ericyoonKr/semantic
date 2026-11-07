@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from deepagents import (
@@ -41,6 +41,23 @@ PERMISSIONS = [
 class Catalogs:
     judge: str
     kg: str
+    routes: dict[str, list[str]] = field(default_factory=dict)
+
+
+def claim_routes(data: Any) -> dict[str, list[str]]:
+    routes: dict[str, list[str]] = {}
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict):
+            continue
+        claim_type = str(item.get("claim_type") or "").strip()
+        units = routes.setdefault(claim_type, []) if claim_type else []
+        for evidence in item.get("evidence") or []:
+            if not isinstance(evidence, dict):
+                continue
+            unit = " ".join(str(evidence.get(k) or "").strip() for k in ("law", "unit")).strip()
+            if unit and unit not in units:
+                units.append(unit)
+    return {k: v for k, v in routes.items() if v}
 
 
 async def load_catalogs(client: ToolClient) -> Catalogs:
@@ -49,6 +66,7 @@ async def load_catalogs(client: ToolClient) -> Catalogs:
     return Catalogs(
         judge=judge_err or format_judge_catalog(judge_data),
         kg=kg_err or format_kg_catalog(kg_data),
+        routes={} if judge_err else claim_routes(judge_data),
     )
 
 
@@ -101,7 +119,7 @@ def build_agent(
             ContextMiddleware(catalogs.judge, catalogs.kg),
             TodoListMiddleware(system_prompt=PLAN_PROMPT),
             ToolGuard(),
-            SubagentGate(SUBAGENT_NAMES),
+            SubagentGate(SUBAGENT_NAMES, routes=catalogs.routes),
         ],
         subagents=subagents,
         permissions=PERMISSIONS,

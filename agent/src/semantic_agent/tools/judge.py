@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel
 
+from semantic_agent.agent.authority import current_ledger
 from semantic_agent.tools.client import JUDGE_FAIL, ToolClient, material, unwrap_material
 from semantic_agent.tools.kg import session_id
 
@@ -107,6 +108,10 @@ def make_judge_tool(client: ToolClient, catalog_text: str) -> BaseTool:
         }
         path = f"/sessions/{session_id(runtime)}/judge"
         data, err = await client.fetch("POST", path, kind="judge", fail=JUDGE_FAIL, json=body)
-        return err or material("요건 판단", format_verdict(data, missing))
+        if err:
+            return err
+        text = format_verdict(data, missing)
+        current_ledger().trust(text)
+        return material("요건 판단", text)
 
     return judge

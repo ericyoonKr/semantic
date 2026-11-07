@@ -7,7 +7,9 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
+from semantic_agent.agent.authority import LEDGER, Ledger
 from semantic_agent.agent.build import MAIN_AGENT
+from semantic_agent.api.answer_gate import SentenceGate, log_drop
 from semantic_agent.tools.client import REQUEST_ID, unwrap_material
 from semantic_agent.tools.judge import needed_asks, verdict_text
 
@@ -74,6 +76,9 @@ def _update_events(update: Any) -> list[str]:
 async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: float) -> AsyncIterator[str]:
     request_id = str(cfg.get("configurable", {}).get("request_id", "-"))
     REQUEST_ID.set(request_id)
+    ledger = Ledger()
+    LEDGER.set(ledger)
+    gate = SentenceGate(ledger, log_drop(request_id))
     stream = agent.astream(
         {"messages": [HumanMessage(content=question)]},
         cfg,
@@ -86,15 +91,21 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
                     chunk, metadata = payload
                     if _is_main_token(chunk, metadata):
                         text = _chunk_text(chunk)
-                        if text:
-                            yield event("Token", {"text": text})
+                        for piece in gate.push(text) if text else []:
+                            yield event("Token", {"text": piece})
                 elif mode == "updates":
                     for item in _update_events(payload):
                         yield item
+        for piece in gate.flush():
+            yield event("Token", {"text": piece})
     except GraphRecursionError:
+        for piece in gate.flush():
+            yield event("Token", {"text": piece})
         yield event("Token", {"text": f"\n\n{LIMIT_STEPS}"})
         yield event("Warning", {"kind": "limit", "message": LIMIT_STEPS})
     except TimeoutError:
+        for piece in gate.flush():
+            yield event("Token", {"text": piece})
         yield event("Token", {"text": f"\n\n{LIMIT_TIME}"})
         yield event("Warning", {"kind": "limit", "message": LIMIT_TIME})
     except asyncio.CancelledError:

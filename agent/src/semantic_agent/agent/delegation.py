@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
+import re
 import time
-from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -11,8 +12,9 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from semantic_agent.agent.prompts import RETRY_NOTE
-from semantic_agent.agent.subagents import LIMIT_MARK, SUB_DEADLINE, SUB_DEADLINE_S
+from semantic_agent.agent.authority import Ledger, current_ledger, normalize
+from semantic_agent.agent.prompts import ADVERSE_NOTE, RETRY_NOTE
+from semantic_agent.agent.subagents import LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
 from semantic_agent.tools.client import material
 
 log = logging.getLogger(__name__)
@@ -20,6 +22,12 @@ log = logging.getLogger(__name__)
 TASK = "task"
 SUB_CONCURRENCY = 2
 RESEARCH_FAIL = "자료 조사 실패"
+ADVERSE_RETRIES = 2
+ISSUE_HEAD = "쟁점:"
+PURPOSE_HEAD = "목적:"
+JUDGE_PURPOSE = "판단"
+REF = re.compile(r"^\s*\[?근거\s*(\d+)\]?")
+STANCES = frozenset({"support", "adverse", "neutral"})
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,7 @@ class Finding:
     claim: str
     source: str
     quote: str
+    stance: str = "neutral"
 
 
 @dataclass(frozen=True)
@@ -35,6 +44,13 @@ class Findings:
     not_found: list[str]
     dropped: int
     limit: str | None
+    reverse_query: str | None = None
+
+
+@dataclass(frozen=True)
+class Brief:
+    issue: str
+    purpose: str
 
 
 def _json_object(text: str) -> Any:
@@ -66,23 +82,67 @@ def parse_findings(text: str) -> Findings | None:
         if not claim or not source:
             dropped += 1
             continue
-        kept.append(Finding(claim, source, _clean(entry.get("quote"))))
+        stance = _clean(entry.get("stance"))
+        kept.append(Finding(claim, source, _clean(entry.get("quote")), stance if stance in STANCES else "neutral"))
     misses = [m for m in (_clean(x) for x in not_found) if m]
     limit = next((s for s in (line.strip() for line in text.splitlines()) if s.startswith(LIMIT_MARK)), None)
-    return Findings(kept, misses, dropped, limit)
+    reverse = _clean(data.get("reverse_query")) or None
+    return Findings(kept, misses, dropped, limit, reverse)
+
+
+def check_research(findings: Findings, ledger: Ledger) -> Findings:
+    kept: list[Finding] = []
+    dropped = findings.dropped
+    for item in findings.found:
+        match = REF.match(item.source)
+        authority = ledger.get(int(match.group(1))) if match else None
+        if authority is None or not authority.has_quote(item.quote):
+            dropped += 1
+            continue
+        kept.append(replace(item, source=f"[근거 {authority.ref}] {authority.display()}"))
+    return replace(findings, found=kept, dropped=dropped)
+
+
+def reverse_ok(findings: Findings, queries: Sequence[str]) -> bool:
+    if any(item.stance == "adverse" for item in findings.found):
+        return True
+    return findings.reverse_query is not None and findings.reverse_query in queries
 
 
 def render_findings(name: str, findings: Findings) -> str:
     lines = ["찾은 것:"]
     for item in findings.found:
         lines += [f"- 주장: {item.claim}", f"  출처: {item.source}", f"  인용: {item.quote}"]
+        if item.stance != "neutral":
+            lines.append(f"  방향: {item.stance}")
     if not findings.found:
         lines.append("- 없음")
     lines.append("찾지 못한 것:")
     lines += [f"- {miss}" for miss in findings.not_found] or ["- 없음"]
+    if findings.reverse_query:
+        lines.append(f"반대 방향 검색어: {findings.reverse_query}")
     if findings.limit:
         lines.append(findings.limit)
     return material(f"하위 에이전트 {name}", "\n".join(lines))
+
+
+def read_brief(description: str) -> Brief:
+    issue, purpose = "", ""
+    for line in description.splitlines():
+        text = line.strip()
+        if text.startswith(ISSUE_HEAD) and not issue:
+            issue = text[len(ISSUE_HEAD) :].strip()
+        elif text.startswith(PURPOSE_HEAD) and not purpose:
+            purpose = text[len(PURPOSE_HEAD) :].strip()
+    return Brief(issue or description.strip(), JUDGE_PURPOSE if purpose.startswith(JUDGE_PURPOSE) else "조회")
+
+
+def route_hint(issue: str, routes: Mapping[str, Sequence[str]]) -> str:
+    units: list[str] = []
+    for claim_type, laws in routes.items():
+        if claim_type and claim_type in issue:
+            units += [u for u in laws if u not in units]
+    return f"먼저 읽을 조문: {', '.join(units)}" if units else ""
 
 
 def _result_text(result: ToolMessage | Command) -> str:
@@ -121,11 +181,13 @@ class SubagentGate(AgentMiddleware):
         names: Sequence[str],
         limit: int = SUB_CONCURRENCY,
         deadline_s: float = SUB_DEADLINE_S,
+        routes: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         super().__init__()
         self._names = frozenset(names)
         self._limit = limit
         self._deadline_s = deadline_s
+        self._routes = dict(routes or {})
         self._slots: dict[str, _Slot] = {}
 
     async def awrap_tool_call(
@@ -134,8 +196,17 @@ class SubagentGate(AgentMiddleware):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
         call = request.tool_call
-        if call["name"] != TASK or (call.get("args") or {}).get("subagent_type") not in self._names:
+        args = call.get("args") or {}
+        name = args.get("subagent_type")
+        if call["name"] != TASK or name not in self._names:
             return await handler(request)
+        ledger = current_ledger()
+        brief = read_brief(str(args.get("description", "")))
+        seen_key = f"{name}\x00{normalize(brief.issue)}"
+        seen = ledger.delegations.get(seen_key)
+        if seen is not None:
+            log.info("subagent issue repeated name=%s", name)
+            return ToolMessage(content=seen, tool_call_id=call.get("id") or "", name=TASK)
         key = _question_key(request)
         slot = self._slots.get(key)
         if slot is None:
@@ -144,11 +215,15 @@ class SubagentGate(AgentMiddleware):
         slot.users += 1
         try:
             async with slot.semaphore:
-                return await self._delegate(request, handler)
+                result = await self._delegate(request, handler, ledger, brief)
         finally:
             slot.users -= 1
             if slot.users == 0:
                 self._slots.pop(key, None)
+        text = _result_text(result)
+        if not text.startswith(RESEARCH_FAIL):
+            ledger.delegations[seen_key] = text
+        return result
 
     async def _run_once(
         self,
@@ -164,29 +239,62 @@ class SubagentGate(AgentMiddleware):
         finally:
             SUB_DEADLINE.reset(token)
 
+    def _first_request(self, request: ToolCallRequest, name: str, brief: Brief) -> ToolCallRequest:
+        hint = route_hint(brief.issue, self._routes) if name == RESEARCHER else ""
+        if not hint:
+            return request
+        call = request.tool_call
+        args = dict(call.get("args") or {})
+        args["description"] = f"{args.get('description', '')}\n{hint}"
+        return request.override(tool_call={**call, "args": args})
+
     async def _delegate(
         self,
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
+        ledger: Ledger,
+        brief: Brief,
     ) -> ToolMessage | Command:
         call = request.tool_call
         args = dict(call.get("args") or {})
         name, call_id = str(args.get("subagent_type")), call.get("id") or ""
-        attempt = request
-        for round_no in (1, 2):
+        attempt = self._first_request(request, name, brief)
+        malformed = 0
+        adverse = 0
+        start = len(ledger.queries)
+        while True:
             result = await self._run_once(attempt, handler)
             if result is None:
-                log.info("subagent timed out name=%s round=%d", name, round_no)
+                log.info("subagent timed out name=%s", name)
                 limit = f"{LIMIT_MARK}: 시간 상한 {int(self._deadline_s)}초"
                 return ToolMessage(content=f"{RESEARCH_FAIL}: {name} {limit}", tool_call_id=call_id, name=TASK)
             findings = parse_findings(_result_text(result))
-            if findings is not None:
-                if findings.dropped:
-                    log.info("subagent lines without source dropped name=%s count=%d", name, findings.dropped)
-                return _with_text(result, call_id, render_findings(name, findings))
-            log.info("subagent result malformed name=%s round=%d", name, round_no)
-            retry_args = {**args, "description": f"{args.get('description', '')}\n\n{RETRY_NOTE}"}
-            attempt = request.override(tool_call={**call, "args": retry_args})
-        return ToolMessage(
-            content=f"{RESEARCH_FAIL}: {name}의 결과가 정해진 형식에 맞지 않음", tool_call_id=call_id, name=TASK
-        )
+            note = ""
+            if findings is None:
+                malformed += 1
+                log.info("subagent result malformed name=%s round=%d", name, malformed)
+                if malformed >= 2:
+                    return ToolMessage(
+                        content=f"{RESEARCH_FAIL}: {name}의 결과가 정해진 형식에 맞지 않음",
+                        tool_call_id=call_id,
+                        name=TASK,
+                    )
+                note = RETRY_NOTE
+            else:
+                if name == RESEARCHER:
+                    findings = check_research(findings, ledger)
+                    if brief.purpose == JUDGE_PURPOSE and not reverse_ok(findings, ledger.queries[start:]):
+                        adverse += 1
+                        log.info("subagent reverse query unverified name=%s round=%d", name, adverse)
+                        if adverse <= ADVERSE_RETRIES:
+                            note = ADVERSE_NOTE
+                        else:
+                            actual = ledger.queries[start:]
+                            findings = replace(findings, reverse_query=actual[-1] if actual else None)
+                if not note:
+                    if findings.dropped:
+                        log.info("subagent lines dropped name=%s count=%d", name, findings.dropped)
+                    return _with_text(result, call_id, render_findings(name, findings))
+            current = dict(attempt.tool_call.get("args") or {})
+            current["description"] = f"{current.get('description', '')}\n\n{note}"
+            attempt = attempt.override(tool_call={**attempt.tool_call, "args": current})

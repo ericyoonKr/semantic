@@ -54,7 +54,15 @@ CASE = {
 
 CITATIONS = {"items": [{"decision_id": "fake-0", "law": "가짜법", "unit": "제1조"}], "extract_run": "fake-run"}
 
-JUDGE_CATALOG = [{"claim_type": "가짜청구", "node_id": "R1_가짜요건", "label": "가짜 요건", "gate": "AND"}]
+JUDGE_CATALOG = [
+    {
+        "claim_type": "가짜청구",
+        "node_id": "R1_가짜요건",
+        "label": "가짜 요건",
+        "gate": "AND",
+        "evidence": [{"law": "가짜법", "unit": "제1조"}],
+    }
+]
 
 KG_CATALOG = [{"graph": "fake-graph", "scope": "가짜 범위", "shape": "찾아보기", "nodes": 1, "status": "가짜"}]
 

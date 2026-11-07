@@ -2,9 +2,15 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
+from semantic_agent.agent.authority import current_ledger
 from semantic_agent.tools.client import SEARCH_FAIL, IsoDate, Limit, ToolClient, material
 
 SNIPPET_CHARS = 300
+EXCERPT_NOTE = "발췌라 인용할 수 없음 — 인용하려면 read_law·read_case로 본문을 읽는다"
+
+
+def ref_line(ref: int) -> str:
+    return f"근거 {ref} — 인용할 때 [근거 {ref}]로 쓴다"
 
 
 def _degraded_line(degraded: Any) -> list[str]:
@@ -29,6 +35,8 @@ def format_laws(data: dict[str, Any]) -> str:
         lines.append(f"{head}\n{str(hit.get('text', ''))[:SNIPPET_CHARS]}")
     if not data.get("hits"):
         lines.append("찾은 조문 없음")
+    else:
+        lines.append(EXCERPT_NOTE)
     return "\n\n".join(lines)
 
 
@@ -37,11 +45,13 @@ def format_cases(data: dict[str, Any]) -> str:
     for hit in data.get("hits", []):
         head = (
             f"[{hit.get('court', '')} {hit.get('case_no', '')} · {hit.get('decided_on', '')}"
-            f" · {hit.get('field', '')} · {hit.get('section_role', '')}]"
+            f" · {hit.get('field', '')} · {hit.get('section_role', '')} · decision_id {hit.get('decision_id', '')}]"
         )
         lines.append(f"{head}\n{hit.get('text', '')}")
     if not data.get("hits"):
         lines.append("찾은 판례 없음")
+    else:
+        lines.append(EXCERPT_NOTE)
     return "\n\n".join(lines)
 
 
@@ -88,6 +98,7 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         as_of: IsoDate | None = None,
         law_type: list[str] | None = None,
     ) -> str:
+        current_ledger().record_query(query)
         body = {"query": query, "k": k, "as_of": as_of, "law_type": law_type}
         data, err = await client.fetch("POST", "/search/laws", kind="search", fail=SEARCH_FAIL, json=body)
         return err or material("법령 검색", format_laws(data))
@@ -101,6 +112,7 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         decided_from: IsoDate | None = None,
         decided_to: IsoDate | None = None,
     ) -> str:
+        current_ledger().record_query(query)
         body = {
             "query": query,
             "k": k,
@@ -116,7 +128,12 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
     async def read_law(law: str, unit: str, as_of: IsoDate | None = None) -> str:
         params = {"law": law, "unit": unit, "as_of": as_of}
         data, err = await client.fetch("GET", "/laws/unit", kind="search", fail=SEARCH_FAIL, params=params)
-        return err or material(f"{law} {unit}", format_law_unit(data))
+        if err:
+            return err
+        text = format_law_unit(data)
+        if data.get("content_status") != "link_only" and not data.get("deleted"):
+            text = f"{ref_line(current_ledger().add_law(data).ref)}\n{text}"
+        return material(f"{law} {unit}", text)
 
     @tool("read_case", description="판례를 절 단위로 읽는다. sections를 주면 그 절만 읽는다.")
     async def read_case(decision_id: str, sections: list[str] | None = None) -> str:
@@ -124,7 +141,10 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         data, err = await client.fetch(
             "GET", f"/cases/{decision_id}", kind="search", fail=SEARCH_FAIL, params=params
         )
-        return err or material(f"판례 {decision_id}", format_case(data))
+        if err:
+            return err
+        text = f"{ref_line(current_ledger().add_case(data).ref)}\n{format_case(data)}"
+        return material(f"판례 {decision_id}", text)
 
     @tool("case_citations", description="판례가 인용한 조문, 또는 조문(law+unit)을 인용한 판례를 찾는다.")
     async def case_citations(
