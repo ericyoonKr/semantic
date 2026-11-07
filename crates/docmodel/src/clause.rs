@@ -1,4 +1,4 @@
-mod marker;
+pub(crate) mod marker;
 
 use crate::{
     anchor::Anchor,

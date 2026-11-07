@@ -716,6 +716,7 @@ dependencies = [
  "regex",
  "serde",
  "thiserror",
+ "unicode-normalization",
 ]
 
 [[package]]

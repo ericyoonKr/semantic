@@ -42,3 +42,23 @@ fn circled(s: &str) -> Option<u32> {
     let c = s.chars().next()?;
     Some(c as u32 - '①' as u32 + 1)
 }
+
+pub(crate) fn article_title(text: &str) -> Option<String> {
+    let Some(Marker::Article { name, .. }) = parse_marker(text) else {
+        return None;
+    };
+    let rest = ARTICLE
+        .captures(text.trim_start())
+        .and_then(|c| c.get(3))
+        .map_or("", |m| m.as_str())
+        .trim_start();
+    let title = rest
+        .strip_prefix('(')
+        .and_then(|r| r.split_once(')'))
+        .map(|(inside, _)| inside)
+        .filter(|inside| !inside.contains('\n'));
+    Some(match title {
+        Some(t) => format!("{name}({t})"),
+        None => name,
+    })
+}
