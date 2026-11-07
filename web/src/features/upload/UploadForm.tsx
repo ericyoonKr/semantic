@@ -1,53 +1,36 @@
-import { useRef, useState, type FormEvent } from "react";
-import type { ApiClient } from "../../shared/api/client";
-import { messageOf } from "../../shared/api/errors";
-import { ErrorNote } from "../../shared/ui/ErrorNote";
-import { uploadFile, type UploadSummary } from "./api";
+import { useRef, type ChangeEvent } from "react";
+import { Icon } from "../../shared/ui/Icon";
+import { ACCEPT_ATTR } from "./dropQueue";
 
 type Props = {
-  client: ApiClient;
   sessionId: string;
   disabled: boolean;
-  onBusy: (busy: boolean) => void;
-  onUploaded: (summary: UploadSummary) => void;
+  busy: boolean;
+  onFiles: (files: File[]) => void;
 };
 
-export function UploadForm({ client, sessionId, disabled, onBusy, onUploaded }: Props) {
+export function UploadForm({ sessionId, disabled, busy, onFiles }: Props) {
   const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const id = `upload-${sessionId}`;
 
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const file = input.current?.files?.[0];
-    if (!file || busy) {
-      return;
-    }
-    setBusy(true);
-    onBusy(true);
-    setError(null);
-    try {
-      const summary = await uploadFile(client, sessionId, file);
-      if (input.current) {
-        input.current.value = "";
-      }
-      onUploaded(summary);
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setBusy(false);
-      onBusy(false);
+  function picked(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length > 0) {
+      onFiles(files);
     }
   }
 
   return (
-    <form className="upload-form" onSubmit={submit}>
-      <label htmlFor={`upload-${sessionId}`}>파일 올리기 (PDF, DOCX, HWPX)</label>
-      <input id={`upload-${sessionId}`} ref={input} type="file" name="file" accept=".pdf,.docx,.hwpx" disabled={disabled || busy} required />
-      <button type="submit" disabled={disabled || busy}>
-        {busy ? "올리는 중" : "올리기"}
+    <div className="attach">
+      <input id={id} ref={input} className="visually-hidden" type="file" name="file" accept={ACCEPT_ATTR} multiple disabled={disabled} onChange={picked} tabIndex={-1} />
+      <button type="button" className="button-secondary" onClick={() => input.current?.click()} disabled={disabled} aria-describedby={id + "-types"}>
+        <Icon name="attach" />
+        <span>{busy ? "올리는 중" : "파일 올리기"}</span>
       </button>
-      <ErrorNote message={error} />
-    </form>
+      <span id={id + "-types"} className="attach-types">
+        PDF, DOCX, HWPX
+      </span>
+    </div>
   );
 }

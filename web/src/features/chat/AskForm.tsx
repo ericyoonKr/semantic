@@ -1,12 +1,16 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Icon } from "../../shared/ui/Icon";
 
 type Props = {
   sessionId: string;
   disabled: boolean;
+  waitText: string;
   onAsk: (question: string) => void;
+  above?: ReactNode;
+  tools?: ReactNode;
 };
 
-export function AskForm({ sessionId, disabled, onAsk }: Props) {
+export function AskForm({ sessionId, disabled, waitText, onAsk, above, tools }: Props) {
   const [question, setQuestion] = useState("");
 
   function send() {
@@ -33,15 +37,31 @@ export function AskForm({ sessionId, disabled, onAsk }: Props) {
   const id = "ask-" + sessionId;
   const hint = id + "-hint";
   return (
-    <form className="ask-form" onSubmit={submit}>
-      <label htmlFor={id}>질문</label>
-      <textarea id={id} value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={keyDown} rows={3} required aria-describedby={hint} />
-      <p id={hint} className="muted hint">
-        Ctrl+Enter로 보낼 수 있습니다.
-      </p>
-      <button type="submit" disabled={disabled || question.trim() === ""}>
-        {disabled ? "답을 받는 중" : "보내기"}
-      </button>
+    <form className="composer" onSubmit={submit}>
+      {above}
+      <label htmlFor={id} className="visually-hidden">
+        질문
+      </label>
+      <textarea
+        id={id}
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        onKeyDown={keyDown}
+        rows={3}
+        required
+        aria-describedby={hint}
+        placeholder="질문을 적어 주세요"
+      />
+      <div className="composer-actions">
+        {tools}
+        <p id={hint} className="composer-hint">
+          Ctrl+Enter로 보낼 수 있습니다.
+        </p>
+        <button type="submit" className="button-primary" disabled={disabled || question.trim() === ""}>
+          <span>{disabled ? waitText : "보내기"}</span>
+          <Icon name="send" />
+        </button>
+      </div>
     </form>
   );
 }

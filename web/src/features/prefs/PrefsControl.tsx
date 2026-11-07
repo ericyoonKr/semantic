@@ -32,7 +32,7 @@ export function PrefsControl({ client }: Props) {
 
   return (
     <div className="prefs">
-      <button type="button" onClick={run} disabled={busy}>
+      <button type="button" className="button-secondary" onClick={run} disabled={busy}>
         답변 방식 설정 지우기
       </button>
       {done ? (
