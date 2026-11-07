@@ -13,12 +13,10 @@ from langchain_core.tools import BaseTool
 from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import append_system
 from semantic_agent.agent.guards import ToolGuard
-from semantic_agent.agent.prompts import DOC_READER_PROMPT, KG_EXPLORER_PROMPT, RESEARCHER_PROMPT, WRAP_UP_PROMPT
+from semantic_agent.agent.prompts import RESEARCHER_PROMPT, WRAP_UP_PROMPT
 
 RESEARCHER = "researcher"
-DOC_READER = "doc_reader"
-KG_EXPLORER = "kg_explorer"
-SUBAGENT_NAMES = (RESEARCHER, DOC_READER, KG_EXPLORER)
+SUBAGENT_NAMES = (RESEARCHER,)
 
 SUB_STEP_LIMIT = 20
 SUB_DEADLINE_S = 120.0
@@ -28,23 +26,10 @@ LIMIT_MARK = "제한에 걸림"
 SUB_DEADLINE: ContextVar[float | None] = ContextVar("sub_deadline", default=None)
 
 NO_FILES = [FilesystemPermission(operations=["read", "write"], paths=["/**"], mode="deny")]
-UPLOADS_READ_ONLY = [
-    FilesystemPermission(operations=["read"], paths=["/uploads", "/uploads/**"], mode="allow"),
-    FilesystemPermission(operations=["read", "write"], paths=["/**"], mode="deny"),
-]
-DOC_READER_FILE_TOOLS = ["ls", "grep", "read_file"]
 
 RESEARCHER_DESCRIPTION = (
     "법령·판례를 검색하고 읽으며, 판례가 인용한 조문과 조문을 인용한 판례를 따라간다. "
     "찾은 것을 주장·출처·원문 인용 목록으로, 찾지 못한 것을 목록으로 돌려준다."
-)
-DOC_READER_DESCRIPTION = (
-    "업로드 문서(/uploads/)에서 질문에 맞는 대목을 찾아 읽는다. 읽기만 한다. "
-    "찾은 것을 주장·출처(파일·쪽)·원문 인용 목록으로, 찾지 못한 것을 목록으로 돌려준다."
-)
-KG_EXPLORER_DESCRIPTION = (
-    "지식그래프에서 개념·위임 관계를 여러 단계 따라간다. "
-    "찾은 것을 주장·출처(그래프·노드 번호)·근거 인용 목록으로, 찾지 못한 것을 목록으로 돌려준다."
 )
 
 
@@ -110,39 +95,20 @@ class SubagentLimit(AgentMiddleware):
         return _close(await handler(last), f"{LIMIT_MARK}: {reason}")
 
 
-def _spec(
-    name: str,
-    description: str,
-    prompt: str,
-    tools: list[BaseTool],
-    file_tools: list[str],
-    permissions: list[FilesystemPermission],
-    backend: BackendProtocol,
-) -> SubAgent:
-    visible = [t.name for t in tools] + file_tools
-    return {
-        "name": name,
-        "description": description,
-        "system_prompt": prompt,
-        "tools": tools,
-        "middleware": [
-            QuestionBudget(),
-            FilesystemMiddleware(backend=backend, tools=file_tools or ["read_file"], _permissions=permissions),
-            ToolAllowlist(visible),
-            ToolGuard(),
-            SubagentLimit(),
-        ],
-        "permissions": permissions,
-    }
-
-
-def make_subagents(
-    backend: BackendProtocol,
-    search_tools: list[BaseTool],
-    kg_tools: list[BaseTool],
-) -> list[SubAgent]:
+def make_subagents(backend: BackendProtocol, search_tools: list[BaseTool]) -> list[SubAgent]:
     return [
-        _spec(RESEARCHER, RESEARCHER_DESCRIPTION, RESEARCHER_PROMPT, search_tools, [], NO_FILES, backend),
-        _spec(DOC_READER, DOC_READER_DESCRIPTION, DOC_READER_PROMPT, [], DOC_READER_FILE_TOOLS, UPLOADS_READ_ONLY, backend),
-        _spec(KG_EXPLORER, KG_EXPLORER_DESCRIPTION, KG_EXPLORER_PROMPT, kg_tools, [], NO_FILES, backend),
+        {
+            "name": RESEARCHER,
+            "description": RESEARCHER_DESCRIPTION,
+            "system_prompt": RESEARCHER_PROMPT,
+            "tools": search_tools,
+            "middleware": [
+                QuestionBudget(),
+                FilesystemMiddleware(backend=backend, tools=["read_file"], _permissions=NO_FILES),
+                ToolAllowlist([t.name for t in search_tools]),
+                ToolGuard(),
+                SubagentLimit(),
+            ],
+            "permissions": NO_FILES,
+        }
     ]

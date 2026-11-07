@@ -5,10 +5,10 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel
 
-from semantic_agent.agent.authority import current_ledger
-from semantic_agent.agent.turn import current_turn
+from semantic_agent.ledger import current_ledger
 from semantic_agent.tools.client import JUDGE_FAIL, ToolClient, material, unwrap_material
 from semantic_agent.tools.kg import session_id
+from semantic_agent.turn import current_turn
 
 UPLOAD_KIND = "upload"
 VERDICT_HEAD = "판정:"

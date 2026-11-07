@@ -111,10 +111,10 @@ def build_agent(
         default=StateBackend(),
         routes={"/prefs/": StoreBackend(namespace=_prefs_namespace)},
     )
-    subagents = make_subagents(backend, make_search_tools(client), make_kg_tools(client))
+    subagents = make_subagents(backend, make_search_tools(client))
     return create_deep_agent(
         model=model,
-        tools=[make_judge_tool(client, catalogs.judge)],
+        tools=[make_judge_tool(client, catalogs.judge), *make_kg_tools(client)],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
             QuestionBudget(),

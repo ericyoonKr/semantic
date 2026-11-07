@@ -3,15 +3,17 @@ import json
 from typing import Any
 
 import pytest
-from conftest import answer, call, delegate, make_agent, run_config, tool_messages
+from conftest import ScriptedToolModel, answer, call, delegate, make_agent, run_config, tool_messages
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from pydantic import Field
 
 from semantic_agent.agent import build
-from semantic_agent.agent.authority import LEDGER, Ledger
 from semantic_agent.agent.delegation import RESEARCH_FAIL, SubagentGate
 from semantic_agent.agent.prompts import ADVERSE_NOTE, RESEARCHER_PROMPT, RETRY_NOTE
+from semantic_agent.agent.subagents import RESEARCHER_DESCRIPTION
+from semantic_agent.ledger import LEDGER, Ledger
 from semantic_agent.tools.fake import LAW_UNIT
 
 LAW_BODY = LAW_UNIT["body"]
@@ -50,6 +52,44 @@ def test_main_delegates_to_researcher_and_answers_from_result() -> None:
     assert {"task", "judge", "write_todos", "read_file", "write_file"} <= main_tools
     assert not main_tools & RESEARCHER_TOOLS
     assert sub_tools == RESEARCHER_TOOLS
+
+
+class TaskToolModel(ScriptedToolModel):
+    task_text: list[str] = Field(default_factory=list)
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "TaskToolModel":
+        self.task_text += [t.description for t in tools if getattr(t, "name", "") == "task"]
+        return super().bind_tools(tools, **kwargs)
+
+
+def test_main_holds_kg_tools_and_offers_only_researcher() -> None:
+    script = [
+        delegate("doc_reader", "계약 기간을 찾아 줘", "t1"),
+        delegate("kg_explorer", "가짜 개념의 관계를 따라가 줘", "t2"),
+        AIMessage(content="끝"),
+    ]
+    model = TaskToolModel(script=iter(script))
+
+    async def scenario() -> tuple[list[Any], Any]:
+        LEDGER.set(Ledger())
+        agent, _, client = await make_agent(model=model)
+        result = await agent.ainvoke({"messages": [HumanMessage(content="계약 기간과 개념 관계")]}, run_config())
+        return result["messages"], client
+
+    messages, client = asyncio.run(scenario())
+    main_tools = set(model.bound[0])
+    assert {"kg_find", "kg_expand", "task", "judge", "ls", "grep", "read_file"} <= main_tools
+    assert not main_tools & RESEARCHER_TOOLS
+    task_text = model.task_text[0]
+    assert f"- researcher: {RESEARCHER_DESCRIPTION}" in task_text
+    assert "doc_reader" not in task_text and "kg_explorer" not in task_text
+    refused = [m.content for m in tool_messages(messages) if m.name == "task"]
+    assert refused == [
+        f"We cannot invoke subagent {name} because it does not exist, the only allowed types are `researcher`"
+        for name in ("doc_reader", "kg_explorer")
+    ]
+    assert client.calls == []
+    assert len(model.bound) == 3
 
 
 def test_result_line_without_source_is_dropped() -> None:

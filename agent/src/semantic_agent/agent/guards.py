@@ -12,8 +12,8 @@ from langgraph.types import Command
 from pydantic import ValidationError
 
 from semantic_agent.agent.injection import INJECTION_KIND, looks_injected
-from semantic_agent.agent.turn import current_turn
 from semantic_agent.tools.client import material, unwrap_material
+from semantic_agent.turn import current_turn
 
 log = logging.getLogger(__name__)
 

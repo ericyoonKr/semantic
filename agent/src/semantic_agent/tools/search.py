@@ -2,7 +2,7 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
-from semantic_agent.agent.authority import current_ledger
+from semantic_agent.ledger import current_ledger
 from semantic_agent.tools.client import SEARCH_FAIL, IsoDate, Limit, ToolClient, material
 
 SNIPPET_CHARS = 300

@@ -3,8 +3,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from semantic_agent.agent.authority import Ledger, article_key, compact
-from semantic_agent.agent.turn import Turn
+from semantic_agent.ledger import Ledger, article_key, compact
+from semantic_agent.turn import Turn
 
 log = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
-from semantic_agent.agent.authority import Ledger
 from semantic_agent.api.answer_gate import NOTICE, SentenceGate, check_sentence
+from semantic_agent.ledger import Ledger
 
 
 def _ledger() -> Ledger:

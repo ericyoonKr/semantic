@@ -4,7 +4,6 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import BaseTool, tool
 from pydantic import Field
 
-from semantic_agent.agent.authority import current_ledger
 from semantic_agent.tools.client import SEARCH_FAIL, Limit, ToolClient, material
 
 Depth = Annotated[int, Field(ge=1, le=2)]
@@ -23,17 +22,6 @@ def _join(item: Any) -> str:
 def format_kg_catalog(data: Any) -> str:
     items = data.get("graphs", []) if isinstance(data, dict) else data or []
     return "\n".join(f"- {_join(item)}" for item in items) or "쓸 수 있는 지식그래프 없음"
-
-
-def returned_nodes(data: Any) -> list[str]:
-    if not isinstance(data, dict):
-        return []
-    found = [n.get("node") for n in data.get("nodes") or [] if isinstance(n, dict)]
-    for edge in data.get("edges") or []:
-        if isinstance(edge, dict):
-            neighbor = edge.get("neighbor") if isinstance(edge.get("neighbor"), dict) else {}
-            found += [edge.get("from"), neighbor.get("node")]
-    return [str(n) for n in found if n]
 
 
 def format_nodes(data: dict[str, Any]) -> str:
@@ -77,7 +65,6 @@ def make_kg_tools(client: ToolClient) -> list[BaseTool]:
         data, err = await client.fetch("POST", path, kind="search", fail=SEARCH_FAIL, json=body)
         if err:
             return err
-        current_ledger().record_kg_nodes(returned_nodes(data))
         return material(f"지식그래프 {graph}", format_nodes(data))
 
     @tool("kg_expand", description="지식그래프 노드(짧은 번호)의 간선을 한 방향으로 펼친다. 깊이는 2까지.")
@@ -102,7 +89,6 @@ def make_kg_tools(client: ToolClient) -> list[BaseTool]:
         data, err = await client.fetch("POST", path, kind="search", fail=SEARCH_FAIL, json=body)
         if err:
             return err
-        current_ledger().record_kg_nodes(returned_nodes(data))
         return material(f"지식그래프 {graph}", format_edges(data))
 
     return [kg_find, kg_expand]

@@ -11,14 +11,13 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from semantic_agent.agent.authority import Ledger, current_ledger, normalize
-from semantic_agent.agent.citations import Finding, Findings, check_document, check_graph, check_research
-from semantic_agent.agent.context import file_text
+from semantic_agent.agent.citations import Finding, Findings, check_research
 from semantic_agent.agent.guards import result_text
 from semantic_agent.agent.prompts import ADVERSE_NOTE, RETRY_NOTE
-from semantic_agent.agent.subagents import DOC_READER, KG_EXPLORER, LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
-from semantic_agent.agent.turn import current_turn
+from semantic_agent.agent.subagents import LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
+from semantic_agent.ledger import Ledger, current_ledger, normalize
 from semantic_agent.tools.client import material
+from semantic_agent.turn import current_turn
 
 log = logging.getLogger(__name__)
 
@@ -252,11 +251,6 @@ class SubagentGate(AgentMiddleware):
                         else:
                             actual = ledger.queries[start:]
                             findings = replace(findings, reverse_query=actual[-1] if actual else None)
-                elif name == DOC_READER:
-                    state = request.state or {}
-                    findings = check_document(findings, lambda path: file_text(state, path))
-                elif name == KG_EXPLORER:
-                    findings = check_graph(findings, ledger)
                 if not note:
                     if findings.dropped:
                         log.info("subagent lines dropped name=%s count=%d", name, findings.dropped)

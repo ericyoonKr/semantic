@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 import httpx
-from conftest import answer, call, delegate, make_agent, run_config, tool_messages
+from conftest import call, make_agent, run_config, tool_messages
 from langchain_core.messages import AIMessage, HumanMessage
 
 from semantic_agent.api.sse import to_sse
@@ -51,9 +51,7 @@ class FakeRust:
 def test_kg_expand_sends_session_path_short_id_and_headers() -> None:
     rust = FakeRust()
     script = [
-        delegate("kg_explorer", "L3에서 위임 관계를 따라가 줘", "t1"),
         call("kg_expand", {"graph": "가짜그래프", "node": "L3", "direction": "out"}, "c1"),
-        answer([{"claim": "L3은 L4에 위임한다", "source": "가짜그래프 · L3", "quote": "가짜 근거"}]),
         AIMessage(content="끝"),
     ]
 
@@ -78,7 +76,7 @@ def test_kg_expand_sends_session_path_short_id_and_headers() -> None:
     }
     assert sent.headers["x-internal-key"] == KEY
     assert sent.headers["x-request-id"] == "req-kg"
-    [edge_result] = tool_messages(out["seen"][2])
+    [edge_result] = tool_messages(out["seen"][1])
     assert "L3 -[가짜위임 · 확실성 확실]-> L4 · 가짜 이웃" in edge_result.content
 
 

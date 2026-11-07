@@ -5,7 +5,7 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage
 
-from semantic_agent.agent.turn import Turn, current_turn
+from semantic_agent.turn import Turn, current_turn
 
 log = logging.getLogger(__name__)
 
