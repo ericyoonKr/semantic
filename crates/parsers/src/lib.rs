@@ -15,3 +15,4 @@ pub use detect::{Format, RESAVE_GUIDANCE, detect};
 pub use error::ParseError;
 pub use guard::GuardLimits;
 pub use parse::{PDF_PENDING, file_id, parse};
+pub use pdf::{PDF_LIBRARY_MISSING, PdfReader};
