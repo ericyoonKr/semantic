@@ -58,7 +58,7 @@ pub async fn run(state: &AppState, job: JudgeJob, ticket: JudgeTicket) -> Result
             run.cancel();
         }
     };
-    let deps = parts.deps(&state.db, &request.session);
+    let deps = parts.deps(&state.db, &request.session, state.corpus.clone());
     let work = async {
         let permit = tokio::select! {
             biased;

@@ -2,10 +2,10 @@ use engine::{EngineDeps, EngineSettings};
 use llm::{LlmClient, LlmLimiter};
 use sessdb::SessDb;
 
-use crate::deps::{LeafStore, NoAuthority, SessionFacts};
+use crate::deps::{CorpusAuthority, LeafStore, SessionFacts};
 use crate::judge::config::JudgeConfig;
 
-pub type ServerDeps = EngineDeps<SessionFacts, NoAuthority, LeafStore>;
+pub type ServerDeps = EngineDeps<SessionFacts, CorpusAuthority, LeafStore>;
 
 pub struct EngineParts {
     pub llm: LlmClient,
@@ -44,12 +44,12 @@ impl EngineParts {
         })
     }
 
-    pub fn deps(&self, db: &SessDb, session: &str) -> ServerDeps {
+    pub fn deps(&self, db: &SessDb, session: &str, corpus: Option<retrieval::Corpus>) -> ServerDeps {
         EngineDeps {
             llm: self.llm.clone(),
             limiter: self.limiter.clone(),
             facts: SessionFacts::new(db.clone(), session),
-            authority: NoAuthority,
+            authority: CorpusAuthority::new(corpus),
             cache: self.cache.clone(),
             settings: self.settings.clone(),
         }

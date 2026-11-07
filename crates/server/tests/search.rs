@@ -174,3 +174,36 @@ async fn routes_return_the_shapes_the_agent_reads() -> Checked {
     fx.close().await?;
     result
 }
+
+#[tokio::test]
+async fn judge_authority_search_reads_the_corpus_or_reports_unavailable() -> Checked {
+    use engine::{AuthoritySearch, DepError};
+    use server::deps::CorpusAuthority;
+    let missing = CorpusAuthority::new(None).search("국가배상", 4).await;
+    check(matches!(missing, Err(DepError::Unavailable(_))), format!("{missing:?}"))?;
+    let Some(fx) = fixture::open().await? else {
+        return Ok(());
+    };
+    let result = async {
+        let pool = retrieval::CorpusDb::parse(&fx.url)?.connect_lazy(4, std::time::Duration::from_secs(10));
+        let corpus = retrieval::Corpus::new(pool, std::sync::Arc::new(retrieval::NoEmbedder));
+        let snap = CorpusAuthority::new(Some(corpus)).search("손해 배상", 4).await.map_err(|e| format!("{e:?}"))?;
+        check(snap.degraded, "no embedder means degraded")?;
+        check(snap.hits.len() <= 4 && !snap.hits.is_empty(), format!("{:?}", snap.hits))?;
+        let law = snap.hits.iter().find(|h| h.source == "law").ok_or("no law hit")?;
+        check(law.citation.starts_with("국가배상법 제"), law.citation.clone())?;
+        check(snap.snapshot_hash.len() == 64, snap.snapshot_hash.clone())?;
+        let again = CorpusAuthority::new(Some(retrieval::Corpus::new(
+            retrieval::CorpusDb::parse(&fx.url)?.connect_lazy(4, std::time::Duration::from_secs(10)),
+            std::sync::Arc::new(retrieval::NoEmbedder),
+        )))
+        .search("손해 배상", 4)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+        check(again.snapshot_hash == snap.snapshot_hash, "same results give the same hash")?;
+        Ok::<(), Failure>(())
+    }
+    .await;
+    fx.close().await?;
+    result
+}
