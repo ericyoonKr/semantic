@@ -4,9 +4,7 @@ pub mod embedder;
 pub mod error;
 pub mod model;
 pub mod query;
-pub mod rewriter;
 pub mod search;
-pub mod upload_index;
 
 pub use corpus::{Corpus, CorpusDb};
 pub use embed_client::{EmbedClient, EmbedSettings};

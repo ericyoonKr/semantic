@@ -13,3 +13,6 @@ pdfium-render = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
+
+[dev-dependencies]
+image = { version = "=0.25.10", default-features = false, features = ["png"] }

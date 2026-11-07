@@ -1,7 +1,7 @@
 use docmodel::{Anchor, Block, ExtractWarning, FactSource, Rect};
 
 use super::words::{CharBox, lines, paragraphs, words};
-use crate::pdf_table::{Found, Glyph, Segment, TableSettings, find_tables};
+use crate::pdf_table::{Found, Glyph, Segment, TableError, TableSettings, find_tables};
 use crate::pdf_table::overlaps;
 
 pub(crate) struct PageInput {
@@ -22,7 +22,10 @@ fn anchor(source: &FactSource, page: u32, rect: Rect) -> Anchor {
 
 pub(crate) fn lay_out(page: PageInput, source: &FactSource, settings: &TableSettings) -> PageOutput {
     let glyphs = words(&page.chars);
-    let tables: Vec<Found> = find_tables(&page.segments, &glyphs, source, page.number, settings);
+    let tables: Vec<Found> = find_tables(&page.segments, &glyphs, source, page.number, settings)
+        .into_iter()
+        .filter(|f| f.result != Err(TableError::NoGrid))
+        .collect();
     let mut blocks: Vec<(f32, Block)> = Vec::new();
     let mut warnings = Vec::new();
     let in_table = |g: &Glyph| tables.iter().any(|t| overlaps(&g.rect, &t.bbox));

@@ -37,36 +37,75 @@ fn page_chars(page: &PdfPage) -> Result<Vec<CharBox>, ParseError> {
     Ok(out)
 }
 
+const THIN: f32 = 2.0;
+
+fn path_points(path: &PdfPagePathObject) -> Vec<(PdfPathSegmentType, bool, (f32, f32))> {
+    let Ok(matrix) = path.matrix() else {
+        return Vec::new();
+    };
+    path.segments()
+        .transform(matrix)
+        .iter()
+        .map(|seg| (seg.segment_type(), seg.is_close(), (seg.x().value, seg.y().value)))
+        .collect()
+}
+
+fn stroked_lines(points: &[(PdfPathSegmentType, bool, (f32, f32))], out: &mut Vec<Segment>) {
+    let mut start: Option<(f32, f32)> = None;
+    let mut current: Option<(f32, f32)> = None;
+    for (kind, close, point) in points {
+        match kind {
+            PdfPathSegmentType::MoveTo => start = Some(*point),
+            PdfPathSegmentType::LineTo => {
+                if let Some((x0, y0)) = current {
+                    out.push(Segment { x0, y0, x1: point.0, y1: point.1 });
+                }
+            }
+            _ => {}
+        }
+        if *close && let Some((sx, sy)) = start {
+            out.push(Segment { x0: point.0, y0: point.1, x1: sx, y1: sy });
+        }
+        current = Some(*point);
+    }
+}
+
+fn thin_fill(points: &[(PdfPathSegmentType, bool, (f32, f32))]) -> Option<Segment> {
+    let xs = points.iter().map(|p| p.2.0);
+    let ys = points.iter().map(|p| p.2.1);
+    let (x0, x1) = xs.fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+    let (y0, y1) = ys.fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+    let (w, h) = (x1 - x0, y1 - y0);
+    if !(w.is_finite() && h.is_finite()) {
+        return None;
+    }
+    if w <= THIN && h > THIN {
+        let x = (x0 + x1) / 2.0;
+        Some(Segment { x0: x, y0, x1: x, y1 })
+    } else if h <= THIN && w > THIN {
+        let y = (y0 + y1) / 2.0;
+        Some(Segment { x0, y0: y, x1, y1: y })
+    } else {
+        None
+    }
+}
+
 fn page_segments(page: &PdfPage) -> Vec<Segment> {
     let mut out = Vec::new();
     for object in page.objects().iter() {
         let Some(path) = object.as_path_object() else {
             continue;
         };
-        let Ok(matrix) = path.matrix() else {
+        let points = path_points(path);
+        if points.is_empty() {
             continue;
-        };
-        let mut start: Option<(f32, f32)> = None;
-        let mut current: Option<(f32, f32)> = None;
-        for seg in path.segments().transform(matrix).iter() {
-            let point = (seg.x().value, seg.y().value);
-            match seg.segment_type() {
-                PdfPathSegmentType::MoveTo => {
-                    start = Some(point);
-                }
-                PdfPathSegmentType::LineTo => {
-                    if let Some((x0, y0)) = current {
-                        out.push(Segment { x0, y0, x1: point.0, y1: point.1 });
-                    }
-                }
-                _ => {}
-            }
-            if seg.is_close()
-                && let Some((sx, sy)) = start
-            {
-                out.push(Segment { x0: point.0, y0: point.1, x1: sx, y1: sy });
-            }
-            current = Some(point);
+        }
+        if path.is_stroked().unwrap_or(false) {
+            stroked_lines(&points, &mut out);
+        } else if !matches!(path.fill_mode(), Ok(PdfPathFillMode::None) | Err(_))
+            && let Some(line) = thin_fill(&points)
+        {
+            out.push(line);
         }
     }
     out
