@@ -72,11 +72,19 @@ async fn thread_ownership_is_per_user() -> Result<(), GatewayError> {
     let Some((pool, schema, store)) = fixture(AuthPolicy::default()).await else { return Ok(()) };
     let a = store.add_user("grader4", PASSWORD, cheap()).await?;
     let b = store.add_user("grader5", PASSWORD, cheap()).await?;
-    let t = store.add_thread(a).await?;
+    let t = Uuid::new_v4();
+    store.add_thread(a, t).await?;
     assert!(store.owns(a, t).await?);
     assert!(!store.owns(b, t).await?);
     assert_eq!(store.threads(a).await?, vec![t]);
     assert!(store.threads(b).await?.is_empty());
+    store.remove_thread(b, t).await?;
+    assert!(store.owns(a, t).await?);
+    store.remove_thread(a, t).await?;
+    assert!(!store.owns(a, t).await?);
+    assert_eq!(store.login_id_of(a).await?, "grader4");
+    assert!(store.disable_user("grader4").await?);
+    assert!(matches!(store.login("grader4", PASSWORD).await, Err(GatewayError::LoginFailed)));
     drop_schema(&pool, &schema).await;
     Ok(())
 }

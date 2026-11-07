@@ -187,15 +187,60 @@ impl AuthStore {
         Ok(done.rows_affected())
     }
 
-    pub async fn add_thread(&self, user_id: Uuid) -> Result<Uuid, GatewayError> {
-        let id = Uuid::new_v4();
+    pub async fn add_thread(&self, user_id: Uuid, thread_id: Uuid) -> Result<(), GatewayError> {
         sqlx::query(AssertSqlSafe(format!("INSERT INTO {}.thread_owner (thread_id, user_id) VALUES ($1, $2)", self.schema)))
-            .bind(id)
+            .bind(thread_id)
             .bind(user_id)
             .execute(&self.pool)
             .await
             .map_err(db)?;
-        Ok(id)
+        Ok(())
+    }
+
+    pub async fn remove_thread(&self, user_id: Uuid, thread_id: Uuid) -> Result<(), GatewayError> {
+        sqlx::query(AssertSqlSafe(format!("DELETE FROM {}.thread_owner WHERE thread_id = $1 AND user_id = $2", self.schema)))
+            .bind(thread_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub async fn touch_thread(&self, thread_id: Uuid) -> Result<(), GatewayError> {
+        sqlx::query(AssertSqlSafe(format!("UPDATE {}.thread_owner SET updated_at = now() WHERE thread_id = $1", self.schema)))
+            .bind(thread_id)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub async fn login_id_of(&self, user_id: Uuid) -> Result<String, GatewayError> {
+        let row = sqlx::query(AssertSqlSafe(format!("SELECT login_id FROM {}.app_user WHERE user_id = $1", self.schema)))
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db)?
+            .ok_or(GatewayError::Unauthenticated)?;
+        row.try_get("login_id").map_err(db)
+    }
+
+    pub async fn disable_user(&self, login_id: &str) -> Result<bool, GatewayError> {
+        let done = sqlx::query(AssertSqlSafe(format!("UPDATE {}.app_user SET disabled = true WHERE login_id = $1", self.schema)))
+            .bind(login_id)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        sqlx::query(AssertSqlSafe(format!(
+            "DELETE FROM {}.login_session WHERE user_id IN (SELECT user_id FROM {}.app_user WHERE login_id = $1)",
+            self.schema, self.schema
+        )))
+        .bind(login_id)
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(done.rows_affected() == 1)
     }
 
     pub async fn owns(&self, user_id: Uuid, thread_id: Uuid) -> Result<bool, GatewayError> {

@@ -1,0 +1,43 @@
+pub mod auth;
+pub mod chat;
+pub mod guard;
+pub mod web;
+
+use axum::Router;
+use axum::extract::DefaultBodyLimit;
+use axum::http::{HeaderName, HeaderValue};
+use axum::routing::{delete, get, post};
+use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
+
+use crate::state::AppState;
+
+fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
+    SetResponseHeaderLayer::overriding(HeaderName::from_static(name), HeaderValue::from_static(value))
+}
+
+pub fn router(state: AppState) -> Router {
+    let limit = state.cfg.upload_limit_bytes;
+    let api = Router::new()
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/logout", post(auth::logout))
+        .route("/api/auth/me", get(auth::me))
+        .route("/api/sessions", get(chat::list))
+        .route("/session", post(chat::create))
+        .route("/session/{id}/ask", post(chat::ask))
+        .route("/session/{id}/upload", post(chat::upload))
+        .route("/session/{id}/history", get(chat::history))
+        .route("/session/{id}", delete(chat::remove))
+        .route("/prefs", delete(chat::remove_prefs))
+        .layer(DefaultBodyLimit::max(limit));
+    let app = match state.cfg.web_dir.clone() {
+        Some(dir) => api.merge(web::routes(dir)),
+        None => api,
+    };
+    app.with_state(state)
+        .layer(CatchPanicLayer::new())
+        .layer(header("x-content-type-options", "nosniff"))
+        .layer(header("referrer-policy", "no-referrer"))
+        .layer(header("x-frame-options", "DENY"))
+        .layer(header("content-security-policy", "default-src 'self'; frame-ancestors 'none'"))
+}
