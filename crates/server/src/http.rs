@@ -1,0 +1,35 @@
+pub mod catalog;
+pub mod files;
+pub mod health;
+pub mod kg;
+pub mod middleware;
+pub mod sessions;
+
+use axum::Router;
+use axum::extract::DefaultBodyLimit;
+use axum::middleware::{from_fn, from_fn_with_state};
+use axum::routing::{delete, get, post};
+use tower_http::catch_panic::CatchPanicLayer;
+
+use crate::state::AppState;
+
+pub fn router(state: AppState) -> Router {
+    let limits = &state.cfg.limits;
+    let upload_limit = DefaultBodyLimit::max(limits.upload_body_bytes);
+    Router::new()
+        .route("/health", get(health::health))
+        .route(
+            "/sessions/{sid}/files",
+            post(files::upload).layer(upload_limit).get(files::list),
+        )
+        .route("/sessions/{sid}", delete(sessions::delete))
+        .route("/kg/catalog", get(catalog::kg_catalog))
+        .route("/sessions/{sid}/kg/find", post(kg::find))
+        .route("/sessions/{sid}/kg/expand", post(kg::expand))
+        .layer(DefaultBodyLimit::max(limits.json_body_bytes))
+        .layer(from_fn_with_state(state.clone(), middleware::internal_key))
+        .layer(CatchPanicLayer::custom(middleware::panic_response))
+        .layer(from_fn(middleware::request_id))
+        .layer(from_fn(middleware::strip_server_headers))
+        .with_state(state)
+}

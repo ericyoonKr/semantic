@@ -8,22 +8,31 @@ publish.workspace = true
 [dependencies]
 docmodel = { workspace = true }
 parsers = { workspace = true }
-checks = { workspace = true }
-llm = { workspace = true }
-retrieval = { workspace = true }
-engine = { workspace = true }
 sessdb = { workspace = true }
+kg = { workspace = true }
 
 axum = { workspace = true }
 tower-http = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
-moka = { workspace = true }
-futures = { workspace = true }
-sqlx = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
+rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+unicode-normalization = { workspace = true }
+thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true }
+tempfile = { workspace = true }
+zip = { workspace = true }
+sha2 = { workspace = true }
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
