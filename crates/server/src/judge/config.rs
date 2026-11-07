@@ -1,4 +1,5 @@
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -45,6 +46,7 @@ pub struct JudgeConfig {
     pub leaf_cache_entries: u64,
     pub deadline: Duration,
     pub wrapup: Duration,
+    pub holidays_file: Option<PathBuf>,
 }
 
 fn text(get: &impl Fn(&str) -> Option<String>, name: &str) -> Option<String> {
@@ -104,6 +106,7 @@ pub fn read(get: &impl Fn(&str) -> Option<String>) -> Result<JudgeConfig, Config
         leaf_cache_entries: positive(get, "LEAF_CACHE_ENTRIES", Some(4096))?,
         deadline: Duration::from_secs(deadline),
         wrapup: Duration::from_secs(wrapup),
+        holidays_file: text(get, "HOLIDAYS_FILE").map(PathBuf::from),
     };
     if cfg.wrapup >= cfg.deadline {
         return Err(ConfigError::DeadlineOrder(
@@ -159,6 +162,9 @@ mod tests {
         assert_eq!(cfg.z3_concurrency, 4);
         assert_eq!(cfg.leaf_permits, 12);
         assert_eq!(cfg.deadline, Duration::from_secs(170));
+        assert!(cfg.holidays_file.is_none());
+        let named = with(&[("HOLIDAYS_FILE", " h.json ")])?;
+        assert_eq!(named.holidays_file, Some(PathBuf::from("h.json")));
         let on = with(&ENGINE)?;
         assert!(on.engine.as_ref().is_some_and(|e| e.candidate_k == 4));
         assert!(!format!("{on:?}").contains("key-value-987"));

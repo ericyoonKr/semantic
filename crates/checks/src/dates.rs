@@ -10,6 +10,24 @@ static SHORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*([0-9]{2})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})\s*\.?\s*$").expect("SHORT 정규식")
 });
 
+static WITHIN: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[^0-9])([0-9]{4})\s*[.\-/년]\s*([0-9]{1,2})\s*[.\-/월]\s*([0-9]{1,2})(?:[^0-9]|$)").ok()
+});
+
+pub fn dates_in(text: &str) -> Vec<NaiveDate> {
+    let Some(re) = WITHIN.as_ref() else {
+        return Vec::new();
+    };
+    re.captures_iter(text)
+        .filter_map(|c| {
+            let y = c.get(1)?.as_str().parse().ok()?;
+            let m = c.get(2)?.as_str().parse().ok()?;
+            let d = c.get(3)?.as_str().parse().ok()?;
+            NaiveDate::from_ymd_opt(y, m, d)
+        })
+        .collect()
+}
+
 pub fn to_ordinal(d: NaiveDate) -> i64 {
     i64::from(d.num_days_from_ce())
 }
@@ -67,6 +85,19 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].year(), 1924);
         assert_eq!(got[1].year(), 2024);
+    }
+
+    #[test]
+    fn finds_full_dates_inside_sentences() {
+        let got = dates_in("처분서는 2026. 3. 2. 송달되었고, 소장은 2026년 5월 20일 접수되었다(2026-05-21 기록).");
+        let want: Vec<NaiveDate> = [(2026, 3, 2), (2026, 5, 20), (2026, 5, 21)]
+            .into_iter()
+            .filter_map(|(y, m, d)| NaiveDate::from_ymd_opt(y, m, d))
+            .collect();
+        assert_eq!(got, want);
+        assert!(dates_in("3월 2일에 받았다").is_empty());
+        assert!(dates_in("26. 3. 2. 받았다").is_empty());
+        assert!(dates_in("2026. 2. 30. 받았다").is_empty());
     }
 
     #[test]

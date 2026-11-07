@@ -28,6 +28,7 @@ fn request(root: &str) -> JudgeRequest {
         root: NodeId::new(root),
         assumptions: HashMap::new(),
         user_facts: Vec::new(),
+        today: chrono::NaiveDate::from_ymd_opt(2026, 11, 8).unwrap_or_default(),
     }
 }
 

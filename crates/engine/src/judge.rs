@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::compile::{RawVerdict, SolverResult, check};
+use crate::arith::judge_periods;
+use crate::compile::{PeriodFacts, RawVerdict, SolverResult, check_with_periods, period_facts};
 use crate::deps::{AuthoritySearch, EngineDeps, FactProvider, LeafCache, UserFact};
 use crate::error::EngineError;
 use crate::graph::ClaimGraph;
 use crate::leaf::{CANCELLED, judge_all};
 use crate::prompt::prompt_version;
 use crate::schema::{FailureReason, LeafResult, NodeId};
-use crate::slices::{SlicePlan, build_leaf_requests};
+use crate::slices::{Prepared, SlicePlan, build_leaf_requests};
 use crate::verdict::{Verdict, from_raw};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +22,7 @@ pub struct JudgeRequest {
     pub root: NodeId,
     pub assumptions: HashMap<NodeId, bool>,
     pub user_facts: Vec<UserFact>,
+    pub today: NaiveDate,
 }
 
 pub async fn judge<F, A, C>(
@@ -36,9 +39,6 @@ where
     let subtree = graph.subtree(&req.root)?;
     if let Some(stray) = req.assumptions.keys().find(|id| !subtree.contains(id)) {
         return Err(EngineError::UnknownNode(stray.clone()));
-    }
-    if let Some(leaf) = subtree.leaves().find(|l| l.arithmetic.is_some()) {
-        return Err(EngineError::ArithmeticUnsupported(leaf.id.clone()));
     }
     let plan = SlicePlan {
         budget_tokens: deps.settings.fact_budget_tokens,
@@ -60,13 +60,26 @@ where
             &plan,
         ) => Some(prepared),
     };
-    let leaves = match prepared {
-        Some(prepared) => judge_all(prepared, deps, &req.session, cancel).await,
-        None => cancelled_all(&subtree),
+    let (leaves, reports) = match prepared {
+        Some(prepared) => {
+            let (periods, plain): (Vec<Prepared>, Vec<Prepared>) = prepared
+                .into_iter()
+                .partition(|p| subtree.node(p.node_id()).is_some_and(|n| n.arithmetic.is_some()));
+            let (mut leaves, (computed, reports)) = tokio::join!(
+                judge_all(plain, deps, &req.session, cancel),
+                judge_periods(periods, &subtree, deps, &req.session, req.today, cancel),
+            );
+            leaves.extend(computed);
+            (leaves, reports)
+        }
+        None => (cancelled_all(&subtree), Vec::new()),
     };
+    let periods = period_facts(&reports);
     let (raw, subtree, leaves, assumptions) =
-        solve(subtree, leaves, req.assumptions, &req.root, deps).await?;
-    from_raw(raw, graph, &subtree, &leaves, &assumptions)
+        solve(subtree, leaves, periods, req.assumptions, &req.root, deps).await?;
+    let mut verdict = from_raw(raw, graph, &subtree, &leaves, &assumptions)?;
+    verdict.periods = reports;
+    Ok(verdict)
 }
 
 type Solved = (
@@ -79,6 +92,7 @@ type Solved = (
 async fn solve<F, A, C>(
     subtree: ClaimGraph,
     leaves: HashMap<NodeId, LeafResult>,
+    periods: HashMap<NodeId, PeriodFacts>,
     assumptions: HashMap<NodeId, bool>,
     root: &NodeId,
     deps: &EngineDeps<F, A, C>,
@@ -91,8 +105,10 @@ where
     let timeout = deps.settings.solver_timeout;
     let shared = Arc::new((subtree, leaves, assumptions));
     let input = shared.clone();
-    let joined =
-        tokio::task::spawn_blocking(move || check(&input.0, &input.1, &input.2, timeout)).await;
+    let joined = tokio::task::spawn_blocking(move || {
+        check_with_periods(&input.0, &input.1, &periods, &input.2, timeout)
+    })
+    .await;
     let raw = match joined {
         Ok(result) => result?,
         Err(error) => {

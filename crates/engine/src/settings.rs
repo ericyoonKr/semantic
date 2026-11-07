@@ -1,5 +1,7 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use checks::holidays::HolidayData;
 use llm::CallOptions;
 
 pub const LEAF_PRIORITY: i32 = 2;
@@ -16,6 +18,7 @@ pub struct EngineSettings {
     pub leaf_deadline: Duration,
     pub call: CallOptions,
     pub solver_timeout: Duration,
+    pub holidays: Arc<HolidayData>,
 }
 
 impl EngineSettings {
@@ -37,6 +40,7 @@ impl EngineSettings {
                 ..CallOptions::default()
             },
             solver_timeout,
+            holidays: Arc::new(HolidayData::NotSet),
         }
     }
 }

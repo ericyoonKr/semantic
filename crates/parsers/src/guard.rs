@@ -51,14 +51,14 @@ impl Deadline {
     }
 }
 
-pub(crate) fn check_size(bytes: &[u8], limits: &GuardLimits) -> Result<(), ParseError> {
+pub fn check_size(bytes: &[u8], limits: &GuardLimits) -> Result<(), ParseError> {
     if bytes.len() as u64 > limits.max_file_bytes {
         return Err(ParseError::TooLarge);
     }
     Ok(())
 }
 
-pub(crate) fn check_document(doc: &Document, limits: &GuardLimits) -> Result<(), ParseError> {
+pub fn check_document(doc: &Document, limits: &GuardLimits) -> Result<(), ParseError> {
     let mut chars: u64 = 0;
     let mut visible = false;
     let mut max_page: u32 = 0;

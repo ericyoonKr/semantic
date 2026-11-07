@@ -1,3 +1,5 @@
+mod period;
+
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -8,6 +10,8 @@ use z3::{Config, SatResult, Solver, with_z3_config};
 use crate::error::EngineError;
 use crate::graph::ClaimGraph;
 use crate::schema::{GateType, LeafResult, NodeId, Relation};
+
+pub use period::{PeriodFacts, period_facts};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SolverResult {
@@ -45,6 +49,16 @@ pub fn check(
     assumptions: &HashMap<NodeId, bool>,
     timeout: Duration,
 ) -> Result<RawVerdict, EngineError> {
+    check_with_periods(subtree, leaves, &HashMap::new(), assumptions, timeout)
+}
+
+pub fn check_with_periods(
+    subtree: &ClaimGraph,
+    leaves: &HashMap<NodeId, LeafResult>,
+    periods: &HashMap<NodeId, PeriodFacts>,
+    assumptions: &HashMap<NodeId, bool>,
+    timeout: Duration,
+) -> Result<RawVerdict, EngineError> {
     let roots = subtree.roots();
     let [scope] = roots.as_slice() else {
         return Err(EngineError::NotSingleRoot(roots));
@@ -52,7 +66,7 @@ pub fn check(
     let plan = plan(subtree, leaves, assumptions)?;
     let mut cfg = Config::new();
     cfg.set_timeout_msec(u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX).max(1));
-    let solved = with_z3_config(&cfg, || solve(subtree, &plan, scope));
+    let solved = with_z3_config(&cfg, || solve(subtree, &plan, periods, scope));
     Ok(RawVerdict {
         scope: scope.clone(),
         holds: solved.holds,
@@ -73,9 +87,6 @@ fn plan(
     let mut facts = Vec::new();
     let mut free = Vec::new();
     for leaf in subtree.leaves() {
-        if leaf.arithmetic.is_some() {
-            return Err(EngineError::ArithmeticUnsupported(leaf.id.clone()));
-        }
         match leaves.get(&leaf.id) {
             None => return Err(EngineError::MissingLeafResult(leaf.id.clone())),
             Some(LeafResult::Judged { value, .. }) => facts.push((leaf.id.clone(), *value)),
@@ -98,13 +109,26 @@ fn plan(
     })
 }
 
-fn solve(graph: &ClaimGraph, plan: &Plan, root: &NodeId) -> Solved {
+fn solve(
+    graph: &ClaimGraph,
+    plan: &Plan,
+    periods: &HashMap<NodeId, PeriodFacts>,
+    root: &NodeId,
+) -> Solved {
     let (vars, holds) = build(graph, &plan.order);
     let solver = Solver::new();
     let mut trackers: Vec<(Bool, NodeId)> = Vec::new();
     for (id, value) in &plan.facts {
-        if let Some(v) = vars.get(id) {
-            track(&solver, &mut trackers, literal(v, *value), id);
+        let Some(v) = vars.get(id) else {
+            continue;
+        };
+        match periods.get(id) {
+            Some(facts) => {
+                let (definition, known) = period::encode(v, id, facts);
+                solver.assert(&definition);
+                track(&solver, &mut trackers, known, id);
+            }
+            None => track(&solver, &mut trackers, literal(v, *value), id),
         }
     }
     for (id, value) in &plan.assumed {

@@ -148,9 +148,16 @@ async fn prepare<F: FactProvider, A: AuthoritySearch>(
                 })
         }
     };
-    let search = shared
-        .authority
-        .search(&proposition, shared.plan.authority_k);
+    let search = async {
+        if leaf.arithmetic.is_some() {
+            Ok(AuthoritySnapshot::default())
+        } else {
+            shared
+                .authority
+                .search(&proposition, shared.plan.authority_k)
+                .await
+        }
+    };
     let (document, snapshot) = tokio::join!(document, search);
     let document = match document {
         Ok(document) => document,

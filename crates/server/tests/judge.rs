@@ -3,7 +3,9 @@ mod common;
 use std::path::Path;
 use std::time::Duration;
 
+use axum::Router;
 use axum::http::StatusCode;
+use axum::routing::post;
 use common::{
     Boxed, CONSUMER, SID, TestResult, call, config, post_json, request, tiny_docx, upload_request,
     write_bundle,
@@ -154,13 +156,15 @@ async fn judge_reports_unknown_leaves_needed_facts_and_assumptions() -> TestResu
 }
 
 #[tokio::test]
-async fn arithmetic_scope_and_bad_inputs_are_answered_plainly() -> TestResult {
+async fn arithmetic_scope_is_judged_and_bad_inputs_are_answered_plainly() -> TestResult {
     let tmp = tempfile::tempdir()?;
     let (_state, router) = app_with(tmp.path(), &ENGINE).await?;
     let (status, body) = post_json(&router, &judge_uri(), json!({"claim_type": CLAIM, "node_id": "ROOT"})).await?;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(body["verdict"].is_null());
-    assert!(body["text"].as_str().is_some_and(|t| t.contains("산술 리프") && t.contains("S1")), "{body}");
+    assert_eq!(body["verdict"]["outcome"], "Reserved", "{body}");
+    let text = body["text"].as_str().unwrap_or_default();
+    assert!(text.contains("기간 계산 (S1 S1 설명): 안 날부터 90일"), "{text}");
+    assert!(!text.contains("산술 리프"), "{text}");
     for (bad, why) in [
         (json!({"claim_type": "NOPE", "node_id": "A"}), "알 수 없는 청구 유형"),
         (json!({"claim_type": CLAIM, "node_id": "ZZ"}), "요건 트리에 없는 노드"),
@@ -200,5 +204,61 @@ async fn upload_cancels_a_judge_waiting_for_the_solver_cap() -> TestResult {
     drop(held);
     let (_, again) = post_json(&router, &judge_uri(), json!({"claim_type": CLAIM, "node_id": "A"})).await?;
     assert_eq!(again["verdict"]["outcome"], "Reserved", "{again}");
+    Ok(())
+}
+
+async fn fake_model() -> Boxed<String> {
+    let handler = |axum::Json(body): axum::Json<Value>| async move {
+        let user = body["messages"][1]["content"].as_str().unwrap_or_default().to_string();
+        let knew = "2026. 3. 2. 처분서를 받았습니다";
+        let filed = "2026. 6. 1. 소를 제기했습니다";
+        let to = if user.contains(filed) {
+            json!({"name": "제소일", "date": "2026-06-01", "quote": filed, "source": "user:F1"})
+        } else {
+            json!({"name": "제소일", "date": "", "quote": "", "source": ""})
+        };
+        let answer = json!({"dates": [
+            {"name": "안_날", "date": "2026-03-02", "quote": knew, "source": "user:F1"}, to],
+            "start": {"value": "Unknown", "quote": "", "source": ""}});
+        axum::Json(json!({"choices": [{"message": {"role": "assistant", "content": answer.to_string()}}]}))
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let app = Router::new().route("/v1/chat/completions", post(handler));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok(format!("http://{addr}/v1"))
+}
+
+#[tokio::test]
+async fn arithmetic_leaf_counts_the_period_from_quoted_dates_and_the_holiday_file() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let holidays = tmp.path().join("holidays.json");
+    std::fs::write(&holidays, json!({"schema": "holidays-kr/1", "years": [{"year": 2026, "sources": ["test"],
+        "holidays": [{"date": "2026-06-03", "name": "선거일"}]}]}).to_string())?;
+    let url = fake_model().await?;
+    let holidays = holidays.to_string_lossy().into_owned();
+    let mut settings = ENGINE.to_vec();
+    settings.push(("LLM_BASE_URL", url.as_str()));
+    settings.push(("HOLIDAYS_FILE", holidays.as_str()));
+    let (_state, router) = app_with(tmp.path(), &settings).await?;
+    let fact = |text: &str| json!({"claim_type": CLAIM, "node_id": "S",
+        "user_facts": [{"fact_id": "F1", "text": text, "message_id": "m1"}]});
+    let (status, body) = post_json(&router, &judge_uri(), fact("저는 2026. 3. 2. 처분서를 받았습니다. 2026. 6. 1. 소를 제기했습니다.")).await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["outcome"], "Established", "{body}");
+    let text = body["text"].as_str().unwrap_or_default();
+    assert!(text.contains("- 기산일(안 날): 2026-03-02(월) — 「2026. 3. 2. 처분서를 받았습니다」 (사용자 진술 #F1에 근거함)"), "{text}");
+    assert!(text.contains("넣지 않는 경우와 넣는 경우를 모두 계산함"), "{text}");
+    assert!(text.contains("- 말일(초일을 넣지 않으면): 2026-05-31(일) — 2026-05-31(일) 일요일이라 2026-06-01(월)로 미룸(민법 제161조)"), "{text}");
+    assert!(text.contains("- 공휴일 자료: 공휴일 파일의 그 해 목록을 적용함"), "{text}");
+    assert!(text.contains("- 결과: 2026-06-01(월)이 말일 2026-06-01(월) 이내임 — 참"), "{text}");
+
+    let (_, body) = post_json(&router, &judge_uri(), fact("저는 2026. 3. 2. 처분서를 받았습니다.")).await?;
+    assert_eq!(body["verdict"]["outcome"], "NotEstablished", "{body}");
+    let text = body["text"].as_str().unwrap_or_default();
+    assert!(text.contains("사실 자료에 없어 판정일") && text.contains("(한국 시각)을 제소일로 보고 계산함"), "{text}");
+    assert!(text.contains("— 거짓"), "{text}");
     Ok(())
 }

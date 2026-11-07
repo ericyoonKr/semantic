@@ -147,6 +147,7 @@ pub fn render(
         v.scope
     );
     core(&mut out, v, tree);
+    crate::judge::period_text::periods(&mut out, v, tree);
     unknown(&mut out, v, tree);
     assumed(&mut out, v, tree, said);
     hint(&mut out, v, tree);
@@ -205,6 +206,7 @@ mod tests {
             model_hint: Some(vec![(NodeId::new("B"), true)]),
             needed_facts: vec![(NodeId::new("B"), "a".into())],
             path: vec![vec![(NodeId::new("R"), "R-label".into(), GateType::And)]],
+            periods: Vec::new(),
         };
         let said = HashMap::from([(NodeId::new("A"), "그렇다 치고".to_string())]);
         let text = render(&v, &t, &said, Some("문서 수정판 도착"));

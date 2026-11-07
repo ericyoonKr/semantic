@@ -399,6 +399,7 @@ dependencies = [
  "docmodel",
  "regex",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

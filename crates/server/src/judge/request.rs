@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+use chrono::{FixedOffset, NaiveDate, Utc};
 use engine::{ClaimGraph, JudgeRequest, NodeId, UserFact};
 use serde::Deserialize;
 
@@ -38,7 +39,6 @@ pub struct JudgeJob {
     pub tree: Arc<ClaimGraph>,
     pub request: JudgeRequest,
     pub said: HashMap<NodeId, String>,
-    pub arithmetic: Option<NodeId>,
     pub deadline_at: Instant,
 }
 
@@ -92,6 +92,16 @@ fn user_facts(given: Vec<UserFactBody>) -> Result<Vec<UserFact>, ApiError> {
         .collect()
 }
 
+const SEOUL_SECS: i32 = 9 * 3600;
+
+pub fn today_in_seoul() -> NaiveDate {
+    let now = Utc::now();
+    match FixedOffset::east_opt(SEOUL_SECS) {
+        Some(offset) => now.with_timezone(&offset).date_naive(),
+        None => now.date_naive(),
+    }
+}
+
 pub fn prepare(
     rules: &RuleSet,
     sid: &SessionId,
@@ -106,20 +116,16 @@ pub fn prepare(
         .subtree(&root)
         .map_err(|_| bad("그 청구 유형의 요건 트리에 없는 노드입니다"))?;
     let (values, said) = assumptions(&scope, body.assumptions)?;
-    let arithmetic = scope
-        .leaves()
-        .find(|l| l.arithmetic.is_some())
-        .map(|l| l.id.clone());
     Ok(JudgeJob {
         request: JudgeRequest {
             session: sid.as_str().to_string(),
             root,
             assumptions: values,
             user_facts: user_facts(body.user_facts)?,
+            today: today_in_seoul(),
         },
         tree,
         said,
-        arithmetic,
         deadline_at,
     })
 }

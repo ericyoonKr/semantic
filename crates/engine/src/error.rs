@@ -62,8 +62,6 @@ pub enum EngineError {
     NotSingleRoot(Vec<NodeId>),
     #[error("리프 판정 결과가 없다: {0}")]
     MissingLeafResult(NodeId),
-    #[error("산술 리프는 아직 컴파일하지 않는다: {0}")]
-    ArithmeticUnsupported(NodeId),
 }
 
 fn join_issues(issues: &[GraphIssue]) -> String {

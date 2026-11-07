@@ -1,9 +1,10 @@
+use docmodel::Anchor;
 use llm::LlmError;
 
 use super::ask::{AskFailure, Asked, LeafAnswer};
-use crate::deps::FactProvider;
+use crate::deps::{DepError, FactProvider};
 use crate::schema::{FailureReason, LeafResult, Trit};
-use crate::slices::{FactDocument, LeafRequest};
+use crate::slices::{FactDocument, FactSlice, LeafRequest};
 
 pub const CANCELLED: &str = "판정이 취소됨";
 pub const ABORTED: &str = "판정 작업이 끝나지 않음";
@@ -52,7 +53,7 @@ pub(crate) async fn settle<F: FactProvider>(
     }
 }
 
-fn from_failure(failure: AskFailure) -> Settled {
+pub(crate) fn from_failure(failure: AskFailure) -> Settled {
     match failure {
         AskFailure::Llm(LlmError::Timeout) => Settled::unknown(FailureReason::LlmTimeout, false),
         AskFailure::Llm(LlmError::ParseFailed) => {
@@ -67,6 +68,30 @@ fn from_failure(failure: AskFailure) -> Settled {
         AskFailure::Aborted => {
             Settled::unknown(FailureReason::Cancelled(ABORTED.to_string()), false)
         }
+    }
+}
+
+pub(crate) async fn locate_in<F: FactProvider>(
+    facts: &F,
+    session: &str,
+    slice: &FactSlice,
+    source: &str,
+    quote: &str,
+) -> Result<Option<Anchor>, DepError> {
+    if source == "doc" {
+        if slice.document == FactDocument::Absent {
+            Ok(None)
+        } else {
+            facts.locate(session, quote).await
+        }
+    } else if let Some(fact_id) = source.strip_prefix("user:") {
+        Ok(slice
+            .user_facts
+            .iter()
+            .find(|f| f.fact_id == fact_id.trim())
+            .and_then(|f| facts.locate_user(f, quote)))
+    } else {
+        Ok(None)
     }
 }
 
@@ -90,24 +115,7 @@ async fn from_answer<F: FactProvider>(
     if quote.is_empty() {
         return Settled::unknown(FailureReason::QuoteNotFound, true);
     }
-    let source = answer.source.trim();
-    let located = if source == "doc" {
-        if req.facts.document == FactDocument::Absent {
-            Ok(None)
-        } else {
-            facts.locate(session, quote).await
-        }
-    } else if let Some(fact_id) = source.strip_prefix("user:") {
-        Ok(req
-            .facts
-            .user_facts
-            .iter()
-            .find(|f| f.fact_id == fact_id.trim())
-            .and_then(|f| facts.locate_user(f, quote)))
-    } else {
-        Ok(None)
-    };
-    match located {
+    match locate_in(facts, session, &req.facts, answer.source.trim(), quote).await {
         Ok(Some(anchor)) => Settled::kept(LeafResult::Judged {
             value,
             anchor,

@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use llm::{CallOptions, LlmClient, LlmError, LlmLimiter, acquire_tiered};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::deps::{AuthoritySearch, EngineDeps, FactProvider, LeafCache};
 use crate::prompt::{SYSTEM, user_message};
 use crate::schema::{NodeId, Trit};
 use crate::slices::LeafRequest;
@@ -40,13 +42,30 @@ pub(crate) struct Caller {
 }
 
 impl Caller {
+    pub(crate) fn new<F, A, C>(deps: &EngineDeps<F, A, C>, cancel: &CancellationToken) -> Self
+    where
+        F: FactProvider,
+        A: AuthoritySearch,
+        C: LeafCache,
+    {
+        Self {
+            llm: deps.llm.clone(),
+            local: LlmLimiter::new(deps.settings.per_judge_permits),
+            global: deps.limiter.clone(),
+            call: deps.settings.call.clone(),
+            deadline: deps.settings.leaf_deadline,
+            cancel: cancel.clone(),
+        }
+    }
+
     async fn ask(self, req: Arc<LeafRequest>) -> Asked {
+        self.call::<LeafAnswer>(SYSTEM, &user_message(&req)).await
+    }
+
+    pub(crate) async fn call<T: DeserializeOwned>(&self, system: &str, user: &str) -> Result<T, AskFailure> {
         let work = async {
             let _permit = acquire_tiered(&self.local, &self.global).await?;
-            let user = user_message(&req);
-            self.llm
-                .complete_json::<LeafAnswer>(SYSTEM, &user, &self.call)
-                .await
+            self.llm.complete_json::<T>(system, user, &self.call).await
         };
         tokio::select! {
             biased;

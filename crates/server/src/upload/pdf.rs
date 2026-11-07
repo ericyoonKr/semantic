@@ -2,8 +2,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::thread;
 
-use docmodel::{Block, Document};
-use parsers::{GuardLimits, PDF_PENDING, ParseError, PdfReader};
+use docmodel::Document;
+use parsers::{GuardLimits, PDF_PENDING, ParseError, PdfReader, check_document, check_size};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::ApiError;
@@ -84,43 +84,8 @@ fn serve(dir: &Path, mut rx: mpsc::Receiver<Job>) {
 }
 
 fn read_checked(reader: &PdfReader, bytes: &[u8], limits: &GuardLimits) -> Reply {
-    if bytes.len() as u64 > limits.max_file_bytes {
-        return Err(ParseError::TooLarge);
-    }
+    check_size(bytes, limits)?;
     let doc = reader.read(bytes, parsers::file_id(bytes))?;
     check_document(&doc, limits)?;
     Ok(doc)
-}
-
-fn check_document(doc: &Document, limits: &GuardLimits) -> Result<(), ParseError> {
-    let mut chars: u64 = 0;
-    let mut visible = false;
-    let mut max_page: u32 = 0;
-    for block in &doc.blocks {
-        let (texts, pages): (Vec<&str>, Vec<Option<u32>>) = match block {
-            Block::Heading { text, anchor, .. } | Block::Para { text, anchor } => {
-                (vec![text.as_str()], vec![anchor.page])
-            }
-            Block::Table(t) => (
-                t.cells.iter().map(|c| c.text.as_str()).collect(),
-                t.cells
-                    .iter()
-                    .map(|c| c.anchor.page)
-                    .chain([t.anchor.page])
-                    .collect(),
-            ),
-        };
-        for text in texts {
-            chars += text.chars().count() as u64;
-            visible |= text.chars().any(|c| !c.is_whitespace());
-        }
-        max_page = pages.into_iter().flatten().fold(max_page, u32::max);
-    }
-    if chars > limits.max_chars || max_page > limits.max_pages {
-        return Err(ParseError::TooLarge);
-    }
-    if !visible {
-        return Err(ParseError::EmptyText);
-    }
-    Ok(())
 }

@@ -12,7 +12,6 @@ pub const SHUTTING_DOWN: &str = "서버 종료";
 pub const SESSION_CLOSED: &str = "세션이 닫힘";
 pub const OUT_OF_TIME: &str = "처리 시간 제한을 넘음";
 pub const ENGINE_OFF: &str = "판정 기능이 꺼져 있음(모델 설정 없음)";
-pub const NO_ARITHMETIC: &str = "기간 계산이 필요한 리프(산술 리프)가 든 범위는 아직 판정하지 않음";
 
 fn why(state: &AppState, ticket: &JudgeTicket) -> &'static str {
     if ticket.revised() {
@@ -37,16 +36,12 @@ pub async fn run(state: &AppState, job: JudgeJob, ticket: JudgeTicket) -> Result
         tree,
         request,
         said,
-        arithmetic,
         deadline_at,
     } = job;
     let root = request.root.clone();
     let Some(parts) = state.engine.as_ref() else {
         return Ok(not_run(&tree, &root, unavailable(ENGINE_OFF)));
     };
-    if let Some(id) = arithmetic {
-        return Ok(not_run(&tree, &root, unavailable(&format!("{NO_ARITHMETIC} — {id}"))));
-    }
     let run = ticket.token.child_token();
     let stop_at = deadline_at
         .checked_sub(state.cfg.judge.wrapup)
@@ -85,9 +80,6 @@ pub async fn run(state: &AppState, job: JudgeJob, ticket: JudgeTicket) -> Result
             );
             let text = render(&verdict, &tree, &said, interrupted);
             Ok(judged(&verdict, &tree, text))
-        }
-        Some(Err(EngineError::ArithmeticUnsupported(id))) => {
-            Ok(not_run(&tree, &root, unavailable(&format!("{NO_ARITHMETIC} — {id}"))))
         }
         Some(Err(EngineError::UnknownNode(_))) => {
             Err(ApiError::bad_request("가정한 노드가 판정 범위 밖에 있습니다"))

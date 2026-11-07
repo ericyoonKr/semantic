@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::compile::{RawVerdict, SolverResult};
 use crate::error::EngineError;
 use crate::graph::ClaimGraph;
+use crate::period::PeriodReport;
 use crate::schema::{FailureReason, GateType, LeafResult, NodeId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +25,8 @@ pub struct Verdict {
     pub model_hint: Option<Vec<(NodeId, bool)>>,
     pub needed_facts: Vec<(NodeId, String)>,
     pub path: Vec<Vec<(NodeId, String, GateType)>>,
+    #[serde(default)]
+    pub periods: Vec<PeriodReport>,
 }
 
 pub fn outcome_of(holds: SolverResult, fails: SolverResult) -> Outcome {
@@ -83,5 +86,6 @@ pub fn from_raw(
         model_hint,
         needed_facts,
         path,
+        periods: Vec::new(),
     })
 }

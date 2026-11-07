@@ -1,11 +1,10 @@
-mod ask;
-mod settle;
+pub(crate) mod ask;
+pub(crate) mod settle;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use futures::future::join_all;
-use llm::LlmLimiter;
 use tokio_util::sync::CancellationToken;
 
 use crate::deps::{AuthoritySearch, EngineDeps, FactProvider, LeafCache};
@@ -45,14 +44,7 @@ where
     let mut run = Run {
         deps,
         session,
-        caller: Caller {
-            llm: deps.llm.clone(),
-            local: LlmLimiter::new(deps.settings.per_judge_permits),
-            global: deps.limiter.clone(),
-            call: deps.settings.call.clone(),
-            deadline: deps.settings.leaf_deadline,
-            cancel: cancel.clone(),
-        },
+        caller: Caller::new(deps, cancel),
         ready: HashMap::new(),
         keys: HashMap::new(),
         hits: HashMap::new(),

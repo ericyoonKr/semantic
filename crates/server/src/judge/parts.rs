@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use checks::holidays::{HolidayData, load};
 use engine::{EngineDeps, EngineSettings};
 use llm::{LlmClient, LlmLimiter};
 use sessdb::SessDb;
@@ -31,15 +34,25 @@ impl EngineParts {
                 return None;
             }
         };
+        let mut settings = EngineSettings::new(
+            engine.fact_budget_tokens,
+            engine.candidate_k,
+            engine.authority_k,
+            engine.solver_timeout,
+        );
+        let holidays = load(cfg.holidays_file.as_deref());
+        match &holidays {
+            HolidayData::Loaded(h) => {
+                tracing::info!(years = ?h.covered_years().collect::<Vec<_>>(), "holiday file loaded");
+            }
+            HolidayData::NotSet => tracing::warn!("HOLIDAYS_FILE is not set; lunar and substitute holidays are not applied"),
+            HolidayData::Failed(why) => tracing::error!(error = %why, "holiday file could not be read; lunar and substitute holidays are not applied"),
+        }
+        settings.holidays = Arc::new(holidays);
         Some(Self {
             llm,
             limiter: LlmLimiter::new(cfg.leaf_permits),
-            settings: EngineSettings::new(
-                engine.fact_budget_tokens,
-                engine.candidate_k,
-                engine.authority_k,
-                engine.solver_timeout,
-            ),
+            settings,
             cache: LeafStore::new(db.clone(), cfg.leaf_cache_entries),
         })
     }

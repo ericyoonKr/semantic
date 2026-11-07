@@ -1,17 +1,34 @@
+mod bounds;
+
 use std::collections::BTreeSet;
 
 use chrono::{Datelike, Days, Months, NaiveDate, Weekday};
+
+pub use bounds::{Bounds, PeriodUnit, Rolled, StartKnown, bounds, period_end, roll};
 
 const FIXED_SOLAR: [(u32, u32); 8] = [(1, 1), (3, 1), (5, 5), (6, 6), (8, 15), (10, 3), (10, 9), (12, 25)];
 
 #[derive(Debug, Clone, Default)]
 pub struct Holidays {
     extra: BTreeSet<NaiveDate>,
+    covered: BTreeSet<i32>,
 }
 
 impl Holidays {
     pub fn new(extra: impl IntoIterator<Item = NaiveDate>) -> Self {
-        Self { extra: extra.into_iter().collect() }
+        Self { extra: extra.into_iter().collect(), covered: BTreeSet::new() }
+    }
+
+    pub fn with_years(extra: impl IntoIterator<Item = NaiveDate>, covered: impl IntoIterator<Item = i32>) -> Self {
+        Self { extra: extra.into_iter().collect(), covered: covered.into_iter().collect() }
+    }
+
+    pub fn covers(&self, year: i32) -> bool {
+        self.covered.contains(&year)
+    }
+
+    pub fn covered_years(&self) -> impl Iterator<Item = i32> + '_ {
+        self.covered.iter().copied()
     }
 
     pub fn is_closed(&self, d: NaiveDate) -> bool {
