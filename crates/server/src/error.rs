@@ -20,6 +20,22 @@ pub enum ConfigError {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum RulesError {
+    #[error("requirement tree bundle could not be read: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("requirement tree manifest is not valid")]
+    Manifest,
+    #[error("requirement tree {0} did not pass the knowledge graph checks")]
+    NotVerified(String),
+    #[error("requirement tree {0} does not match its sha256")]
+    Sha256(String),
+    #[error("requirement tree {0} has a bad line {1}")]
+    Line(String, usize),
+    #[error("requirement tree {0} failed the engine checks: {1}")]
+    Graph(String, engine::EngineError),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum StartupError {
     #[error("{0}")]
     Config(#[from] ConfigError),

@@ -1,8 +1,11 @@
 pub mod catalog;
 pub mod files;
 pub mod health;
+pub mod judge;
 pub mod kg;
 pub mod middleware;
+pub mod rules;
+pub mod search;
 pub mod sessions;
 
 use axum::Router;
@@ -26,6 +29,13 @@ pub fn router(state: AppState) -> Router {
         .route("/kg/catalog", get(catalog::kg_catalog))
         .route("/sessions/{sid}/kg/find", post(kg::find))
         .route("/sessions/{sid}/kg/expand", post(kg::expand))
+        .route("/catalog", get(rules::catalog))
+        .route("/sessions/{sid}/judge", post(judge::judge))
+        .route("/search/laws", post(search::search_laws))
+        .route("/search/cases", post(search::search_cases))
+        .route("/laws/unit", get(search::law_unit))
+        .route("/cases/{decision_id}", get(search::case))
+        .route("/citations", get(search::citations))
         .layer(DefaultBodyLimit::max(limits.json_body_bytes))
         .layer(from_fn_with_state(state.clone(), middleware::internal_key))
         .layer(CatchPanicLayer::custom(middleware::panic_response))

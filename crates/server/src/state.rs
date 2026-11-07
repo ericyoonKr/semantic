@@ -10,7 +10,9 @@ use tokio_util::task::TaskTracker;
 
 use crate::config::Config;
 use crate::error::StartupError;
+use crate::judge::EngineParts;
 use crate::kgids::KgIdLocks;
+use crate::rules::RuleSet;
 use crate::session::Registry;
 use crate::tasks;
 
@@ -18,6 +20,10 @@ pub struct Inner {
     pub cfg: Config,
     pub db: SessDb,
     pub kg: Arc<KgSet>,
+    pub rules: Arc<RuleSet>,
+    pub engine: Option<EngineParts>,
+    pub corpus: Option<retrieval::Corpus>,
+    pub z3: Semaphore,
     pub cpu: rayon::ThreadPool,
     pub uploads: Semaphore,
     pub sessions: Registry,
@@ -47,7 +53,14 @@ impl AppState {
             .build()
             .map_err(|_| StartupError::CpuPool)?;
         let kg = Arc::new(load_kg(&cfg, &cpu).await);
+        let rules = Arc::new(crate::rules::startup(cfg.kg_dir.clone(), kg.clone(), &cpu).await);
+        let engine = EngineParts::build(&cfg.judge, &db);
+        let corpus = cfg.corpus.open();
         Ok(Self(Arc::new(Inner {
+            rules,
+            engine,
+            corpus,
+            z3: Semaphore::new(cfg.judge.z3_concurrency),
             uploads: Semaphore::new(cfg.limits.upload_concurrency),
             cfg,
             db,

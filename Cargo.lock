@@ -1061,6 +1061,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
+ "tempfile",
  "thiserror",
  "tokio",
  "tower",
@@ -2127,15 +2128,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgvector"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3673cba5b9a124916096a423b806a9f29620972c6c97b08db5f2053e9428b481"
-dependencies = [
- "sqlx",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2427,10 +2419,11 @@ dependencies = [
 name = "retrieval"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "chrono",
  "docmodel",
  "llm",
  "moka",
- "pgvector",
  "reqwest",
  "serde",
  "serde_json",
@@ -2713,14 +2706,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "checks",
+ "chrono",
  "docmodel",
+ "engine",
  "kg",
+ "llm",
+ "moka",
  "parsers",
  "rayon",
+ "retrieval",
  "serde",
  "serde_json",
  "sessdb",
  "sha2 0.10.9",
+ "sqlx",
  "tempfile",
  "thiserror",
  "tokio",

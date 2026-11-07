@@ -9,6 +9,7 @@ use crate::error::ApiError;
 use crate::session::SessionId;
 use crate::state::AppState;
 use crate::tasks;
+use crate::upload::findings;
 use crate::upload::record::{FileMeta, Finding, UploadReply, describe_warning};
 
 pub struct IncomingFile {
@@ -73,7 +74,7 @@ fn prepare(file: IncomingFile, limits: &Limits) -> Result<Prepared, ApiError> {
     let format = format_name(parsers::detect(&file.bytes)?);
     drop(file.bytes);
     let (text, spans) = doc.render_paged();
-    let findings: Vec<Finding> = Vec::new();
+    let findings: Vec<Finding> = findings::of(&doc);
     let reply = UploadReply {
         file_id: doc.source.0.clone(),
         filename: file.filename,

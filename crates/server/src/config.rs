@@ -8,6 +8,10 @@ use parsers::GuardLimits;
 
 use crate::error::ConfigError;
 
+mod corpus;
+
+pub use corpus::CorpusConfig;
+
 const MIB: u64 = 1024 * 1024;
 const DEFAULT_BIND: &str = "127.0.0.1:8080";
 const DATA_FOLDER: &str = "semantic-data";
@@ -70,6 +74,8 @@ pub struct Config {
     pub bind: SocketAddr,
     pub limits: Limits,
     pub threads: Threads,
+    pub judge: crate::judge::JudgeConfig,
+    pub corpus: CorpusConfig,
 }
 
 struct Reader<F> {
@@ -158,6 +164,8 @@ impl Config {
             tokio_blocking: r.positive("TOKIO_BLOCKING_THREADS", 32)?,
             rayon: r.positive("RAYON_THREADS", 12)?,
         };
+        let judge = crate::judge::config::read(&r.get)?;
+        let corpus = corpus::read(&r)?;
         Ok(Self {
             data_dir,
             kg_dir,
@@ -167,6 +175,8 @@ impl Config {
             bind,
             limits,
             threads,
+            judge,
+            corpus,
         })
     }
 

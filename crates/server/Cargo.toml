@@ -10,6 +10,13 @@ docmodel = { workspace = true }
 parsers = { workspace = true }
 sessdb = { workspace = true }
 kg = { workspace = true }
+engine = { workspace = true }
+llm = { workspace = true }
+checks = { workspace = true }
+moka = { workspace = true }
+sha2 = { workspace = true }
+retrieval = { workspace = true }
+chrono = { workspace = true }
 
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -30,7 +37,7 @@ tracing-appender = { workspace = true }
 tower = { workspace = true }
 tempfile = { workspace = true }
 zip = { workspace = true }
-sha2 = { workspace = true }
+sqlx = { workspace = true }
 
 [lints.clippy]
 unwrap_used = "deny"
