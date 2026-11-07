@@ -1,4 +1,17 @@
-pub mod docx;
-pub mod hwpx;
-pub mod pdf;
-pub mod pdf_table;
+mod detect;
+mod docx;
+mod error;
+mod guard;
+mod hwpx;
+mod parse;
+mod pdf;
+mod pdf_table;
+mod xml;
+
+#[cfg(test)]
+mod testzip;
+
+pub use detect::{Format, RESAVE_GUIDANCE, detect};
+pub use error::ParseError;
+pub use guard::GuardLimits;
+pub use parse::{PDF_PENDING, file_id, parse};
