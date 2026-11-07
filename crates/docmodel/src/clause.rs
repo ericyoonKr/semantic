@@ -1,14 +1,4 @@
-// clause_id 부여 (PROJECT.md §6.1, §8)
-// 쓰임 — 같은 좌표를 셋이 공유한다:
-// - RAG 청크 단위 = clause (retrieval::upload_index)
-// - fact slice의 출처 = clause_id (engine::leaf)
-// - 답변 인용 = clause_id + anchor (server::answer)
-// 그래서 RAG가 인용한 대목과 엔진의 fact slice 출처가 같은 좌표를 가리킨다.
-//
-// 이 파일은 「블록들을 조항 단위로 묶는다」 한 가지만 한다.
-// 조·항·호 표시 판별은 clause/marker.rs, 표를 글자로 바꾸기는 Table::to_markdown(block.rs).
-
-mod marker; // 조·항·호 표시 판별 — clause/marker.rs
+mod marker;
 
 use crate::{
     anchor::Anchor,
@@ -38,7 +28,6 @@ struct Builder {
     used: HashSet<String>,
 }
 
-// other crate server use this
 pub fn assign_clauses(doc: &Document) -> Vec<Clause> {
     let mut b = Builder::default();
     for (i, block) in doc.blocks.iter().enumerate() {
@@ -110,7 +99,6 @@ impl Builder {
             block_range: (i, i + 1),
         });
     }
-    /// 같은 번호가 또 나오면 "#2", "#3"을 붙여 문서 안에서 겹치지 않게
     fn unique(&mut self, base: String) -> String {
         let mut id = base.clone();
         let mut n = 2;

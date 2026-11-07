@@ -1,19 +1,16 @@
 [project]
 name = "semantic-agent"
 version = "0.1.0"
-description = "채팅 에이전트 — Deep Agents(LangGraph) 위에서 Rust 검색·판정 서비스를 도구로 부른다 (PROJECT.md §4)"
+description = "채팅 에이전트 — Deep Agents(LangGraph) 위에서 Rust 검색·판정 서비스를 도구로 부른다"
 requires-python = ">=3.12"
 dependencies = [
     "langchain>=1.3",
     "langgraph>=1.2",
     "deepagents>=0.6.1",
-    # 세션 기억: 체크포인트를 PostgreSQL에 저장 (thread_id = 세션 ID)
     "langgraph-checkpoint-postgres>=3.1",
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",
-    # OpenAI 호환 엔드포인트용 — 외부 API·로컬 서버(§12 결정 2) 어느 쪽이든 base_url만 바꾼다.
     "langchain-openai>=1.2",
-    # 채팅 창구(HTTP·SSE)와 Rust 서비스 호출
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "httpx>=0.27",

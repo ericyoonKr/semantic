@@ -2,10 +2,12 @@
 name = "checks"
 version.workspace = true
 edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
 
 [dependencies]
 docmodel = { workspace = true }
 chrono = { workspace = true }
-regex = { workspace = true }        # refs: 참조 패턴
+regex = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
