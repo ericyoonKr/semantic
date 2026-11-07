@@ -1,21 +1,30 @@
 [project]
 name = "semantic-agent"
 version = "0.1.0"
-description = "채팅 에이전트 — Deep Agents(LangGraph) 위에서 Rust 검색·판정 서비스를 도구로 부른다"
+description = "행정법 질문에 글로 답하는 채팅 에이전트"
 requires-python = ">=3.12"
 dependencies = [
-    "langchain>=1.3",
-    "langgraph>=1.2",
-    "deepagents>=0.6.1",
-    "langgraph-checkpoint-postgres>=3.1",
-    "psycopg[binary]>=3.2",
-    "psycopg-pool>=3.2",
-    "langchain-openai>=1.2",
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "httpx>=0.27",
-    "pydantic-settings>=2.0",
+    "langchain>=1.4.3",
+    "langgraph>=1.2.12",
+    "deepagents==0.7.19",
+    "langgraph-checkpoint-postgres>=3.1.2",
+    "psycopg[binary]>=3.3.6",
+    "psycopg-pool>=3.3.3",
+    "langchain-openai>=1.6.6",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.54.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.15.0",
 ]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
