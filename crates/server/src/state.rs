@@ -15,6 +15,7 @@ use crate::kgids::KgIdLocks;
 use crate::rules::RuleSet;
 use crate::session::Registry;
 use crate::tasks;
+use crate::upload::PdfWorker;
 
 pub struct Inner {
     pub cfg: Config,
@@ -26,6 +27,7 @@ pub struct Inner {
     pub z3: Semaphore,
     pub cpu: rayon::ThreadPool,
     pub uploads: Semaphore,
+    pub pdf: PdfWorker,
     pub sessions: Registry,
     pub kg_ids: KgIdLocks,
     pub shutdown: CancellationToken,
@@ -62,6 +64,7 @@ impl AppState {
             corpus,
             z3: Semaphore::new(cfg.judge.z3_concurrency),
             uploads: Semaphore::new(cfg.limits.upload_concurrency),
+            pdf: PdfWorker::start(cfg.pdfium_dir.as_deref(), cfg.limits.upload_concurrency),
             cfg,
             db,
             kg,

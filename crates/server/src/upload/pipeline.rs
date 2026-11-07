@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use docmodel::{Block, Document};
-use parsers::Format;
+use parsers::{Format, GuardLimits, ParseError};
 use sessdb::UploadParts;
 
 use crate::config::Limits;
@@ -50,7 +50,17 @@ pub async fn run(
         .map_err(|_| ApiError::closed())?;
     let limits = state.cfg.limits.clone();
     let size = file.bytes.len();
-    let prepared = tasks::cpu(&state.cpu, move || prepare(file, &limits)).await??;
+    let IncomingFile { filename, bytes } = file;
+    let guard = limits.guard.clone();
+    let (doc, format) = match tasks::cpu(&state.cpu, move || parse(bytes, &guard)).await?? {
+        Parsed::Ready(doc, format) => (doc, format),
+        Parsed::Pdf(bytes) => (
+            state.pdf.read(bytes, limits.guard.clone()).await?,
+            Format::Pdf,
+        ),
+    };
+    let prepared =
+        tasks::cpu(&state.cpu, move || prepare(filename, doc, format, &limits)).await??;
     let db = state.db.clone();
     let session = sid.as_str().to_string();
     let prepared = tasks::blocking(move || {
@@ -69,16 +79,33 @@ pub async fn run(
     Ok(prepared.reply)
 }
 
-fn prepare(file: IncomingFile, limits: &Limits) -> Result<Prepared, ApiError> {
-    let doc = parsers::parse(&file.bytes, &limits.guard)?;
-    let format = format_name(parsers::detect(&file.bytes)?);
-    drop(file.bytes);
+enum Parsed {
+    Ready(Document, Format),
+    Pdf(Vec<u8>),
+}
+
+fn parse(bytes: Vec<u8>, guard: &GuardLimits) -> Result<Parsed, ApiError> {
+    match parsers::parse(&bytes, guard) {
+        Ok(doc) => Ok(Parsed::Ready(doc, parsers::detect(&bytes)?)),
+        Err(ParseError::Unsupported(_)) if parsers::detect(&bytes) == Ok(Format::Pdf) => {
+            Ok(Parsed::Pdf(bytes))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn prepare(
+    filename: String,
+    doc: Document,
+    format: Format,
+    limits: &Limits,
+) -> Result<Prepared, ApiError> {
     let (text, spans) = doc.render_paged();
     let findings: Vec<Finding> = findings::of(&doc);
     let reply = UploadReply {
         file_id: doc.source.0.clone(),
-        filename: file.filename,
-        format: format.to_string(),
+        filename,
+        format: format_name(format).to_string(),
         pages: last_page(&doc),
         chars: text.chars().count() as u64,
         outline: doc.outline(limits.outline_level, limits.outline_lines),
