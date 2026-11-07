@@ -211,3 +211,40 @@ async fn case_search_filters_skips_bundles_and_returns_matching_chunk() -> Check
     .await
 }
 
+
+#[tokio::test]
+async fn vector_path_finds_what_text_search_cannot_when_pgvector_is_present() -> Checked {
+    let Some(fx) = fixture::open_vectors().await? else {
+        return Ok(());
+    };
+    let result = async {
+        let embedder = Arc::new(FixedEmbedder {
+            calls: AtomicUsize::new(0),
+        });
+        let c = corpus(&fx, embedder.clone())?;
+        let laws = retrieval::search_laws(&c, &law_query("보상 규모")).await?;
+        check(!laws.degraded, format!("vector path must not degrade: {laws:?}"))?;
+        let keys: Vec<&str> = laws.hits.iter().map(|h| h.unit_key.as_str()).collect();
+        check(keys.first() == Some(&"제3조"), format!("nearest unit first: {keys:?}"))?;
+        check(keys.contains(&"제2조"), format!("farther unit still listed: {keys:?}"))?;
+        let cases = retrieval::search_cases(
+            &c,
+            &CaseQuery {
+                text: "보상 규모".into(),
+                k: 5,
+                ..CaseQuery::default()
+            },
+        )
+        .await?;
+        check(!cases.degraded, "case vector path must not degrade")?;
+        check(
+            cases.hits.first().map(|h| h.text.as_str()) == Some(fixture::REASONS_TAIL),
+            format!("nearest chunk text chosen: {:?}", cases.hits.first().map(|h| &h.text)),
+        )?;
+        check(embedder.calls.load(Ordering::SeqCst) == 2, "embedder called once per search")?;
+        Ok::<(), fixture::Failure>(())
+    }
+    .await;
+    fx.close().await?;
+    result
+}

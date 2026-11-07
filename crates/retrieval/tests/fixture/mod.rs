@@ -65,6 +65,26 @@ pub const SUMMARY_10: &str = "공무원의 직무상 과실로 인한 국가배�
 pub const SUMMARY_11: &str = "처분의 절차상 하자와 담당 공무원의 과실 여부를 판단하였다.";
 pub const BUNDLE_BODY: &str = "묶음 행: 공무원 과실 국가배상 사건 여럿.";
 
+pub const VECTOR_MODEL: &str = "registry-model";
+
+fn literal(near: bool) -> String {
+    let parts: Vec<&str> = (0..1024)
+        .map(|i| if near || i % 2 == 0 { "0.01" } else { "-0.01" })
+        .collect();
+    format!("'[{}]'", parts.join(","))
+}
+
+fn vector_rows() -> Vec<String> {
+    vec![
+        "CREATE TABLE embedding_model (model_id smallint PRIMARY KEY, name text NOT NULL UNIQUE, dim integer NOT NULL)".into(),
+        "CREATE TABLE law_unit_embedding (unit_id bigint NOT NULL REFERENCES law_unit, model_id smallint NOT NULL REFERENCES embedding_model,          embedding halfvec(1024) NOT NULL, PRIMARY KEY (unit_id, model_id))".into(),
+        "CREATE TABLE chunk_embedding (chunk_id bigint NOT NULL REFERENCES decision_chunk, model_id smallint NOT NULL REFERENCES embedding_model,          embedding halfvec(1024) NOT NULL, PRIMARY KEY (chunk_id, model_id))".into(),
+        format!("INSERT INTO embedding_model VALUES (1,'{VECTOR_MODEL}',1024)"),
+        format!("INSERT INTO law_unit_embedding VALUES (4,1,{}), (2,1,{})", literal(true), literal(false)),
+        format!("INSERT INTO chunk_embedding VALUES (1001,1,{}), (1000,1,{})", literal(true), literal(false)),
+    ]
+}
+
 fn rows() -> Vec<String> {
     let head = REASONS_HEAD.chars().count();
     let total = head + REASONS_TAIL.chars().count();
@@ -129,6 +149,14 @@ fn with_search_path(base: &str, path: &str) -> String {
 }
 
 pub async fn open() -> Result<Option<Fixture>, Failure> {
+    open_with(false).await
+}
+
+pub async fn open_vectors() -> Result<Option<Fixture>, Failure> {
+    open_with(true).await
+}
+
+async fn open_with(vectors: bool) -> Result<Option<Fixture>, Failure> {
     let Some(base) = std::env::var(URL_VAR).ok().filter(|v| !v.trim().is_empty()) else {
         eprintln!("{URL_VAR} is not set; database test skipped");
         return Ok(None);
@@ -149,7 +177,7 @@ pub async fn open() -> Result<Option<Fixture>, Failure> {
         admin,
         lock,
     };
-    match fx.fill(&base).await {
+    match fx.fill(&base, vectors).await {
         Ok(url) => Ok(Some(Fixture { url, ..fx })),
         Err(e) => {
             fx.close().await?;
@@ -159,7 +187,7 @@ pub async fn open() -> Result<Option<Fixture>, Failure> {
 }
 
 impl Fixture {
-    async fn fill(&self, base: &str) -> Result<String, Failure> {
+    async fn fill(&self, base: &str, vectors: bool) -> Result<String, Failure> {
         let existing: Option<String> = sqlx::query_scalar(
             "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'",
         )
@@ -177,7 +205,25 @@ impl Fixture {
                 self.schema.clone()
             }
         };
-        let path = format!("{},{}", self.schema, ext_schema);
+        let vector_schema: Option<String> = if vectors {
+            sqlx::query_scalar(
+                "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'vector'",
+            )
+            .fetch_optional(&self.admin)
+            .await?
+        } else {
+            None
+        };
+        if vectors && vector_schema.is_none() {
+            return Err("vector extension is not installed in this database".into());
+        }
+        let mut path = format!("{},{}", self.schema, ext_schema);
+        if let Some(v) = &vector_schema
+            && !path.split(',').any(|p| p == v)
+        {
+            path.push(',');
+            path.push_str(v);
+        }
         let mut tx = self.admin.begin().await?;
         sqlx::query(AssertSqlSafe(format!("SET LOCAL search_path TO {path}")))
             .execute(&mut *tx)
@@ -187,6 +233,11 @@ impl Fixture {
         }
         for stmt in rows() {
             sqlx::query(AssertSqlSafe(stmt)).execute(&mut *tx).await?;
+        }
+        if vector_schema.is_some() {
+            for stmt in vector_rows() {
+                sqlx::query(AssertSqlSafe(stmt)).execute(&mut *tx).await?;
+            }
         }
         tx.commit().await?;
         Ok(with_search_path(base, &path))
