@@ -3,3 +3,12 @@
 *.rs.bk
 .venv/
 __pycache__/
+
+# 데이터는 저장소 밖($DATA_DIR, $KG_DIR)에 둔다 — 실수로 섞여도 커밋되지 않게 (설계서 §2.1)
+/kg/
+/data/
+*.jsonl
+*.json.gz
+*.sqlite
+*.sqlite3
+*.db
