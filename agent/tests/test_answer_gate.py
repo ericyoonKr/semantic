@@ -164,3 +164,46 @@ def test_long_sentence_is_checked_at_limit() -> None:
     gate = SentenceGate(_ledger())
     out = gate.push("가" * 450)
     assert out and len(out[0]) == 400
+
+
+TOOL_LEAKS = [
+    ("검토 결과는 조건부 진행입니다 [read_file].", "검토 결과는 조건부 진행입니다."),
+    ("필수 수정은 2건입니다 (read_file).", "필수 수정은 2건입니다."),
+    ("목차에서 찾았습니다 `grep`.", "목차에서 찾았습니다."),
+    ("두 곳에 적혀 있습니다 [read_file, grep].", "두 곳에 적혀 있습니다."),
+    ("검색 결과가 없습니다 【search_laws】.", "검색 결과가 없습니다."),
+    ("read_file 결과에 따르면 계약 기간은 1년입니다.", "문서 결과에 따르면 계약 기간은 1년입니다."),
+    ("kg_find로 찾은 개념은 공무원입니다.", "지식그래프로 찾은 개념은 공무원입니다."),
+    ("판단은 [judge] 결과를 따릅니다.", "판단은 결과를 따릅니다."),
+    ("조사 결과를 [researcher] 받았습니다.", "조사 결과를 받았습니다."),
+    ("파일을 [ls] 보았습니다.", "파일을 보았습니다."),
+]
+
+KEEP_AS_IS = [
+    "처분서 제목은 「(통지)[과징금 부과]」로 시작합니다.",
+    "계약서 · 3쪽에 적혀 있습니다.",
+    "처분 사유는 (별지) 형식으로 붙어 있습니다.",
+    "제목은 [최종본]입니다.",
+    "task force 구성은 문서에 없습니다.",
+    "판사(judge)라는 말은 쓰이지 않았습니다.",
+]
+
+
+def test_tool_names_are_scrubbed_and_ordinary_brackets_stay() -> None:
+    ledger = _ledger()
+    leaked = [(s, check_sentence(s, ledger).text) for s, _ in TOOL_LEAKS]
+    wrong = [(s, got) for (s, want), (_, got) in zip(TOOL_LEAKS, leaked) if got != want]
+    changed = [s for s in KEEP_AS_IS if check_sentence(s, ledger).text != s]
+    print(f"tool leaks={len(TOOL_LEAKS)} not_cleaned={len(wrong)} keep={len(KEEP_AS_IS)} wrongly_changed={len(changed)}")
+    print("not_cleaned:", wrong)
+    print("wrongly_changed:", changed)
+    assert wrong == []
+    assert changed == []
+
+
+def test_notice_says_search_failed_when_it_did() -> None:
+    ledger = _ledger()
+    ledger.search_failed = True
+    gate = SentenceGate(ledger)
+    out = "".join(gate.push("민법 제750조가 적용됩니다.\n") + gate.flush())
+    assert out.startswith("법령·판례 검색이 지금 되지 않아")

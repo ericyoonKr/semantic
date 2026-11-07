@@ -9,6 +9,12 @@ SNIPPET_CHARS = 300
 EXCERPT_NOTE = "발췌라 인용할 수 없음 — 인용하려면 read_law·read_case로 본문을 읽는다"
 
 
+def failed(err: str | None) -> str | None:
+    if err:
+        current_ledger().search_failed = True
+    return err
+
+
 def ref_line(ref: int) -> str:
     return f"근거 {ref} — 인용할 때 [근거 {ref}]로 쓴다"
 
@@ -101,7 +107,7 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         current_ledger().record_query(query)
         body = {"query": query, "k": k, "as_of": as_of, "law_type": law_type}
         data, err = await client.fetch("POST", "/search/laws", kind="search", fail=SEARCH_FAIL, json=body)
-        return err or material("법령 검색", format_laws(data))
+        return failed(err) or material("법령 검색", format_laws(data))
 
     @tool("search_cases", description="판례를 검색한다. 항목마다 법원·사건번호·선고일·분야·절이 붙는다.")
     async def search_cases(
@@ -122,14 +128,14 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
             "decided_to": decided_to,
         }
         data, err = await client.fetch("POST", "/search/cases", kind="search", fail=SEARCH_FAIL, json=body)
-        return err or material("판례 검색", format_cases(data))
+        return failed(err) or material("판례 검색", format_cases(data))
 
     @tool("read_law", description="조문·별표 전문을 기준일 판본으로 읽는다.")
     async def read_law(law: str, unit: str, as_of: IsoDate | None = None) -> str:
         params = {"law": law, "unit": unit, "as_of": as_of}
         data, err = await client.fetch("GET", "/laws/unit", kind="search", fail=SEARCH_FAIL, params=params)
         if err:
-            return err
+            return failed(err)
         text = format_law_unit(data)
         if data.get("content_status") != "link_only" and not data.get("deleted"):
             text = f"{ref_line(current_ledger().add_law(data).ref)}\n{text}"
@@ -142,7 +148,7 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
             "GET", f"/cases/{decision_id}", kind="search", fail=SEARCH_FAIL, params=params
         )
         if err:
-            return err
+            return failed(err)
         text = f"{ref_line(current_ledger().add_case(data).ref)}\n{format_case(data)}"
         return material(f"판례 {decision_id}", text)
 
@@ -156,6 +162,6 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
             return "인자 오류: decision_id 또는 law와 unit이 필요합니다"
         params = {"decision_id": decision_id, "law": law, "unit": unit}
         data, err = await client.fetch("GET", "/citations", kind="search", fail=SEARCH_FAIL, params=params)
-        return err or material("인용 관계", format_citations(data))
+        return failed(err) or material("인용 관계", format_citations(data))
 
     return [search_laws, search_cases, read_law, read_case, case_citations]

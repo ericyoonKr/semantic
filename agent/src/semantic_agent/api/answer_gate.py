@@ -9,6 +9,21 @@ from semantic_agent.turn import Turn
 log = logging.getLogger(__name__)
 
 NOTICE = "확인하지 못한 근거를 든 문장을 뺐습니다."
+NOTICE_SEARCH = "법령·판례 검색이 지금 되지 않아 근거를 확인하지 못한 문장을 뺐습니다."
+TOOL_LABELS = {
+    "read_file": "문서", "write_file": "메모", "edit_file": "메모", "grep": "문서", "glob": "문서", "ls": "문서",
+    "search_laws": "법령 검색", "search_cases": "판례 검색", "read_law": "법령", "read_case": "판례",
+    "case_citations": "인용 관계", "kg_find": "지식그래프", "kg_expand": "지식그래프", "judge": "요건 판단",
+    "task": "조사", "write_todos": "계획", "researcher": "조사",
+}
+_NAMES = "|".join(sorted(TOOL_LABELS, key=len, reverse=True))
+TOOL_TAG = re.compile(r"(?:^|\s+)[\[(（【`]\s*(?:" + _NAMES + r")(?:\s*[,·/]\s*(?:" + _NAMES + r"))*\s*[\])）】`]")
+TOOL_BARE = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(n for n in TOOL_LABELS if "_" in n) + r")(?![A-Za-z0-9_])")
+
+
+def scrub_tools(text: str) -> str:
+    text = TOOL_TAG.sub("", text)
+    return TOOL_BARE.sub(lambda m: TOOL_LABELS[m.group(1)], text)
 MAX_SENTENCE = 400
 
 TAG = re.compile(r"\[근거\s*(\d+)(?:\s*제\s*(\d+)\s*항)?\]")
@@ -71,7 +86,7 @@ def check_sentence(sentence: str, ledger: Ledger) -> Checked:
             reasons.append("case_not_read")
     if reasons:
         return Checked(None, tuple(dict.fromkeys(reasons)))
-    return Checked(replaced, ())
+    return Checked(scrub_tools(replaced), ())
 
 
 def _cut(buf: str) -> int | None:
@@ -109,7 +124,8 @@ class SentenceGate:
         if self.dropped_last:
             return [_trailing_space(piece)] if _trailing_space(piece) else []
         self.dropped_last = True
-        return [NOTICE + (_trailing_space(piece) or " ")]
+        notice = NOTICE_SEARCH if self.ledger.search_failed else NOTICE
+        return [notice + (_trailing_space(piece) or " ")]
 
     def push(self, text: str) -> list[str]:
         self.buf += text

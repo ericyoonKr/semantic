@@ -57,6 +57,7 @@ class Ledger:
     keys: dict[str, int] = field(default_factory=dict)
     queries: list[str] = field(default_factory=list)
     trusted: list[str] = field(default_factory=list)
+    search_failed: bool = False
     delegations: dict[str, str] = field(default_factory=dict)
 
     def _add(self, key: str, build: Any) -> Authority:
