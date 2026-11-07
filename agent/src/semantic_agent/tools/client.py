@@ -95,10 +95,10 @@ class RustClient:
             return None, f"{fail}: 시간 초과 (요청 ID {request_id})"
         except httpx.HTTPStatusError as exc:
             log.warning("tool call status=%s request_id=%s", exc.response.status_code, request_id)
-            return None, f"{fail}: 도구 서버 오류 {exc.response.status_code} (요청 ID {request_id})"
+            return None, f"{fail}: 지금 처리할 수 없음 (요청 ID {request_id})"
         except httpx.HTTPError as exc:
             log.warning("tool call failed type=%s request_id=%s", type(exc).__name__, request_id)
-            return None, f"{fail}: 도구 서버에 닿지 못함 (요청 ID {request_id})"
+            return None, f"{fail}: 지금 연결되지 않음 (요청 ID {request_id})"
         if response.status_code == 204 or not response.content:
             return {}, None
         try:

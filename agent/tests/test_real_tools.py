@@ -90,7 +90,7 @@ def test_http_500_and_timeout_become_failure_strings() -> None:
         return laws, cases
 
     laws, cases = asyncio.run(direct())
-    assert laws.startswith("검색 실패: 도구 서버 오류 500")
+    assert laws.startswith("검색 실패: 지금 처리할 수 없음")
     assert cases.startswith("검색 실패: 시간 초과")
 
     script = [call("judge", {"claim_type": "가짜청구", "node_id": "R1_가짜요건"}, "c1"), AIMessage(content="끝")]
@@ -101,5 +101,5 @@ def test_http_500_and_timeout_become_failure_strings() -> None:
         return result["messages"]
 
     [verdict] = tool_messages(asyncio.run(judged()))
-    assert verdict.content.startswith("판정 불가: 도구 서버 오류 500")
+    assert verdict.content.startswith("판정 불가: 지금 처리할 수 없음")
     assert rust.find("/judge").url.path.startswith("/sessions/")
