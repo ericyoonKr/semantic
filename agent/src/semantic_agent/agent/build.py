@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from deepagents import (
     FilesystemPermission,
     GeneralPurposeSubagentProfile,
@@ -82,6 +83,9 @@ def build_model(settings: Settings) -> ChatOpenAI:
         api_key=settings.llm_api_key,
         model=settings.llm_model,
         temperature=0,
+        max_tokens=settings.llm_max_tokens,
+        timeout=httpx.Timeout(settings.llm_read_timeout_s, connect=settings.llm_connect_timeout_s),
+        max_retries=settings.llm_max_retries,
         stream_usage=True,
         extra_body={"priority": 0},
     )
