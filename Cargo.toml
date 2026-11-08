@@ -12,6 +12,7 @@ members = [
     "crates/ruleloader",
     "crates/kg",
     "crates/gateway",
+    "crates/searcheval",
 ]
 
 [workspace.package]
