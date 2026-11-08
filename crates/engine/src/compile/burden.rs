@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use super::{PeriodFacts, RawVerdict, check_with_periods};
+use crate::arith::rule_missing;
 use crate::error::EngineError;
 use crate::graph::ClaimGraph;
 use crate::schema::{Burden, ClaimNode, GateType, LeafResult, NodeId};
@@ -20,7 +21,7 @@ fn open_leaf(
 ) -> bool {
     node.gate == GateType::Leaf
         && !assumptions.contains_key(&node.id)
-        && matches!(leaves.get(&node.id), Some(LeafResult::Unknown { .. }))
+        && matches!(leaves.get(&node.id), Some(LeafResult::Unknown { failure }) if !rule_missing(failure))
 }
 
 pub fn burden_fixes(

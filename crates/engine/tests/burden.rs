@@ -4,8 +4,8 @@ mod tree;
 use std::collections::HashMap;
 
 use engine::{
-    Burden, ClaimGraph, EngineError, ExpectedCounts, GateType, GraphIssue, LeafResult, NodeId,
-    Outcome, Relation, Trit,
+    Burden, ClaimGraph, EngineError, ExpectedCounts, FailureReason, GateType, GraphIssue, LeafResult,
+    NodeId, Outcome, Relation, Trit,
 };
 use tree::{COUNTS, TestResult, edge, facts, id, ids_of, judge_both, judged, node, rows, unknown};
 
@@ -163,4 +163,27 @@ fn reduction_edge_to_a_gate_or_shared_leaf_is_refused() {
     };
     assert!(found.contains(&GraphIssue::ReductionMisplaced(id("G"))), "{found:?}");
     assert!(found.contains(&GraphIssue::ReductionMisplaced(id("C"))), "{found:?}");
+}
+
+#[test]
+fn leaf_open_for_a_missing_rule_stays_open_under_burden() -> TestResult {
+    let g = burdened()?;
+    for why in [
+        engine::arith::compute::HOLIDAYS_OPEN.to_string(),
+        format!("{}; {}", engine::arith::compute::START_OPEN, engine::arith::compute::HOLIDAYS_OPEN),
+        engine::arith::RESTRICTIVE_OPEN.to_string(),
+    ] {
+        let open = LeafResult::Unknown { failure: FailureReason::NoEvidence(why) };
+        let v = judge_both(&g, "ROOT", &base(&[("L1", open)]), &HashMap::new())?;
+        let b = v.burden.ok_or("burden verdict missing")?;
+        assert_eq!(b.outcome, Outcome::Reserved);
+        assert!(b.fixed.is_empty());
+    }
+    let facts_only = LeafResult::Unknown {
+        failure: FailureReason::NoEvidence(engine::arith::compute::START_OPEN.to_string()),
+    };
+    let v = judge_both(&g, "ROOT", &base(&[("L1", facts_only)]), &HashMap::new())?;
+    let b = v.burden.ok_or("burden verdict missing")?;
+    assert_eq!(b.outcome, Outcome::NotEstablished);
+    Ok(())
 }

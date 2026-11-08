@@ -22,6 +22,11 @@ use extract::{DateAnswer, Found, resolve, resolve_start};
 
 pub const RESTRICTIVE_OPEN: &str = "행정기본법 제6조 제2항의 기간(권익을 제한하거나 의무를 부과하는 기간)은 계산 기준을 아직 넣지 않아 판정하지 않음";
 
+pub fn rule_missing(failure: &FailureReason) -> bool {
+    matches!(failure, FailureReason::NoEvidence(why)
+        if why == RESTRICTIVE_OPEN || why.split("; ").any(|part| part == compute::HOLIDAYS_OPEN))
+}
+
 pub type PeriodResults = (HashMap<NodeId, LeafResult>, Vec<PeriodReport>);
 
 struct Ctx<'a, F> {
