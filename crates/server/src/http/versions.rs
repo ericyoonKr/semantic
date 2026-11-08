@@ -5,7 +5,6 @@ use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use chrono::{DateTime, Local, NaiveDate, Utc};
-use lawtime::addendum::RuleSet;
 use lawtime::citation::{Bound, CitationResolution, CiteType, parse_citations, resolve_citation};
 use lawtime::facts::{CaseFacts, CaseKind, DateSpec, EventKind, Fact, ProcState};
 use lawtime::lanes::{LaneOutcome, compare};
@@ -205,7 +204,7 @@ fn predict(
     unit: &UnitKey,
     as_of: NaiveDate,
 ) -> Result<Resolution, ApiError> {
-    let rules = RuleSet::default();
+    let rules = store.rule_set();
     let engine = Engine::new(&parts.graph, store, &rules, &parts.adjust).map_err(lawtime_error)?;
     let res = engine.resolve_version(facts, unit, as_of).map_err(lawtime_error)?;
     Ok(store.check_resolution(unit, facts, res, as_of))

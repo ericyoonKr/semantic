@@ -1,5 +1,6 @@
 mod memory;
 pub mod pg;
+pub mod pg_rules;
 
 use std::fmt;
 

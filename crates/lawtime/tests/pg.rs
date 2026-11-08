@@ -112,3 +112,37 @@ async fn real_db_engine_holds_before_data_and_flags_addenda() -> R {
     assert!(matches!(compare(&answer, &r), LaneOutcome::Different | LaneOutcome::AmongSeveral));
     Ok(())
 }
+
+#[tokio::test]
+async fn real_db_filled_rules_without_targets_stay_unevaluated() -> R {
+    let Some(pool) = pool().await? else { return Ok(()) };
+    let Ok(graph) = Graph::from_env() else {
+        eprintln!("LAWTIME_PRINCIPLES가 없어 건너뜀");
+        return Ok(());
+    };
+    let law = road(&pool).await?;
+    let unit = UnitKey::article(&law.law_id, "제148조의2");
+    let store = PgStore::load(&pool, std::slice::from_ref(&law), std::slice::from_ref(&unit), None).await?;
+    let rules = store.rule_set();
+    assert!(rules.rules().is_empty());
+    let table = AdjustTable::standard()?;
+    let engine = Engine::new(&graph, &store, &rules, &table)?;
+    let as_of = d(2026, 11, 8)?;
+    let facts = CaseFacts::new(CaseKind::CriminalSubstantive).with(EventKind::Act, DateSpec::Point(d(2023, 8, 1)?));
+    let r = store.check_resolution(&unit, &facts, engine.resolve_version(&facts, &unit, as_of)?, as_of);
+    let notes: Vec<&str> = r
+        .flags
+        .iter()
+        .filter_map(|f| match f {
+            Flag::AddendumUndetermined { note, .. } => Some(note.as_str()),
+            _ => None,
+        })
+        .collect();
+    println!("부칙 미평가 {}개", notes.len());
+    for n in &notes {
+        println!("  {n}");
+    }
+    assert!(notes.iter().any(|n| n.contains("대상 조문 자료가 없어")));
+    assert!(!notes.iter().any(|n| n.contains("구조화되지 않아")));
+    Ok(())
+}

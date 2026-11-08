@@ -6,8 +6,10 @@ use regex::Regex;
 use serde::Serialize;
 use sqlx::PgPool;
 
+use super::pg_rules::{Gap, RawRule, read_rule};
 use super::{EndReason, PromulNo, UnitKey, UnitKind, Version, VersionStore};
 use crate::Error;
+use crate::addendum::{AddendumRule, RuleSet};
 use crate::facts::{CaseFacts, EventKind};
 use crate::citation::{CiteFlag, CiteStatus, CitationResolution, MistakeReason};
 use crate::period::Period;
@@ -30,7 +32,8 @@ const ALIAS_SQL: &str = "SELECT DISTINCT a.moved_from, v.article_no FROM article
      WHERE a.law_id = $1 AND a.moved_from = ANY($2)";
 
 const RULE_SQL: &str = "SELECT rule_id, promul_no, addendum_article, addendum_title, rule_type, \
-     retired_by_full_revision, kept_flag, reviewed_by, original_text LIKE '%생략%' FROM addendum_rule \
+     retired_by_full_revision, kept_flag, reviewed_by, original_text LIKE '%생략%', trigger::text, outcome::text, \
+     targets, scope_note, coalesce(original_text, '') FROM addendum_rule \
      WHERE law_id = $1 AND (rule_type IS NULL OR rule_type IN ('APPLICATION', 'TRANSITION_KEEP_OLD', 'SUNSET') \
      OR original_text LIKE '%생략%')";
 
@@ -71,6 +74,8 @@ pub struct StoredRule {
     pub kept: bool,
     pub reviewed_by: Option<String>,
     pub elided: bool,
+    #[serde(skip)]
+    pub rule: Result<AddendumRule, Gap>,
 }
 
 #[derive(Debug, Clone)]
@@ -112,7 +117,30 @@ type RowTuple = (
     Option<NaiveDate>,
 );
 
-type RuleTuple = (String, String, String, Option<String>, Option<String>, bool, bool, Option<String>, bool);
+type RuleTuple = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    bool,
+    bool,
+    Option<String>,
+    bool,
+    Option<String>,
+    Option<String>,
+    Option<Vec<String>>,
+    Option<String>,
+    String,
+);
+
+fn gap_note(gap: &Gap) -> String {
+    match gap {
+        Gap::NoTrigger => "사건 술어 자료가 없어 평가하지 못함".to_string(),
+        Gap::NoTargets => "대상 조문 자료가 없어 평가하지 못함".to_string(),
+        Gap::Unreadable(what) => format!("부칙 규칙 자료를 읽지 못해 평가하지 못함 ({what})"),
+    }
+}
 
 pub fn compact(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
@@ -256,11 +284,29 @@ impl PgStore {
             }
             let raw_rules: Vec<RuleTuple> = sqlx::query_as(RULE_SQL).bind(&law.law_id).fetch_all(pool).await?;
             let mut rules = Vec::new();
-            for (rule_id, no, article, title, rule_type, retired, kept, reviewed_by, elided) in raw_rules {
+            for (rule_id, no, article, title, rule_type, retired, kept, reviewed_by, elided, trigger, outcome, targets, scope, text) in
+                raw_rules
+            {
                 let Ok(n) = number(&no) else { continue };
+                let promul_no = PromulNo::new(&law.law_type, n);
+                let rule = read_rule(&RawRule {
+                    rule_id: &rule_id,
+                    law_id: &law.law_id,
+                    promul_no: &promul_no,
+                    promul_date: promuls.iter().find(|p| fits(&p.no, &promul_no)).and_then(|p| p.date),
+                    addendum_article: &article,
+                    rule_type: rule_type.as_deref().unwrap_or_default(),
+                    trigger: trigger.as_deref(),
+                    outcome: outcome.as_deref(),
+                    targets: targets.as_deref(),
+                    scope_note: scope.as_deref(),
+                    reviewed_by: reviewed_by.as_deref(),
+                    original_text: &text,
+                    kept,
+                });
                 rules.push(StoredRule {
                     rule_id,
-                    promul_no: PromulNo::new(&law.law_type, n),
+                    promul_no,
                     addendum_article: article,
                     title,
                     rule_type,
@@ -268,6 +314,7 @@ impl PgStore {
                     kept,
                     reviewed_by,
                     elided,
+                    rule,
                 });
             }
             let keys: Vec<String> = keys.into_iter().collect();
@@ -366,7 +413,31 @@ impl PgStore {
             .min_by_key(|p| p.date)
     }
 
-    fn rule_flag(&self, unit: &UnitKey, rule: &StoredRule) -> Flag {
+    fn evaluable(rule: &StoredRule) -> bool {
+        matches!(rule.rule_type.as_deref(), Some("APPLICATION" | "TRANSITION_KEEP_OLD"))
+            && !(rule.retired && !rule.kept)
+            && rule.rule.is_ok()
+    }
+
+    pub fn rule_set(&self) -> RuleSet {
+        RuleSet::new(
+            self.laws
+                .values()
+                .flat_map(|l| l.rules.iter())
+                .filter(|r| Self::evaluable(r))
+                .filter_map(|r| r.rule.as_ref().ok().cloned())
+                .collect(),
+        )
+    }
+
+    fn rule_flag(&self, unit: &UnitKey, rule: &StoredRule) -> Option<Flag> {
+        if Self::evaluable(rule) {
+            return None;
+        }
+        Some(self.rule_note(unit, rule))
+    }
+
+    fn rule_note(&self, unit: &UnitKey, rule: &StoredRule) -> Flag {
         let head = format!(
             "{} {}{}",
             rule.promul_no,
@@ -395,7 +466,10 @@ impl PgStore {
             }
             Some(kind @ ("APPLICATION" | "TRANSITION_KEEP_OLD")) => Flag::AddendumUndetermined {
                 rule_id: rule.rule_id.clone(),
-                note: format!("{head} [{kind}] — 부칙 규칙의 대상 조문·사건 술어가 구조화되지 않아 평가하지 못함"),
+                note: match &rule.rule {
+                    Err(gap) => format!("{head} [{kind}] — {}", gap_note(gap)),
+                    Ok(_) => format!("{head} [{kind}] — 부칙 규칙을 평가하지 못함"),
+                },
             },
             Some("EFFECTIVE_DATE" | "CROSS_AMEND" | "RELATION" | "TRANSITION_DEEM") => Flag::Review {
                 rule_id: rule.rule_id.clone(),
@@ -476,7 +550,7 @@ impl PgStore {
         );
         if let Some(law) = self.laws.get(&unit.law_id) {
             for rule in law.rules.iter().filter(|r| relevant.iter().any(|p| fits(p, &r.promul_no))) {
-                flags.push(self.rule_flag(unit, rule));
+                flags.extend(self.rule_flag(unit, rule));
             }
         }
         res.with_flags(flags)
