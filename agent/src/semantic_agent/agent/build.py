@@ -30,6 +30,7 @@ from semantic_agent.tools.judge import format_judge_catalog, make_judge_tool
 from semantic_agent.tools.kg import catalog_hashes, format_kg_catalog, make_kg_tools
 from semantic_agent.tools.kg_state import make_kg_state_tool
 from semantic_agent.tools.search import make_search_tools
+from semantic_agent.tools.versions import make_version_tools
 
 MAIN_AGENT = "main"
 
@@ -118,7 +119,12 @@ def build_agent(
     subagents = make_subagents(backend, make_search_tools(client))
     return create_deep_agent(
         model=model,
-        tools=[make_judge_tool(client, catalogs.judge), *make_kg_tools(client), make_kg_state_tool(client)],
+        tools=[
+            make_judge_tool(client, catalogs.judge),
+            *make_kg_tools(client),
+            make_kg_state_tool(client),
+            *make_version_tools(client),
+        ],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
             QuestionBudget(),

@@ -15,6 +15,7 @@ TOOL_LABELS = {
     "search_laws": "법령 검색", "search_cases": "판례 검색", "read_law": "법령", "read_case": "판례",
     "case_citations": "인용 관계", "kg_find": "지식그래프", "kg_expand": "지식그래프",
     "kg_write_state": "지식그래프", "judge": "요건 판단",
+    "resolve_version": "판본 결정", "resolve_citations": "인용 해소", "trace_judgment_versions": "판본 대조",
     "task": "조사", "write_todos": "계획", "researcher": "조사",
 }
 _NAMES = "|".join(sorted(TOOL_LABELS, key=len, reverse=True))
