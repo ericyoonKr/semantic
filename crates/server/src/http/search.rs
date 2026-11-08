@@ -51,7 +51,7 @@ pub struct CitationParams {
     pub unit: Option<String>,
 }
 
-fn json_body<T>(body: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
+pub(crate) fn json_body<T>(body: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
     body.map(|Json(v)| v)
         .map_err(|e| ApiError::bad_request(format!("인자 오류: {}", e.body_text())))
 }
@@ -61,7 +61,7 @@ fn query_params<T>(q: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
         .map_err(|e| ApiError::bad_request(format!("인자 오류: {}", e.body_text())))
 }
 
-fn corpus(state: &AppState) -> Result<&Corpus, ApiError> {
+pub(crate) fn corpus(state: &AppState) -> Result<&Corpus, ApiError> {
     state.corpus.as_ref().ok_or_else(|| {
         ApiError::new(
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -70,11 +70,13 @@ fn corpus(state: &AppState) -> Result<&Corpus, ApiError> {
     })
 }
 
-fn api_error(e: RetrievalError) -> ApiError {
+pub(crate) fn api_error(e: RetrievalError) -> ApiError {
     match e {
         RetrievalError::Argument(what) => ApiError::bad_request(format!("인자 오류: {what}")),
         RetrievalError::NotFound("law unit") => ApiError::bad_request("그 조문을 찾지 못했습니다"),
         RetrievalError::NotFound("decision") => ApiError::bad_request("그 판례를 찾지 못했습니다"),
+        RetrievalError::NotFound("annex") => ApiError::bad_request("그 기준일에 그 별표를 찾지 못했습니다"),
+        RetrievalError::NotFound("annex row") => ApiError::bad_request("그 별표 행을 찾지 못했습니다"),
         RetrievalError::NotFound(_) => ApiError::bad_request("찾지 못했습니다"),
         other => {
             tracing::error!(error = %other, "corpus query failed");
@@ -86,7 +88,7 @@ fn api_error(e: RetrievalError) -> ApiError {
     }
 }
 
-async fn run<T>(
+pub(crate) async fn run<T>(
     state: &AppState,
     work: impl Future<Output = Result<T, RetrievalError>>,
 ) -> Result<Json<T>, ApiError> {
