@@ -21,6 +21,7 @@ pub struct Config {
     pub corpus: CorpusConfig,
     pub pdfium_dir: Option<PathBuf>,
     pub lawtime_principles: Option<PathBuf>,
+    pub law_aliases: Option<PathBuf>,
 }
 
 impl Config {
@@ -70,6 +71,7 @@ impl Config {
         let corpus = corpus::read(&r)?;
         let pdfium_dir = r.text("PDFIUM_DIR").map(PathBuf::from);
         let lawtime_principles = r.text("LAWTIME_PRINCIPLES").map(PathBuf::from);
+        let law_aliases = r.text("LAW_ALIASES").map(PathBuf::from);
         Ok(Self {
             data_dir,
             kg_dir,
@@ -83,6 +85,7 @@ impl Config {
             corpus,
             pdfium_dir,
             lawtime_principles,
+            law_aliases,
         })
     }
 

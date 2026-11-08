@@ -60,6 +60,7 @@ impl AppState {
         let engine = EngineParts::build(&cfg.judge, &db);
         let corpus = cfg.corpus.open();
         let lawtime = crate::versions::startup(cfg.lawtime_principles.as_deref());
+        crate::versions::load_aliases(cfg.law_aliases.as_deref());
         Ok(Self(Arc::new(Inner {
             rules,
             engine,

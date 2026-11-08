@@ -40,8 +40,6 @@ async fn article_is_read_by_law_and_number_at_the_given_date() -> Checked {
     check(old.version.valid_to == day(2022, 1, 13), format!("{:?}", old.version))?;
     let none = retrieval::read_law_unit(c.pool(), "지방공무원법", "제999조", None).await;
     check(matches!(none, Err(RetrievalError::NotFound(_))), "missing article")?;
-    let abbr = retrieval::read_law_unit(c.pool(), "국토계획법", "제56조", None).await;
-    check(matches!(abbr, Err(RetrievalError::NotFound(_))), "abbreviation is not guessed")?;
     Ok(())
 }
 
@@ -103,5 +101,22 @@ async fn annex_lookup_and_compute_read_the_rows_amounts() -> Checked {
     check(!out.notes.is_empty(), "notes")?;
     let missing = retrieval::annex_lookup(c.pool(), &AnnexLookup { annex: "별표 99".into(), ..q }).await;
     check(matches!(missing, Err(RetrievalError::NotFound(_))), "missing annex")?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn abbreviation_reads_the_official_law() -> Checked {
+    let Some(c) = corpus()? else { return Ok(()) };
+    let Ok(path) = std::env::var("LAW_ALIASES") else {
+        eprintln!("LAW_ALIASES 없음 — 약칭 시험을 건너뜀");
+        return Ok(());
+    };
+    lawnames::install(lawnames::Aliases::load(std::path::Path::new(&path))?);
+    let unit = retrieval::read_law_unit(c.pool(), "헌법", "제12조", None).await?;
+    check(unit.law_name == "대한민국헌법", &unit.law_name)?;
+    let abbr = retrieval::read_law_unit(c.pool(), "국토계획법", "제56조", None).await?;
+    check(abbr.law_name == "국토의 계획 및 이용에 관한 법률", &abbr.law_name)?;
+    let none = retrieval::read_law_unit(c.pool(), "구 헌법", "제12조", None).await;
+    check(none.is_err(), "「구 헌법」은 약칭이 아님")?;
     Ok(())
 }

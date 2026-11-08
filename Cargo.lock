@@ -1621,10 +1621,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "lawnames"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "lawtime"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "lawnames",
  "regex",
  "serde",
  "serde_json",
@@ -2470,6 +2480,7 @@ dependencies = [
  "axum",
  "chrono",
  "docmodel",
+ "lawnames",
  "llm",
  "moka",
  "reqwest",
@@ -2772,6 +2783,7 @@ dependencies = [
  "docmodel",
  "engine",
  "kg",
+ "lawnames",
  "lawtime",
  "llm",
  "moka",

@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+lawnames = { path = "../lawnames" }
 chrono = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }

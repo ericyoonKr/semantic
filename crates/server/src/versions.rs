@@ -21,6 +21,22 @@ impl LawtimeParts {
     }
 }
 
+pub fn load_aliases(path: Option<&Path>) {
+    let Some(path) = path else {
+        tracing::warn!("LAW_ALIASES is not set; law abbreviations will not be resolved");
+        return;
+    };
+    match lawnames::Aliases::load(path) {
+        Ok(a) => {
+            let n = a.len();
+            if lawnames::install(a) {
+                tracing::info!(aliases = n, "law abbreviations ready");
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "law abbreviations could not be read; abbreviations will not be resolved"),
+    }
+}
+
 pub fn startup(path: Option<&Path>) -> Option<Arc<LawtimeParts>> {
     let Some(path) = path else {
         tracing::warn!("LAWTIME_PRINCIPLES is not set; version resolution will report failure");

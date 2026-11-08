@@ -192,7 +192,14 @@ pub async fn resolve_law(pool: &PgPool, law: &str) -> Result<Option<(String, Str
     .bind(compact(law))
     .fetch_optional(pool)
     .await?;
-    Ok(row)
+    if row.is_some() {
+        return Ok(row);
+    }
+    let Some(alias) = lawnames::lookup(law) else { return Ok(None) };
+    Ok(sqlx::query_as::<_, (String, String, String)>("SELECT law_id, name, kind FROM law WHERE law_id = $1")
+        .bind(&alias.law_id)
+        .fetch_optional(pool)
+        .await?)
 }
 
 pub async fn direct_candidates(

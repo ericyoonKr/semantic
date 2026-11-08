@@ -191,6 +191,16 @@ pub async fn find_law(pool: &PgPool, name: &str) -> Result<LawLookup, Error> {
     let name = name.trim();
     let rows: Vec<(String, String, String, String)> =
         sqlx::query_as(LAW_SQL).bind(name).bind(compact(name)).fetch_all(pool).await?;
+    if rows.is_empty()
+        && let Some(alias) = lawnames::lookup(name)
+    {
+        let by_id: Vec<(String, String, String, String)> =
+            sqlx::query_as(LAW_SQL).bind(&alias.law_id).bind("").fetch_all(pool).await?;
+        if let Some(r) = by_id.iter().find(|r| r.0 == alias.law_id) {
+            let one = LawRef { law_id: r.0.clone(), name: r.1.clone(), law_type: r.2.clone() };
+            return Ok(if r.3 == "law" { LawLookup::One(one) } else { LawLookup::NotStatute(vec![one]) });
+        }
+    }
     let to_ref = |r: &(String, String, String, String)| LawRef {
         law_id: r.0.clone(),
         name: r.1.clone(),
