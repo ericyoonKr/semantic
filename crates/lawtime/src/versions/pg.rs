@@ -8,6 +8,7 @@ use sqlx::PgPool;
 
 use super::{EndReason, PromulNo, UnitKey, UnitKind, Version, VersionStore};
 use crate::Error;
+use crate::facts::{CaseFacts, EventKind};
 use crate::citation::{CiteFlag, CiteStatus, CitationResolution, MistakeReason};
 use crate::period::Period;
 use crate::resolve::{Flag, Resolution};
@@ -29,8 +30,9 @@ const ALIAS_SQL: &str = "SELECT DISTINCT a.moved_from, v.article_no FROM article
      WHERE a.law_id = $1 AND a.moved_from = ANY($2)";
 
 const RULE_SQL: &str = "SELECT rule_id, promul_no, addendum_article, addendum_title, rule_type, \
-     retired_by_full_revision, kept_flag, reviewed_by FROM addendum_rule WHERE law_id = $1 \
-     AND (rule_type IS NULL OR rule_type IN ('APPLICATION', 'TRANSITION_KEEP_OLD', 'SUNSET'))";
+     retired_by_full_revision, kept_flag, reviewed_by, original_text LIKE '%생략%' FROM addendum_rule \
+     WHERE law_id = $1 AND (rule_type IS NULL OR rule_type IN ('APPLICATION', 'TRANSITION_KEEP_OLD', 'SUNSET') \
+     OR original_text LIKE '%생략%')";
 
 const REVIEW_SQL: &str = "SELECT article_key, promul_no, reason FROM effective_date_review \
      WHERE law_id = $1 AND status = 'open' AND article_key = ANY($2)";
@@ -68,6 +70,7 @@ pub struct StoredRule {
     pub retired: bool,
     pub kept: bool,
     pub reviewed_by: Option<String>,
+    pub elided: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -109,7 +112,7 @@ type RowTuple = (
     Option<NaiveDate>,
 );
 
-type RuleTuple = (String, String, String, Option<String>, Option<String>, bool, bool, Option<String>);
+type RuleTuple = (String, String, String, Option<String>, Option<String>, bool, bool, Option<String>, bool);
 
 pub fn compact(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
@@ -201,6 +204,16 @@ async fn promulgations(pool: &PgPool, law: &LawRef) -> Result<Vec<Promulgation>,
     Ok(by_no.into_values().collect())
 }
 
+fn looks_up_version(e: EventKind) -> bool {
+    !matches!(
+        e,
+        EventKind::UnconstitutionalDecision
+            | EventKind::PriorConstitutionalDecision
+            | EventKind::PrecedentChange
+            | EventKind::NonconformityDecision
+    )
+}
+
 impl PgStore {
     pub async fn load(
         pool: &PgPool,
@@ -243,7 +256,7 @@ impl PgStore {
             }
             let raw_rules: Vec<RuleTuple> = sqlx::query_as(RULE_SQL).bind(&law.law_id).fetch_all(pool).await?;
             let mut rules = Vec::new();
-            for (rule_id, no, article, title, rule_type, retired, kept, reviewed_by) in raw_rules {
+            for (rule_id, no, article, title, rule_type, retired, kept, reviewed_by, elided) in raw_rules {
                 let Ok(n) = number(&no) else { continue };
                 rules.push(StoredRule {
                     rule_id,
@@ -254,6 +267,7 @@ impl PgStore {
                     retired,
                     kept,
                     reviewed_by,
+                    elided,
                 });
             }
             let keys: Vec<String> = keys.into_iter().collect();
@@ -383,6 +397,10 @@ impl PgStore {
                 rule_id: rule.rule_id.clone(),
                 note: format!("{head} [{kind}] — 부칙 규칙의 대상 조문·사건 술어가 구조화되지 않아 평가하지 못함"),
             },
+            Some("EFFECTIVE_DATE" | "CROSS_AMEND" | "RELATION" | "TRANSITION_DEEM") => Flag::Review {
+                rule_id: rule.rule_id.clone(),
+                note: format!("{head} — 부칙 원문 일부가 「생략」으로 저장됨: 생략된 적용례·경과조치를 확인하지 못함"),
+            },
             Some("SUNSET") => Flag::Review {
                 rule_id: rule.rule_id.clone(),
                 note: format!("{head} — 유효기간 부칙: 한시법 실효 여부 확인"),
@@ -394,20 +412,42 @@ impl PgStore {
         }
     }
 
-    pub fn check_resolution(&self, unit: &UnitKey, res: Resolution, as_of: NaiveDate) -> Resolution {
+    pub fn check_resolution(
+        &self,
+        unit: &UnitKey,
+        facts: &CaseFacts,
+        res: Resolution,
+        as_of: NaiveDate,
+    ) -> Resolution {
         let Some(date) = res.ref_date() else { return res };
         let lo = date.lower();
         let mut flags = Vec::new();
         match self.first_effective(&unit.law_id) {
-            Some(first) if lo < first => flags.push(Flag::DataHold {
-                unit: unit.clone(),
-                note: format!("기준시 {lo}가 법령 DB 판본 자료의 시작({first}) 앞 — 그 전 판본은 자료에 없음"),
-            }),
+            Some(first) => {
+                if lo < first {
+                    flags.push(Flag::DataHold {
+                        unit: unit.clone(),
+                        note: format!("기준시 {lo}가 법령 DB 판본 자료의 시작({first}) 앞 — 그 전 판본은 자료에 없음"),
+                    });
+                }
+                for f in facts.facts.iter().filter(|f| looks_up_version(f.event) && f.date.lower() < first) {
+                    if f.date.lower() == lo {
+                        continue;
+                    }
+                    flags.push(Flag::DataHold {
+                        unit: unit.clone(),
+                        note: format!(
+                            "사실 {:?}의 날짜 {}가 법령 DB 판본 자료의 시작({first}) 앞 — 보정 단계에서 그 시점 판본을 알 수 없음",
+                            f.event,
+                            f.date.lower()
+                        ),
+                    });
+                }
+            }
             None => flags.push(Flag::DataHold {
                 unit: unit.clone(),
                 note: "이 법령의 공포 자료가 DB에 없음".to_string(),
             }),
-            Some(_) => {}
         }
         if self.rows_of(unit).is_empty() && !self.undetermined.contains_key(unit) {
             flags.push(Flag::DataHold { unit: unit.clone(), note: "이 조문의 판본 행이 DB에 없음".to_string() });

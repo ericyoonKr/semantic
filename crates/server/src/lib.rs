@@ -13,6 +13,7 @@ pub mod state;
 pub mod tasks;
 pub mod upload;
 pub mod verdict_text;
+pub mod versions;
 
 pub use config::Config;
 pub use error::{ApiError, ConfigError, RulesError, StartupError};

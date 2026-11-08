@@ -16,6 +16,8 @@ checks = { workspace = true }
 moka = { workspace = true }
 sha2 = { workspace = true }
 retrieval = { workspace = true }
+lawtime = { workspace = true }
+sqlx = { workspace = true }
 chrono = { workspace = true }
 
 axum = { workspace = true }

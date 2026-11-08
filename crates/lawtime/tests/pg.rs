@@ -94,11 +94,11 @@ async fn real_db_engine_holds_before_data_and_flags_addenda() -> R {
     let engine = Engine::new(&graph, &store, &rules, &table)?;
     let as_of = d(2026, 11, 8)?;
     let early = CaseFacts::new(CaseKind::CriminalSubstantive).with(EventKind::Act, DateSpec::Point(d(2020, 1, 5)?));
-    let r = store.check_resolution(&unit, engine.resolve_version(&early, &unit, as_of)?, as_of);
+    let r = store.check_resolution(&unit, &early, engine.resolve_version(&early, &unit, as_of)?, as_of);
     assert_eq!(r.status, Status::Undetermined);
     assert!(r.flags.iter().any(|f| matches!(f, Flag::DataHold { .. })));
     let inside = CaseFacts::new(CaseKind::CriminalSubstantive).with(EventKind::Act, DateSpec::Point(d(2023, 1, 1)?));
-    let r = store.check_resolution(&unit, engine.resolve_version(&inside, &unit, as_of)?, as_of);
+    let r = store.check_resolution(&unit, &inside, engine.resolve_version(&inside, &unit, as_of)?, as_of);
     let first = r.versions.first().ok_or("판본 없음")?;
     assert_eq!(first.valid_period.from, d(2022, 12, 1)?);
     assert!(!r.flags.iter().any(|f| matches!(f, Flag::DataHold { .. })));

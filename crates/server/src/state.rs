@@ -24,6 +24,7 @@ pub struct Inner {
     pub rules: Arc<RuleSet>,
     pub engine: Option<EngineParts>,
     pub corpus: Option<retrieval::Corpus>,
+    pub lawtime: Option<Arc<crate::versions::LawtimeParts>>,
     pub z3: Semaphore,
     pub cpu: rayon::ThreadPool,
     pub uploads: Semaphore,
@@ -58,10 +59,12 @@ impl AppState {
         let rules = Arc::new(crate::rules::startup(cfg.kg_dir.clone(), kg.clone(), &cpu).await);
         let engine = EngineParts::build(&cfg.judge, &db);
         let corpus = cfg.corpus.open();
+        let lawtime = crate::versions::startup(cfg.lawtime_principles.as_deref());
         Ok(Self(Arc::new(Inner {
             rules,
             engine,
             corpus,
+            lawtime,
             z3: Semaphore::new(cfg.judge.z3_concurrency),
             uploads: Semaphore::new(cfg.limits.upload_concurrency),
             pdf: PdfWorker::start(cfg.pdfium_dir.as_deref(), cfg.limits.upload_concurrency),

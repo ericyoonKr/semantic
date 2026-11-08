@@ -20,6 +20,7 @@ pub struct Config {
     pub judge: crate::judge::JudgeConfig,
     pub corpus: CorpusConfig,
     pub pdfium_dir: Option<PathBuf>,
+    pub lawtime_principles: Option<PathBuf>,
 }
 
 impl Config {
@@ -68,6 +69,7 @@ impl Config {
         let judge = crate::judge::config::read(&r.get)?;
         let corpus = corpus::read(&r)?;
         let pdfium_dir = r.text("PDFIUM_DIR").map(PathBuf::from);
+        let lawtime_principles = r.text("LAWTIME_PRINCIPLES").map(PathBuf::from);
         Ok(Self {
             data_dir,
             kg_dir,
@@ -80,6 +82,7 @@ impl Config {
             judge,
             corpus,
             pdfium_dir,
+            lawtime_principles,
         })
     }
 
