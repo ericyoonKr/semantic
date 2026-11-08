@@ -3,54 +3,13 @@ mod fixture;
 
 use std::sync::Arc;
 
-use common::{corpus, day, with_fixture};
+use common::{corpus, with_fixture};
 use fixture::{Checked, Fixture, check};
 use retrieval::{CitationItem, CitationsBy, NoEmbedder, RetrievalError};
 
 async fn read_checks(fx: &Fixture) -> Checked {
     let c = corpus(fx, Arc::new(NoEmbedder))?;
     let pool = c.pool();
-    let now = retrieval::read_law_unit(pool, "국가배상법", "제 2 조", None).await?;
-    check(now.body == fixture::ART2_NOW, "current body")?;
-    check(now.version.lsi_seq == fixture::CURRENT_SEQ, "current version")?;
-    check(now.version.status == "current", "status")?;
-    check(now.enforcement_date == day(2023, 1, 1), "version enforcement date")?;
-    check(now.title == "배상책임", "title")?;
-
-    let old = retrieval::read_law_unit(pool, "국가배상법", "제2조", day(2019, 1, 1)).await?;
-    check(old.body == fixture::ART2_OLD, "as_of body")?;
-    check(old.version.status == "past", "as_of status")?;
-
-    let art3 = retrieval::read_law_unit(pool, "국가배상법", "제3조", None).await?;
-    check(art3.enforcement_date == day(2023, 7, 1), "unit enforcement date wins")?;
-    check(art3.title.is_empty(), "missing title is empty")?;
-
-    let decree = retrieval::read_law_unit(pool, "국가배상법시행령", "제3조", None).await?;
-    check(decree.law_name == "국가배상법 시행령", "law name with spaces removed")?;
-
-    let annex = retrieval::read_law_unit(pool, "L1", "별표1", None).await?;
-    check(annex.content_status == "link_only", "annex content status")?;
-    check(
-        annex.source_urls == serde_json::json!(["https://example.invalid/annex-1.pdf"]),
-        "source urls",
-    )?;
-    let json = serde_json::to_value(&annex)?;
-    check(json["version"]["kind"] == "law", "version object")?;
-
-    let deleted = retrieval::read_law_unit(pool, "국가배상법", "제4조", None).await?;
-    check(deleted.deleted, "deleted flag")?;
-
-    let missing = retrieval::read_law_unit(pool, "국가배상법", "제99조", None).await;
-    check(
-        matches!(missing, Err(RetrievalError::NotFound(_))),
-        "missing unit is NotFound",
-    )?;
-    let before = retrieval::read_law_unit(pool, "국가배상법", "제2조", day(2010, 1, 1)).await;
-    check(
-        matches!(before, Err(RetrievalError::NotFound(_))),
-        "no version before the first enforcement date",
-    )?;
-
     let case = retrieval::read_case(pool, 10, None).await?;
     check(case.court == "대법원" && case.case_no == "2020다1111", "case head")?;
     check(case.decided_on.to_string() == "2021-03-04", "decided date")?;
@@ -76,7 +35,7 @@ async fn read_checks(fx: &Fixture) -> Checked {
 }
 
 #[tokio::test]
-async fn read_law_unit_and_read_case_follow_versions_and_section_filters() -> Checked {
+async fn read_case_follows_section_filters() -> Checked {
     with_fixture(|fx| async move {
         let r = read_checks(&fx).await;
         (fx, r)

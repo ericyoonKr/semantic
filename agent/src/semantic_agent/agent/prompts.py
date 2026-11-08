@@ -32,6 +32,7 @@ source는 그 번호로 「근거 N」이라고만 쓴다. quote는 그 근거 �
 각 줄에 stance를 단다: 쟁점의 결론을 뒷받침하면 "support", 반대 결론 쪽이면 "adverse", 어느 쪽도 아니면 "neutral".
 설명에 「목적: 판단」이 있으면, 반대 결론 쪽 검색어로 search_laws 또는 search_cases를 한 번 실제로 부르고, 그 검색어를 글자 그대로 reverse_query에 적는다.
 설명에 「먼저 읽을 조문」이 있으면 그 조문부터 read_law로 읽는다.
+별표의 금액·기준은 annex_lookup으로 행을 찾고 annex_compute로 계산한 값만 쓴다. 별표를 인용할 때는 read_law(law, "별표 N")로 읽어 근거 번호를 받는다.
 
 {_RESULT_FORMAT}
 - 맨 위 단계에 "reverse_query": "실제로 부른 반대 방향 검색어"를 더한다. 목적이 조회면 null이다."""

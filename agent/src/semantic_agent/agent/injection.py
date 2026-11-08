@@ -11,7 +11,7 @@ _YOU = r"(?:너는|넌|너의|너에게|당신은|당신의|당신에게|네가|
 _SAY = r"(?:답하|답해|대답하|말하|말해|출력하|작성하|써|쓰|적어|밝히|공개하|전하|보여\s*주|알려\s*주)"
 _ORDER_END = r"(?:라|세요|십시오|해라|해|줘|야\s*한다|야\s*합니다)"
 _COMMAND = r"(?:라|세요|십시오|해라|해\s*줘|해\s*주세요|야\s*한다|야\s*합니다|지\s*마|지\s*말)"
-_TOOLS = r"(?:도구|tool|judge|search_laws|search_cases|read_law|read_case|case_citations|kg_find|kg_expand|kg_write_state|read_file|write_file|edit_file|grep|write_todos)"
+_TOOLS = r"(?:도구|tool|judge|search_laws|search_cases|read_law|read_case|case_citations|annex_lookup|annex_compute|kg_find|kg_expand|kg_write_state|read_file|write_file|edit_file|grep|write_todos)"
 
 PATTERNS = (
     re.compile(_EARLIER + r"\s*" + _ORDERS + r"\S{0,4}(?:\s*(?:내용|사항|것))?\s*(?:은|는|을|를|들은|들을)?\s*(?:모두\s*|전부\s*|다\s*)?" + _DROP),

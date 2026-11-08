@@ -1,3 +1,4 @@
+pub mod annex;
 pub mod catalog;
 pub mod files;
 pub mod health;
@@ -42,6 +43,8 @@ pub fn router(state: AppState) -> Router {
         .route("/versions/resolve", post(versions::resolve))
         .route("/versions/citations", post(versions::citations))
         .route("/versions/trace", post(versions::trace))
+        .route("/annex/lookup", post(annex::lookup))
+        .route("/annex/compute", post(annex::compute))
         .layer(DefaultBodyLimit::max(limits.json_body_bytes))
         .layer(from_fn_with_state(state.clone(), middleware::internal_key))
         .layer(CatchPanicLayer::custom(middleware::panic_response))

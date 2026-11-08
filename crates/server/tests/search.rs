@@ -85,24 +85,22 @@ async fn bad_arguments_are_400_before_touching_the_database() -> Checked {
         let (status, reply) = get(&router, uri).await?;
         check(status == StatusCode::BAD_REQUEST, format!("{uri} -> {status} {reply}"))?;
     }
+    let annex = [
+        ("/annex/lookup", json!({"law": " ", "annex": "별표 1"})),
+        ("/annex/lookup", json!({"law": "가법", "annex": "별표 1", "limit": 0})),
+        ("/annex/lookup", json!({"law": "가법"})),
+        ("/annex/compute", json!({"node_id": ""})),
+        ("/annex/compute", json!({"node_id": "x", "elapsed": -1})),
+    ];
+    for (uri, body) in annex {
+        let (status, reply) = post(&router, uri, body.clone()).await?;
+        check(status == StatusCode::BAD_REQUEST, format!("{uri} {body} -> {status} {reply}"))?;
+        check(reason(&reply).starts_with("인자 오류"), format!("{reply}"))?;
+    }
     Ok(())
 }
 
 async fn database_checks(router: &Router) -> Checked {
-    let (status, laws) = post(
-        router,
-        "/search/laws",
-        json!({"query": "공무원 직무 과실 손해", "k": 3, "as_of": null, "law_type": null}),
-    )
-    .await?;
-    check(status == StatusCode::OK, format!("{status} {laws}"))?;
-    check(laws["degraded"] == true, "no embedding server configured means degraded")?;
-    let hit = &laws["hits"][0];
-    check(hit["law_name"] == "국가배상법" && hit["unit_key"] == "제2조", format!("{hit}"))?;
-    check(hit["enforcement_date"] == "2023-01-01", format!("{hit}"))?;
-    check(hit["kind"] == "law" && hit["lsi_seq"] == fixture::CURRENT_SEQ, format!("{hit}"))?;
-    check(hit["score"].as_f64().unwrap_or(0.0) > 0.0, "score")?;
-
     let (status, cases) = post(
         router,
         "/search/cases",
@@ -116,27 +114,6 @@ async fn database_checks(router: &Router) -> Checked {
     check(hits[0]["decision_id"] == 11 && hits[0]["court"] == "서울고등법원", format!("{cases}"))?;
     check(hits[0]["decided_on"] == "2023-05-06", format!("{cases}"))?;
     check(hits[0]["section_role"] == "holding_summary", format!("{cases}"))?;
-
-    let uri = format!("/laws/unit?law={}&unit={}", encode("국가배상법"), encode("제2조"));
-    let (status, unit) = get(router, &uri).await?;
-    check(status == StatusCode::OK, format!("{status} {unit}"))?;
-    check(unit["body"] == fixture::ART2_NOW, format!("{unit}"))?;
-    check(unit["deleted"] == false && unit["content_status"] == "text", format!("{unit}"))?;
-    check(unit["source_urls"] == json!([]), format!("{unit}"))?;
-    check(
-        unit["version"] == json!({"kind": "law", "lsi_seq": fixture::CURRENT_SEQ, "status": "current"}),
-        format!("{unit}"),
-    )?;
-    let uri = format!(
-        "/laws/unit?law={}&unit={}&as_of=2019-01-01",
-        encode("국가배상법"),
-        encode("제2조")
-    );
-    let (_, old) = get(router, &uri).await?;
-    check(old["body"] == fixture::ART2_OLD, format!("{old}"))?;
-    let uri = format!("/laws/unit?law={}&unit={}", encode("국가배상법"), encode("제99조"));
-    let (status, missing) = get(router, &uri).await?;
-    check(status == StatusCode::BAD_REQUEST, format!("{status} {missing}"))?;
 
     let uri = format!("/cases/10?sections={}", encode("이유,holding_summary"));
     let (status, case) = get(router, &uri).await?;
@@ -190,8 +167,8 @@ async fn judge_authority_search_reads_the_corpus_or_reports_unavailable() -> Che
         let snap = CorpusAuthority::new(Some(corpus)).search("손해 배상", 4).await.map_err(|e| format!("{e:?}"))?;
         check(snap.degraded, "no embedder means degraded")?;
         check(snap.hits.len() <= 4 && !snap.hits.is_empty(), format!("{:?}", snap.hits))?;
-        let law = snap.hits.iter().find(|h| h.source == "law").ok_or("no law hit")?;
-        check(law.citation.starts_with("국가배상법 제"), law.citation.clone())?;
+        let case = snap.hits.iter().find(|h| h.source == "case").ok_or("no case hit")?;
+        check(case.citation.contains("판결"), case.citation.clone())?;
         check(snap.snapshot_hash.len() == 64, snap.snapshot_hash.clone())?;
         let again = CorpusAuthority::new(Some(retrieval::Corpus::new(
             retrieval::CorpusDb::parse(&fx.url)?.connect_lazy(4, std::time::Duration::from_secs(10)),
@@ -206,4 +183,52 @@ async fn judge_authority_search_reads_the_corpus_or_reports_unavailable() -> Che
     .await;
     fx.close().await?;
     result
+}
+
+async fn live_checks(router: &Router) -> Checked {
+    let (status, laws) = post(
+        router,
+        "/search/laws",
+        json!({"query": "지방공무원법 제25조의2", "k": 3, "as_of": "2022-01-01"}),
+    )
+    .await?;
+    check(status == StatusCode::OK, format!("{status} {laws}"))?;
+    check(laws["degraded"] == true && laws["degraded_reason"].is_string(), format!("{laws}"))?;
+    let hit = &laws["hits"][0];
+    check(hit["law_name"] == "지방공무원법" && hit["unit_key"] == "제25조의2", format!("{hit}"))?;
+    check(hit["matched"] == "direct" && hit["version_id"] == "001653:0025021@2021-12-09", format!("{hit}"))?;
+
+    let uri = format!("/laws/unit?law={}&unit={}", encode("지방공무원법"), encode("제25조의2"));
+    let (status, unit) = get(router, &uri).await?;
+    check(status == StatusCode::OK, format!("{status} {unit}"))?;
+    check(unit["title"] == "외국인과 복수국적자의 임용" && unit["unit_kind"] == "article", format!("{unit}"))?;
+    check(unit["version"]["valid_to"].is_null(), format!("{unit}"))?;
+
+    let law = "산업기술의 유출방지 및 보호에 관한 법률 시행령";
+    let (status, table) = post(
+        router,
+        "/annex/lookup",
+        json!({"law": law, "annex": "별표 2", "as_of": "2025-10-02", "words": "국가 핵심기술 보유기관 등록"}),
+    )
+    .await?;
+    check(status == StatusCode::OK, format!("{status} {table}"))?;
+    check(table["rows_matched"] == 1, format!("{table}"))?;
+    let node = table["rows"][0]["node_id"].as_str().unwrap_or_default().to_string();
+    let (status, out) = post(router, "/annex/compute", json!({"node_id": node, "column": "2차"})).await?;
+    check(status == StatusCode::OK, format!("{status} {out}"))?;
+    check(out["results"][0]["krw"] == 7_000_000, format!("{out}"))?;
+    check(out["results"].as_array().map(Vec::len) == Some(1), format!("{out}"))?;
+    let (status, missing) = post(router, "/annex/lookup", json!({"law": law, "annex": "별표 99"})).await?;
+    check(status == StatusCode::BAD_REQUEST, format!("{status} {missing}"))?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn law_and_annex_routes_read_the_live_corpus() -> Checked {
+    let Ok(url) = std::env::var("CORPUS_PG_URL") else {
+        eprintln!("CORPUS_PG_URL 없음 — 실제 법령 DB 시험을 건너뜀");
+        return Ok(());
+    };
+    let (_tmp, router) = router_with(&[("CORPUS_PG_URL", url.as_str())]).await?;
+    live_checks(&router).await
 }

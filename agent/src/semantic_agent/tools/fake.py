@@ -52,6 +52,54 @@ CASE = {
     "sections": [{"role": "요지", "heading": "판결요지", "body": "가짜 판결요지 고정 문장."}],
 }
 
+ANNEX = {
+    "law_name": "가짜법 시행령",
+    "annex_label": "별표 1",
+    "title": "가짜 과태료 기준",
+    "version_id": "가짜판",
+    "valid_from": "2000-01-01",
+    "valid_to": None,
+    "review_status": "auto",
+    "source_urls": [],
+}
+
+ANNEX_TABLE = {
+    "annex": ANNEX,
+    "columns": [["위반행위", "과태료/1차"]],
+    "rows": [
+        {
+            "node_id": "fake-row",
+            "path": "a1.t1.가",
+            "node_type": "row",
+            "label": "가",
+            "table": 0,
+            "text": "가. 가짜 위반",
+            "cells": {"위반행위": {"text": "가. 가짜 위반"}, "과태료/1차": {"text": "1만원"}},
+            "amounts": {"과태료/1차": {"kind": "fixed", "krw": 10000}},
+            "basis_unit_ids": [],
+        }
+    ],
+    "rows_matched": 1,
+    "paras": [],
+    "rules": [],
+    "related": [],
+    "failed_checks": [],
+    "notes": ["가짜 도구 결과"],
+}
+
+ANNEX_COMPUTE = {
+    "annex": ANNEX,
+    "node_id": "fake-row",
+    "path": "a1.t1.가",
+    "label": "가",
+    "row_text": "가. 가짜 위반",
+    "basis_unit_ids": [],
+    "results": [{"column": "과태료/1차", "cell_text": "1만원", "kind": "fixed", "krw": 10000}],
+    "paras": [],
+    "rules": [],
+    "notes": ["가짜 도구 결과"],
+}
+
 CITATIONS = {"items": [{"decision_id": "fake-0", "law": "가짜법", "unit": "제1조"}], "extract_run": "fake-run"}
 
 JUDGE_CATALOG = [
@@ -115,6 +163,10 @@ def _answer(method: str, path: str) -> Any:
         return CASE
     if path == "/citations":
         return CITATIONS
+    if path == "/annex/lookup":
+        return ANNEX_TABLE
+    if path == "/annex/compute":
+        return ANNEX_COMPUTE
     if path == "/catalog":
         return JUDGE_CATALOG
     if path == "/kg/catalog":

@@ -59,6 +59,64 @@ impl Terms {
     }
 }
 
+pub const MAX_GROUPS: usize = 28;
+
+fn groups(n: usize, m: usize) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut pick: Vec<usize> = (0..m).collect();
+    if m == 0 || m > n {
+        return out;
+    }
+    loop {
+        out.push(pick.clone());
+        let Some(i) = (0..m).rev().find(|&i| pick[i] != i + n - m) else {
+            return out;
+        };
+        pick[i] += 1;
+        for j in i + 1..m {
+            pick[j] = pick[j - 1] + 1;
+        }
+    }
+}
+
+impl Terms {
+    pub fn like_patterns(&self) -> Vec<String> {
+        self.0.iter().map(|w| format!("%{}%", like_prefix(w))).collect()
+    }
+
+    pub fn contained(&self, column: &str, first: usize) -> String {
+        let parts: Vec<String> = self
+            .slots(first)
+            .map(|i| format!("({column} LIKE ${i})::int"))
+            .collect();
+        format!("({})", parts.join(" + "))
+    }
+
+    pub fn at_least(&self, column: &str, first: usize, m: usize) -> Option<String> {
+        let all = groups(self.0.len(), m);
+        if all.is_empty() || all.len() > MAX_GROUPS {
+            return None;
+        }
+        let parts: Vec<String> = all
+            .iter()
+            .map(|g| {
+                let ands: Vec<String> = g.iter().map(|i| format!("{column} LIKE ${}", first + i)).collect();
+                format!("({})", ands.join(" AND "))
+            })
+            .collect();
+        Some(format!("({})", parts.join(" OR ")))
+    }
+
+    pub fn relaxations(&self) -> Vec<usize> {
+        let n = self.0.len();
+        let floor = n.div_ceil(2).max(1);
+        (floor..=n)
+            .rev()
+            .take_while(|m| groups(n, *m).len() <= MAX_GROUPS)
+            .collect()
+    }
+}
+
 pub fn like_prefix(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -103,6 +161,30 @@ mod tests {
             "(word_similarity($3, s.body) + word_similarity($4, s.body))"
         );
         assert!(t.first_position("s.body", 3).contains("lower($4)"));
+    }
+
+    #[test]
+    fn groups_list_every_combination_once() {
+        assert_eq!(groups(3, 2), vec![vec![0, 1], vec![0, 2], vec![1, 2]]);
+        assert_eq!(groups(2, 2), vec![vec![0, 1]]);
+        assert_eq!(groups(8, 6).len(), 28);
+        assert!(groups(2, 3).is_empty());
+    }
+
+    #[test]
+    fn substring_fragments_and_relaxation_steps() {
+        let t = Terms(vec!["가나".into(), "다_라".into(), "마바".into()]);
+        assert_eq!(t.like_patterns(), vec!["%가나%", "%다\\_라%", "%마바%"]);
+        assert_eq!(t.contained("b", 4), "((b LIKE $4)::int + (b LIKE $5)::int + (b LIKE $6)::int)");
+        assert_eq!(
+            t.at_least("b", 4, 2).as_deref(),
+            Some("((b LIKE $4 AND b LIKE $5) OR (b LIKE $4 AND b LIKE $6) OR (b LIKE $5 AND b LIKE $6))")
+        );
+        assert_eq!(t.relaxations(), vec![3, 2]);
+        let eight = Terms((0..8).map(|i| format!("낱말{i}")).collect());
+        assert_eq!(eight.relaxations(), vec![8, 7, 6]);
+        let one = Terms(vec!["가나".into()]);
+        assert_eq!(one.relaxations(), vec![1]);
     }
 
     #[test]
