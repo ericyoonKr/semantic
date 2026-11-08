@@ -42,6 +42,7 @@ impl CorpusDb {
 pub struct Corpus {
     pool: PgPool,
     embedder: Arc<dyn Embedder>,
+    vector_off: bool,
 }
 
 impl fmt::Debug for Corpus {
@@ -52,7 +53,16 @@ impl fmt::Debug for Corpus {
 
 impl Corpus {
     pub fn new(pool: PgPool, embedder: Arc<dyn Embedder>) -> Self {
-        Self { pool, embedder }
+        Self { pool, embedder, vector_off: false }
+    }
+
+    pub fn without_vectors(mut self) -> Self {
+        self.vector_off = true;
+        self
+    }
+
+    pub fn vector_off(&self) -> bool {
+        self.vector_off
     }
 
     pub fn pool(&self) -> &PgPool {

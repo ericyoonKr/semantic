@@ -10,6 +10,8 @@ pub enum RetrievalError {
     Dimension(usize),
     #[error("no embeddings are loaded")]
     VectorEmpty,
+    #[error("vector search is turned off by configuration")]
+    VectorOff,
     #[error("corpus database failed: {0}")]
     Db(#[from] sqlx::Error),
     #[error("query rewriting failed: {0}")]

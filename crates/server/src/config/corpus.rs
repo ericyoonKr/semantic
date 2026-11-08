@@ -15,6 +15,7 @@ pub struct CorpusConfig {
     pub pool_size: u32,
     pub search_deadline: Duration,
     pub citations_max: i64,
+    pub vector_search: bool,
 }
 
 pub(super) fn read<F: Fn(&str) -> Option<String>>(
@@ -38,6 +39,11 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
         pool_size: r.positive("CORPUS_POOL_SIZE", 8)?,
         search_deadline,
         citations_max: r.positive("CITATIONS_MAX", 50)?,
+        vector_search: match r.text("CORPUS_VECTOR_SEARCH").as_deref() {
+            None | Some("on") => true,
+            Some("off") => false,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_VECTOR_SEARCH")),
+        },
     })
 }
 
@@ -100,7 +106,13 @@ impl CorpusConfig {
                 Arc::new(NoEmbedder)
             }
         };
-        Some(Corpus::new(pool, embedder))
+        let corpus = Corpus::new(pool, embedder);
+        if self.vector_search {
+            Some(corpus)
+        } else {
+            tracing::warn!("CORPUS_VECTOR_SEARCH=off; law and case search use text only");
+            Some(corpus.without_vectors())
+        }
     }
 }
 
@@ -129,6 +141,7 @@ mod tests {
         assert_eq!(cfg.pool_size, 8);
         assert_eq!(cfg.search_deadline, Duration::from_secs(20));
         assert_eq!(cfg.citations_max, 50);
+        assert!(cfg.vector_search);
         Ok(())
     }
 
@@ -162,6 +175,11 @@ mod tests {
 
     #[test]
     fn bad_values_and_deadline_order_are_rejected() {
+        assert!(matches!(read(&reader(&[("CORPUS_VECTOR_SEARCH", "off")])), Ok(c) if !c.vector_search));
+        assert!(matches!(
+            read(&reader(&[("CORPUS_VECTOR_SEARCH", "maybe")])),
+            Err(ConfigError::Invalid("CORPUS_VECTOR_SEARCH"))
+        ));
         assert!(matches!(
             read(&reader(&[("CORPUS_PG_URL", "not a url")])),
             Err(ConfigError::Invalid("CORPUS_PG_URL"))

@@ -13,6 +13,7 @@ use crate::query::terms::{Terms, compact};
 pub const VECTOR_EMPTY: &str = "벡터 칸이 비어 있어 글자 검색만 함";
 pub const EMBED_FAILED: &str = "질의 임베딩을 만들지 못해 글자 검색만 함";
 pub const VECTOR_FAILED: &str = "벡터 질의가 실패해 글자 검색만 함";
+pub const VECTOR_OFF: &str = "벡터 검색을 설정으로 꺼 두어 글자 검색만 함";
 
 fn prepare(text: &str, k: usize) -> Result<(Terms, usize), RetrievalError> {
     if k == 0 {
@@ -29,6 +30,7 @@ fn settle<T>(side: Result<Vec<T>, RetrievalError>) -> (Vec<T>, Option<String>) {
         Err(e) => {
             let reason = match &e {
                 RetrievalError::VectorEmpty => VECTOR_EMPTY,
+                RetrievalError::VectorOff => VECTOR_OFF,
                 e if e.is_embedding() => EMBED_FAILED,
                 _ => VECTOR_FAILED,
             };
@@ -39,6 +41,9 @@ fn settle<T>(side: Result<Vec<T>, RetrievalError>) -> (Vec<T>, Option<String>) {
 }
 
 async fn query_vector(corpus: &Corpus, text: &str) -> Result<String, RetrievalError> {
+    if corpus.vector_off() {
+        return Err(RetrievalError::VectorOff);
+    }
     let v = corpus.embedder().embed(text).await?;
     vector_literal(&v)
 }
@@ -65,6 +70,9 @@ pub async fn search_laws(
     let pool = corpus.pool();
     let registry = corpus.embedder().registry_name();
     let vector_side = async {
+        if corpus.vector_off() {
+            return Err(RetrievalError::VectorOff);
+        }
         if !laws::vector_ready(pool, registry).await? {
             return Err(RetrievalError::VectorEmpty);
         }
@@ -160,6 +168,8 @@ mod tests {
         assert_eq!(r.as_deref(), Some(EMBED_FAILED));
         let (_, r) = settle::<i32>(Err(RetrievalError::Argument("x")));
         assert_eq!(r.as_deref(), Some(VECTOR_FAILED));
+        let (_, r) = settle::<i32>(Err(RetrievalError::VectorOff));
+        assert_eq!(r.as_deref(), Some(VECTOR_OFF));
         let (v, r) = settle::<i32>(Ok(vec![1]));
         assert_eq!((v, r), (vec![1], None));
     }
