@@ -71,6 +71,20 @@ fn annex_at(chars: &[char], start: usize) -> Option<AnnexName> {
     AnnexName::parse(&format!("별표{num}{}", b.map(|b| format!("의{b}")).unwrap_or_default()))
 }
 
+fn is_number_word(word: &str) -> bool {
+    let chars: Vec<char> = word.chars().collect();
+    article_at(&chars, 0).is_some() || annex_at(&chars, 0).is_some()
+}
+
+pub fn without_numbers(query: &str) -> String {
+    let kept: Vec<&str> = query.split_whitespace().filter(|w| !is_number_word(w)).collect();
+    if kept.is_empty() {
+        query.to_string()
+    } else {
+        kept.join(" ")
+    }
+}
+
 pub fn parse(query: &str) -> Option<Direct> {
     let chars: Vec<char> = query.chars().collect();
     for start in 0..chars.len() {
@@ -120,6 +134,14 @@ mod tests {
             target: Target::Annex(n),
         });
         assert_eq!(d, expected);
+    }
+
+    #[test]
+    fn number_words_are_dropped_for_the_text_side() {
+        assert_eq!(without_numbers("행정소송법 제2조"), "행정소송법");
+        assert_eq!(without_numbers("도로교통법 시행령 별표6 과태료 제2조의3"), "도로교통법 시행령 과태료");
+        assert_eq!(without_numbers("제2조"), "제2조");
+        assert_eq!(without_numbers("제2조에 따른 신고"), "따른 신고");
     }
 
     #[test]

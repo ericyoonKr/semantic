@@ -8,7 +8,7 @@ use crate::query::cases::{self, Pick};
 use crate::query::direct;
 use crate::query::fusion::{CANDIDATES, RRF_K, rrf};
 use crate::query::laws::{self, UnitRef};
-use crate::query::terms::Terms;
+use crate::query::terms::{Terms, compact};
 
 pub const VECTOR_EMPTY: &str = "벡터 칸이 비어 있어 글자 검색만 함";
 pub const EMBED_FAILED: &str = "질의 임베딩을 만들지 못해 글자 검색만 함";
@@ -56,7 +56,12 @@ pub async fn search_laws(
     corpus: &Corpus,
     q: &LawQuery,
 ) -> Result<SearchResult<LawHit>, RetrievalError> {
-    let (terms, k) = prepare(&q.text, q.k)?;
+    let parsed = direct::parse(&q.text);
+    let words = match &parsed {
+        Some(_) => direct::without_numbers(&q.text),
+        None => q.text.clone(),
+    };
+    let (terms, k) = prepare(&words, q.k)?;
     let pool = corpus.pool();
     let registry = corpus.embedder().registry_name();
     let vector_side = async {
@@ -66,15 +71,23 @@ pub async fn search_laws(
         let lit = query_vector(corpus, &q.text).await?;
         laws::vector_candidates(pool, q, registry, &lit).await
     };
-    let direct_side = async {
-        match direct::parse(&q.text) {
-            Some(d) => laws::direct_candidates(pool, &d, q.as_of).await,
-            None => Ok(Vec::new()),
-        }
+    let lookup_only = parsed
+        .as_ref()
+        .is_some_and(|d| compact(&words) == compact(&d.law));
+    let direct_and_text = async {
+        let direct = match &parsed {
+            Some(d) => laws::direct_candidates(pool, d, q.as_of).await?,
+            None => Vec::new(),
+        };
+        let text = if lookup_only && !direct.is_empty() {
+            Vec::new()
+        } else {
+            laws::text_candidates(pool, q, &terms).await?
+        };
+        Ok::<_, RetrievalError>((direct, text))
     };
-    let (direct, text, vector) = tokio::join!(direct_side, laws::text_candidates(pool, q, &terms), vector_side);
-    let direct = direct?;
-    let text = text?;
+    let (found, vector) = tokio::join!(direct_and_text, vector_side);
+    let (direct, text) = found?;
     let (vector, reason) = settle(vector);
     let mut ranked: Vec<(UnitRef, f64, String)> = direct
         .iter()
