@@ -26,7 +26,7 @@ fn ids(hits: &[kg::NodeHit]) -> Vec<&str> {
 #[test]
 fn find_uses_trigram_for_long_and_like_for_short_queries() -> TestResult {
     let (_tmp, set) = loaded()?;
-    let f = |text: &str, kind: Option<&str>| nodes(&set, "g", FindBy::Text(text), kind, 10);
+    let f = |text: &str, kind: Option<&str>| nodes(&set, "b1/g", FindBy::Text(text), kind, 10);
     assert_eq!(ids(&f("alpha", None)?), vec!["n1"]);
     assert_eq!(ids(&f("lph", None)?), vec!["n1"]);
     assert_eq!(ids(&f("xy", None)?), vec!["n4"]);
@@ -35,7 +35,7 @@ fn find_uses_trigram_for_long_and_like_for_short_queries() -> TestResult {
     assert_eq!(ids(&f("group", Some("kind_a"))?), Vec::<&str>::new());
     assert_eq!(ids(&f("group", Some("kind_b"))?), vec!["n3"]);
     assert_eq!(ids(&f("a \"q", None)?), Vec::<&str>::new());
-    let beta = nodes(&set, "g", FindBy::Text("beta"), None, 1)?;
+    let beta = nodes(&set, "b1/g", FindBy::Text("beta"), None, 1)?;
     assert_eq!(
         beta[0].state,
         Some(json!({"judgment": "unknown", "reason": "reason text"}))
@@ -43,7 +43,7 @@ fn find_uses_trigram_for_long_and_like_for_short_queries() -> TestResult {
     assert_eq!(beta[0].gloss, None);
     assert!(matches!(f("  ", None), Err(KgError::Argument(_))));
     assert!(matches!(
-        nodes(&set, "g", FindBy::Text("alpha"), None, 21),
+        nodes(&set, "b1/g", FindBy::Text("alpha"), None, 21),
         Err(KgError::Argument(_))
     ));
     Ok(())
@@ -58,23 +58,23 @@ fn find_reports_one_of_five_statuses() -> TestResult {
         limit: 5,
         as_of: None,
     };
-    let found = set.find("g", &q(FindBy::Text("gamma")))?;
+    let found = set.find("b1/g", &q(FindBy::Text("gamma")))?;
     assert_eq!((found.status, found.reason), (Status::Found, None));
     assert_eq!(found.nodes[0].gloss.as_deref(), Some("gamma gloss"));
-    let none = set.find("g", &q(FindBy::Text("nothing here")))?;
+    let none = set.find("b1/g", &q(FindBy::Text("nothing here")))?;
     assert_eq!(
         (none.status, none.reason),
         (Status::Unknown, Some(Reason::NoMatch))
     );
     let graph = set.find("zz", &q(FindBy::Text("alpha")))?;
     assert_eq!(graph.status, Status::OutOfScope);
-    let law = set.find("g", &q(FindBy::LawKey("k")))?;
+    let law = set.find("b1/g", &q(FindBy::LawKey("k")))?;
     assert_eq!(
         (law.status, law.reason),
         (Status::OutOfScope, Some(Reason::NoArticleIndex))
     );
     let article = set.find(
-        "g",
+        "b1/g",
         &q(FindBy::Article {
             law: "법",
             unit: "제1조",
@@ -218,7 +218,7 @@ fn as_of_judges_known_periods_and_counts_exclusions() -> TestResult {
         limit: 20,
         as_of,
     };
-    let late = set.expand("g", "n1", &q(Some("2024-01-01")))?;
+    let late = set.expand("b1/g", "n1", &q(Some("2024-01-01")))?;
     assert_eq!(late.edges.len(), 1);
     assert_eq!(late.edges[0].period, Some(Period::NotChecked));
     let summary = late.as_of.ok_or("summary")?;
@@ -226,7 +226,7 @@ fn as_of_judges_known_periods_and_counts_exclusions() -> TestResult {
         (summary.excluded, summary.not_checked, summary.in_force),
         (1, 1, 0)
     );
-    let early = set.expand("g", "n1", &q(Some("2020-06-01")))?;
+    let early = set.expand("b1/g", "n1", &q(Some("2020-06-01")))?;
     assert!(
         early
             .edges
@@ -237,16 +237,16 @@ fn as_of_judges_known_periods_and_counts_exclusions() -> TestResult {
         relation: Some("rel_y"),
         ..q(Some("2024-01-01"))
     };
-    let gone = set.expand("g", "n1", &only)?;
+    let gone = set.expand("b1/g", "n1", &only)?;
     assert_eq!(
         (gone.status, gone.reason),
         (Status::Unknown, Some(Reason::ExcludedByAsOf))
     );
     assert!(matches!(
-        set.expand("g", "n1", &q(Some("2024-13-01"))),
+        set.expand("b1/g", "n1", &q(Some("2024-13-01"))),
         Err(KgError::Argument(_))
     ));
-    assert_eq!(set.expand("g", "n1", &q(None))?.as_of, None);
+    assert_eq!(set.expand("b1/g", "n1", &q(None))?.as_of, None);
     Ok(())
 }
 

@@ -60,7 +60,7 @@ pub fn load_bundle(kg_dir: &Path, kg: &KgSet) -> Result<BTreeMap<String, ClaimGr
         if !plain_file(&entry.file) || trees.contains_key(&entry.name) {
             return Err(RulesError::Manifest);
         }
-        let Some(checked) = verified.get(&entry.name) else {
+        let Some(checked) = verified.get(&kg::graph_name(RULES_BUNDLE, &entry.name)) else {
             return Err(RulesError::NotVerified(entry.name));
         };
         let body = fs::read(dir.join(&entry.file))?;

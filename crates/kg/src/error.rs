@@ -42,6 +42,10 @@ pub enum KgError {
     Cycle,
     #[error("graph name appears in more than one bundle")]
     DuplicateGraph,
+    #[error("같은 갈래의 새 판이 있음")]
+    Superseded,
+    #[error("manifest source_bundle does not match the folder name")]
+    SourceBundle,
     #[error("stored graph metadata is not valid")]
     Meta,
     #[error("unknown graph")]

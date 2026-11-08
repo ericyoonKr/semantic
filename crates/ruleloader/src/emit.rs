@@ -158,7 +158,7 @@ edges:
         assert!(set.disabled().is_empty());
         let catalog = set.catalog();
         assert_eq!(catalog.len(), 1);
-        assert_eq!(catalog[0].graph, "T1");
+        assert_eq!(catalog[0].graph, "rules/T1");
         assert_eq!(catalog[0].shape, "나무");
         assert_eq!((catalog[0].nodes, catalog[0].edges), (3, 2));
         Ok(())

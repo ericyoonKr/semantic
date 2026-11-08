@@ -139,7 +139,7 @@ pub fn expand(
         limit,
         as_of: None,
     };
-    set.expand("g", node, &q)
+    set.expand("b1/g", node, &q)
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {

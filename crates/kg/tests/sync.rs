@@ -15,7 +15,7 @@ fn good_bundle_loads_with_matching_counts() -> TestResult {
     assert_eq!(catalog.len(), 1);
     let entry = &catalog[0];
     assert_eq!((entry.nodes, entry.edges, entry.states), (4, 3, 3));
-    assert_eq!(entry.graph, "g");
+    assert_eq!(entry.graph, "b1/g");
     assert_eq!(entry.shape, "연결망");
     assert_eq!(
         (entry.compositions, entry.dated, entry.article_index),
@@ -46,9 +46,12 @@ fn removed_line_disables_only_that_bundle() -> TestResult {
         set.disabled()[0].reason
     );
     assert!(sqlite_files(tmp.path(), "a_bad").is_empty());
-    assert!(!set.contains("g"));
-    assert!(set.contains("h"));
-    assert_eq!(nodes(&set, "h", FindBy::Text("alpha"), None, 5)?.len(), 1);
+    assert!(!set.contains("a_bad/g"));
+    assert!(set.contains("b_good/h"));
+    assert_eq!(
+        nodes(&set, "b_good/h", FindBy::Text("alpha"), None, 5)?.len(),
+        1
+    );
     Ok(())
 }
 
@@ -171,7 +174,7 @@ fn cycle_in_acyclic_layer_disables_but_other_layer_may_cycle() -> TestResult {
     assert_eq!(set.disabled().len(), 1);
     assert!(set.disabled()[0].reason.contains("cycle"));
     assert!(sqlite_files(tmp.path(), "a_bad").is_empty());
-    assert!(set.contains("h"));
+    assert!(set.contains("b_ok/h"));
     Ok(())
 }
 

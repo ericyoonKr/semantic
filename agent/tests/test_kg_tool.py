@@ -115,6 +115,10 @@ def test_fold_prefers_last_confirmed_and_drops_retracted() -> None:
     assert [(r["node"], r["value"]) for r in folded] == [("L1", "해당"), ("L3", "참고함")]
     text = progress_text(rows, {"g": "new"})
     assert "그래프가 바뀜 — 다시 확인" in text.splitlines()[1]
+    gone = progress_text([{"graph": "concept_frame", "node": "N1", "value": "해당", "status": "confirmed", "sha256": "s"}], {"legal-concept-civil/concept_frame": "s"})
+    assert "그래프가 바뀜 — 다시 확인" in gone
+    kept = progress_text([{"graph": "g", "node": "N1", "value": "해당", "status": "confirmed", "sha256": "s"}], {"g": "s"})
+    assert "다시 확인" not in kept
 
 
 def _system_text(messages: list[Any]) -> str:

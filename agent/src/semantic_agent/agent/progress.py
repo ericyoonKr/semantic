@@ -43,7 +43,7 @@ def progress_text(rows: list[dict[str, Any]], hashes: dict[str, str]) -> str:
             f" · 근거 「{row.get('basis', '')}」 · {row.get('turn', '')}번째 질문"
         )
         current = hashes.get(str(row.get("graph", "")))
-        if current and current != row.get("sha256"):
+        if current is None or current != row.get("sha256"):
             line += f" · {CHANGED}"
         lines.append(line)
     return "\n".join(lines)

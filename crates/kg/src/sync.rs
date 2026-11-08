@@ -10,6 +10,7 @@ use crate::contract;
 use crate::error::KgError;
 use crate::load;
 use crate::manifest::{GraphEntry, Manifest, plain_name};
+use crate::naming;
 use crate::set::{DisabledBundle, Graph, KgSet};
 use crate::store;
 use crate::verify::{HashingReader, SignatureStatus, file_sha256, same_hash};
@@ -35,10 +36,14 @@ pub fn sync_all(kg_dir: &Path, cfg: &KgConfig) -> Result<KgSet, KgError> {
         bundles.push((name, entry.path()));
     }
     bundles.sort();
-    for (bundle, dir) in bundles {
-        match sync_bundle(kg_dir, &bundle, &dir, cfg)
-            .and_then(|ready| open_bundle(&set, &ready, cfg))
-        {
+    let superseded = naming::superseded(bundles.iter().map(|(name, _)| name.as_str()));
+    for ((bundle, dir), old) in bundles.into_iter().zip(superseded) {
+        let synced = if old {
+            Err(KgError::Superseded)
+        } else {
+            sync_bundle(kg_dir, &bundle, &dir, cfg)
+        };
+        match synced.and_then(|ready| open_bundle(&set, &ready, cfg)) {
             Ok(graphs) => {
                 for (name, graph) in graphs {
                     set.graphs.insert(name, graph);
@@ -65,7 +70,7 @@ fn open_bundle(
         }
         out.push((
             name.clone(),
-            Graph::open(path, cfg.mmap_bytes, cfg.cache_kib)?,
+            Graph::open(name, path, cfg.mmap_bytes, cfg.cache_kib)?,
         ));
     }
     Ok(out)
@@ -82,6 +87,13 @@ fn sync_bundle(
     }
     let manifest_bytes = fs::read(dir.join(MANIFEST))?;
     let manifest = Manifest::parse(&manifest_bytes, &cfg.manifest_schema)?;
+    if manifest
+        .source_bundle
+        .as_deref()
+        .is_some_and(|s| s != bundle)
+    {
+        return Err(KgError::SourceBundle);
+    }
     let mut names = BTreeSet::new();
     if !manifest
         .graphs
@@ -121,7 +133,7 @@ fn sync_bundle(
                 return Err(e);
             }
         }
-        ready.push((entry.name.clone(), final_path));
+        ready.push((naming::graph_name(bundle, &entry.name), final_path));
     }
     for (i, (tmp, final_path)) in pending.iter().enumerate() {
         if let Err(e) = fs::rename(tmp, final_path) {

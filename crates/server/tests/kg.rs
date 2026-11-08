@@ -12,8 +12,12 @@ async fn find_gives_short_ids_and_expand_resolves_them() -> TestResult {
     let (state, router) = app(tmp.path()).await?;
 
     let find_uri = format!("/sessions/{SID}/kg/find");
-    let (status, found) =
-        post_json(&router, &find_uri, json!({"graph": "g", "text": "alpha"})).await?;
+    let (status, found) = post_json(
+        &router,
+        &find_uri,
+        json!({"graph": "b1/g", "text": "alpha"}),
+    )
+    .await?;
     assert_eq!(status, StatusCode::OK, "{found}");
     assert_eq!(found["status"], "found");
     assert_eq!(found["nodes"][0]["node"], "L1");
@@ -21,12 +25,13 @@ async fn find_gives_short_ids_and_expand_resolves_them() -> TestResult {
     assert_eq!(found["nodes"][0]["name"], "alpha concept");
     assert!(!found.to_string().contains("long-node-id"), "{found}");
 
-    let (_, again) = post_json(&router, &find_uri, json!({"graph": "g", "text": "beta"})).await?;
+    let (_, again) =
+        post_json(&router, &find_uri, json!({"graph": "b1/g", "text": "beta"})).await?;
     assert_eq!(again["nodes"][0]["node"], "L2");
     assert_eq!(again["nodes"][0]["status"]["judgment"], "unknown");
 
     let expand_uri = format!("/sessions/{SID}/kg/expand");
-    let body = json!({"graph": "g", "node": "L1", "direction": "out", "depth": 2});
+    let body = json!({"graph": "b1/g", "node": "L1", "direction": "out", "depth": 2});
     let (status, ex) = post_json(&router, &expand_uri, body).await?;
     assert_eq!(status, StatusCode::OK, "{ex}");
     assert_eq!(ex["status"], "found");
@@ -44,7 +49,7 @@ async fn find_gives_short_ids_and_expand_resolves_them() -> TestResult {
     assert_eq!(edges[1]["neighbor"]["name"], "gamma group");
     assert!(!ex.to_string().contains("long-node-id"), "{ex}");
 
-    let body = json!({"graph": "g", "node": "L3", "direction": "in"});
+    let body = json!({"graph": "b1/g", "node": "L3", "direction": "in"});
     let (status, back) = post_json(&router, &expand_uri, body).await?;
     assert_eq!(status, StatusCode::OK, "{back}");
     assert_eq!(back["edges"][0]["to"], "L2");
@@ -53,7 +58,7 @@ async fn find_gives_short_ids_and_expand_resolves_them() -> TestResult {
     assert!(stored.is_some());
 
     let other = "11111111-2222-4333-8444-555555555555";
-    let body = json!({"graph": "g", "node": "L1", "direction": "out"});
+    let body = json!({"graph": "b1/g", "node": "L1", "direction": "out"});
     let (status, _) = post_json(&router, &format!("/sessions/{other}/kg/expand"), body).await?;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     Ok(())
@@ -66,12 +71,13 @@ async fn short_ids_survive_restart() -> TestResult {
     {
         let (state, router) = app(tmp.path()).await?;
         let uri = format!("/sessions/{SID}/kg/find");
-        let (_, found) = post_json(&router, &uri, json!({"graph": "g", "text": "gamma"})).await?;
+        let (_, found) =
+            post_json(&router, &uri, json!({"graph": "b1/g", "text": "gamma"})).await?;
         assert_eq!(found["nodes"][0]["node"], "L1");
         server::shutdown::finish(&state, std::time::Duration::from_secs(5)).await;
     }
     let (_state, router) = app(tmp.path()).await?;
-    let body = json!({"graph": "g", "node": "L1", "direction": "in"});
+    let body = json!({"graph": "b1/g", "node": "L1", "direction": "in"});
     let (status, ex) = post_json(&router, &format!("/sessions/{SID}/kg/expand"), body).await?;
     assert_eq!(status, StatusCode::OK, "{ex}");
     assert_eq!(ex["edges"][0]["neighbor"]["name"], "beta idea");
@@ -85,19 +91,19 @@ async fn bad_kg_arguments_are_400() -> TestResult {
     let (_state, router) = app(tmp.path()).await?;
     let uri = format!("/sessions/{SID}/kg/find");
     for body in [
-        json!({"graph": "g"}),
-        json!({"graph": "g", "law": "x"}),
-        json!({"graph": "g", "text": "alpha", "limit": 21}),
-        json!({"graph": "g", "text": "alpha", "as_of": "2024-13-01"}),
+        json!({"graph": "b1/g"}),
+        json!({"graph": "b1/g", "law": "x"}),
+        json!({"graph": "b1/g", "text": "alpha", "limit": 21}),
+        json!({"graph": "b1/g", "text": "alpha", "as_of": "2024-13-01"}),
     ] {
         let (status, reply) = post_json(&router, &uri, body.clone()).await?;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body} -> {reply}");
     }
-    let (_, _) = post_json(&router, &uri, json!({"graph": "g", "text": "alpha"})).await?;
+    let (_, _) = post_json(&router, &uri, json!({"graph": "b1/g", "text": "alpha"})).await?;
     let expand = format!("/sessions/{SID}/kg/expand");
     for body in [
-        json!({"graph": "g", "node": "L9", "direction": "out"}),
-        json!({"graph": "g", "node": "L1", "direction": "out", "depth": 3}),
+        json!({"graph": "b1/g", "node": "L9", "direction": "out"}),
+        json!({"graph": "b1/g", "node": "L1", "direction": "out", "depth": 3}),
     ] {
         let (status, reply) = post_json(&router, &expand, body.clone()).await?;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body} -> {reply}");
@@ -112,7 +118,7 @@ async fn statuses_reach_the_reply_instead_of_http_errors() -> TestResult {
     let (_state, router) = app(tmp.path()).await?;
     let find = format!("/sessions/{SID}/kg/find");
     let expand = format!("/sessions/{SID}/kg/expand");
-    let (_, first) = post_json(&router, &find, json!({"graph": "g", "text": "alpha"})).await?;
+    let (_, first) = post_json(&router, &find, json!({"graph": "b1/g", "text": "alpha"})).await?;
     assert_eq!(first["nodes"][0]["node"], "L1");
     let cases = [
         (
@@ -122,23 +128,23 @@ async fn statuses_reach_the_reply_instead_of_http_errors() -> TestResult {
         ),
         (
             &find,
-            json!({"graph": "g", "law": "x", "unit": "y"}),
+            json!({"graph": "b1/g", "law": "x", "unit": "y"}),
             "out_of_scope",
         ),
         (
             &find,
-            json!({"graph": "g", "text": "nothing here"}),
+            json!({"graph": "b1/g", "text": "nothing here"}),
             "unknown",
         ),
-        (&find, json!({"graph": "g", "text": "gamma"}), "found"),
+        (&find, json!({"graph": "b1/g", "text": "gamma"}), "found"),
         (
             &expand,
-            json!({"graph": "g", "node": "L1", "direction": "out", "relation": "rel_q"}),
+            json!({"graph": "b1/g", "node": "L1", "direction": "out", "relation": "rel_q"}),
             "out_of_scope",
         ),
         (
             &expand,
-            json!({"graph": "g", "node": "L1", "direction": "in", "as_of": "2024-01-01"}),
+            json!({"graph": "b1/g", "node": "L1", "direction": "in", "as_of": "2024-01-01"}),
             "not_examined",
         ),
     ];
@@ -156,7 +162,7 @@ async fn statuses_reach_the_reply_instead_of_http_errors() -> TestResult {
     let (_, ex) = post_json(
         &router,
         &expand,
-        json!({"graph": "g", "node": "L1", "direction": "out", "as_of": "2024-01-01"}),
+        json!({"graph": "b1/g", "node": "L1", "direction": "out", "as_of": "2024-01-01"}),
     )
     .await?;
     assert_eq!(ex["status"], "found", "{ex}");
@@ -173,8 +179,8 @@ async fn short_ids_from_an_older_bundle_are_kept_or_sent_back_to_find() -> TestR
     {
         let (state, router) = app(tmp.path()).await?;
         let uri = format!("/sessions/{SID}/kg/find");
-        let (_, a) = post_json(&router, &uri, json!({"graph": "g", "text": "alpha"})).await?;
-        let (_, b) = post_json(&router, &uri, json!({"graph": "g", "text": "beta"})).await?;
+        let (_, a) = post_json(&router, &uri, json!({"graph": "b1/g", "text": "alpha"})).await?;
+        let (_, b) = post_json(&router, &uri, json!({"graph": "b1/g", "text": "beta"})).await?;
         assert_eq!(
             (a["nodes"][0]["node"].clone(), b["nodes"][0]["node"].clone()),
             (json!("L1"), json!("L2"))
@@ -191,7 +197,7 @@ async fn short_ids_from_an_older_bundle_are_kept_or_sent_back_to_find() -> TestR
     let (status, gone) = post_json(
         &router,
         &expand,
-        json!({"graph": "g", "node": "L1", "direction": "out"}),
+        json!({"graph": "b1/g", "node": "L1", "direction": "out"}),
     )
     .await?;
     assert_eq!(status, StatusCode::OK, "{gone}");
@@ -205,7 +211,7 @@ async fn short_ids_from_an_older_bundle_are_kept_or_sent_back_to_find() -> TestR
     let (_, kept) = post_json(
         &router,
         &expand,
-        json!({"graph": "g", "node": "L2", "direction": "out"}),
+        json!({"graph": "b1/g", "node": "L2", "direction": "out"}),
     )
     .await?;
     assert_eq!(kept["status"], "found", "{kept}");
@@ -221,14 +227,14 @@ async fn state_check_accepts_only_declared_values_of_known_nodes() -> TestResult
     let (_, _) = post_json(
         &router,
         &format!("/sessions/{SID}/kg/find"),
-        json!({"graph": "g", "text": "alpha"}),
+        json!({"graph": "b1/g", "text": "alpha"}),
     )
     .await?;
     let uri = format!("/sessions/{SID}/kg/state-check");
     let (status, ok) = post_json(
         &router,
         &uri,
-        json!({"graph": "g", "node": "L1", "value": "해당"}),
+        json!({"graph": "b1/g", "node": "L1", "value": "해당"}),
     )
     .await?;
     assert_eq!(status, StatusCode::OK, "{ok}");
@@ -239,7 +245,7 @@ async fn state_check_accepts_only_declared_values_of_known_nodes() -> TestResult
     let (_, bad) = post_json(
         &router,
         &uri,
-        json!({"graph": "g", "node": "L1", "value": "maybe"}),
+        json!({"graph": "b1/g", "node": "L1", "value": "maybe"}),
     )
     .await?;
     assert_eq!(bad["accepted"], false, "{bad}");
@@ -252,7 +258,7 @@ async fn state_check_accepts_only_declared_values_of_known_nodes() -> TestResult
     let (status, _) = post_json(
         &router,
         &uri,
-        json!({"graph": "g", "node": "L7", "value": "해당"}),
+        json!({"graph": "b1/g", "node": "L7", "value": "해당"}),
     )
     .await?;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -274,7 +280,7 @@ async fn disabled_bundle_does_not_stop_startup() -> TestResult {
     assert_eq!(status, StatusCode::OK);
     let graphs = catalog["graphs"].as_array().cloned().unwrap_or_default();
     assert_eq!(graphs.len(), 1, "{catalog}");
-    assert_eq!(graphs[0]["graph"], "good");
+    assert_eq!(graphs[0]["graph"], "b_good/good");
     assert_eq!(graphs[0]["nodes"], 3);
     assert_eq!(graphs[0]["compositions"], 1);
     assert_eq!(graphs[0]["relations"], json!(["rel_x"]));

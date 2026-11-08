@@ -6,6 +6,8 @@ use crate::error::KgError;
 #[derive(Debug, Deserialize)]
 pub(crate) struct Manifest {
     pub schema: String,
+    #[serde(default)]
+    pub source_bundle: Option<String>,
     pub graphs: Vec<GraphEntry>,
 }
 

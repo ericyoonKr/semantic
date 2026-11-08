@@ -6,6 +6,7 @@ mod ids;
 mod index;
 mod load;
 mod manifest;
+mod naming;
 mod query;
 mod set;
 mod shapes;
@@ -20,6 +21,7 @@ pub use config::{DEFAULT_CACHE_KIB, DEFAULT_MMAP_BYTES, KgConfig};
 pub use contract::StateSpec;
 pub use error::KgError;
 pub use ids::{ShortIds, ShortTarget};
+pub use naming::{bundle_branch, graph_name};
 pub use query::{
     Direction, Evidence, EvidenceItem, FindBy, FindQuery, Found, MAX_DEPTH, MAX_LIMIT, NodeHit,
 };

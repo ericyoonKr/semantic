@@ -64,7 +64,12 @@ fn meta_text(conn: &Connection, key: &str) -> Result<String, KgError> {
 }
 
 impl Graph {
-    pub(crate) fn open(path: &Path, mmap_bytes: i64, cache_kib: i64) -> Result<Self, KgError> {
+    pub(crate) fn open(
+        name: &str,
+        path: &Path,
+        mmap_bytes: i64,
+        cache_kib: i64,
+    ) -> Result<Self, KgError> {
         let conn = store::open_read_only(path, mmap_bytes, cache_kib)?;
         let counts = meta_json(&conn, "counts")?;
         let count = |k: &str| counts.get(k).and_then(Value::as_u64).ok_or(KgError::Meta);
@@ -73,7 +78,7 @@ impl Graph {
         let shape = meta_text(&conn, "shape")?;
         let compositions = u64::try_from(contract.compositions.len()).map_err(|_| KgError::Meta)?;
         let entry = CatalogEntry {
-            graph: meta_text(&conn, "graph")?,
+            graph: name.to_string(),
             bundle: meta_text(&conn, "bundle")?,
             shape: shape.clone(),
             nodes: count("nodes")?,
