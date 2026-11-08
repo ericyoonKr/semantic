@@ -8,6 +8,8 @@ const PREFIX: char = 'L';
 pub struct ShortTarget {
     pub graph: String,
     pub id: String,
+    #[serde(default)]
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,7 +21,7 @@ struct ShortIdsRepr {
 #[serde(from = "ShortIdsRepr", into = "ShortIdsRepr")]
 pub struct ShortIds {
     entries: Vec<ShortTarget>,
-    index: HashMap<ShortTarget, usize>,
+    index: HashMap<(String, String), usize>,
 }
 
 impl From<ShortIdsRepr> for ShortIds {
@@ -46,19 +48,24 @@ impl ShortIds {
     }
 
     fn push(&mut self, target: ShortTarget) -> usize {
-        if let Some(i) = self.index.get(&target) {
-            return *i;
+        let key = (target.graph.clone(), target.id.clone());
+        if let Some(&i) = self.index.get(&key) {
+            if let Some(entry) = self.entries.get_mut(i) {
+                entry.sha256 = target.sha256;
+            }
+            return i;
         }
         let i = self.entries.len();
-        self.index.insert(target.clone(), i);
+        self.index.insert(key, i);
         self.entries.push(target);
         i
     }
 
-    pub fn assign(&mut self, graph: &str, id: &str) -> String {
+    pub fn assign(&mut self, graph: &str, id: &str, sha256: &str) -> String {
         let i = self.push(ShortTarget {
             graph: graph.to_string(),
             id: id.to_string(),
+            sha256: sha256.to_string(),
         });
         format!("{PREFIX}{}", i + 1)
     }
@@ -84,10 +91,13 @@ mod tests {
     #[test]
     fn assigns_stable_numbers_and_round_trips() -> Result<(), serde_json::Error> {
         let mut ids = ShortIds::new();
-        assert_eq!(ids.assign("g", "a"), "L1");
-        assert_eq!(ids.assign("g", "b"), "L2");
-        assert_eq!(ids.assign("g", "a"), "L1");
-        assert_eq!(ids.assign("h", "a"), "L3");
+        assert_eq!(ids.assign("g", "a", "s1"), "L1");
+        assert_eq!(ids.assign("g", "b", "s1"), "L2");
+        assert_eq!(ids.assign("g", "a", "s2"), "L1");
+        assert_eq!(ids.assign("h", "a", "s1"), "L3");
+        assert_eq!(ids.resolve("L1").map(|t| t.sha256.as_str()), Some("s2"));
+        let old: ShortIds = serde_json::from_str(r#"{"entries":[{"graph":"g","id":"a"}]}"#)?;
+        assert_eq!(old.resolve("L1").map(|t| t.sha256.as_str()), Some(""));
         let back: ShortIds = serde_json::from_str(&serde_json::to_string(&ids)?)?;
         assert_eq!(back, ids);
         assert_eq!(back.resolve("L2").map(|t| t.id.as_str()), Some("b"));

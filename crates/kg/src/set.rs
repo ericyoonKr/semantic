@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -6,8 +6,9 @@ use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::contract::Contract;
+use crate::contract::{Contract, StateSpec};
 use crate::error::KgError;
+use crate::fields::{self, Fields};
 use crate::store;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -28,11 +29,19 @@ pub struct CatalogEntry {
     pub signature: String,
     pub acyclic: Value,
     pub sha256: String,
+    pub relations: Vec<String>,
+    pub node_kinds: Vec<String>,
+    pub compositions: u64,
+    pub composition_mode: Option<String>,
+    pub state: Option<StateSpec>,
+    pub dated: u64,
+    pub article_index: u64,
 }
 
 pub(crate) struct Graph {
     pub entry: CatalogEntry,
-    pub allowed: BTreeSet<String>,
+    pub contract: Contract,
+    pub fields: &'static Fields,
     path: PathBuf,
     mmap_bytes: i64,
     cache_kib: i64,
@@ -59,10 +68,14 @@ impl Graph {
         let conn = store::open_read_only(path, mmap_bytes, cache_kib)?;
         let counts = meta_json(&conn, "counts")?;
         let count = |k: &str| counts.get(k).and_then(Value::as_u64).ok_or(KgError::Meta);
+        let contract = Contract::from_value(&meta_json(&conn, "contract")?)?;
+        let head = meta_json(&conn, "head")?;
+        let shape = meta_text(&conn, "shape")?;
+        let compositions = u64::try_from(contract.compositions.len()).map_err(|_| KgError::Meta)?;
         let entry = CatalogEntry {
             graph: meta_text(&conn, "graph")?,
             bundle: meta_text(&conn, "bundle")?,
-            shape: meta_text(&conn, "shape")?,
+            shape: shape.clone(),
             nodes: count("nodes")?,
             edges: count("edges")?,
             states: count("states")?,
@@ -70,11 +83,18 @@ impl Graph {
             signature: meta_text(&conn, "signature")?,
             acyclic: meta_json(&conn, "acyclic")?,
             sha256: meta_text(&conn, "sha256")?,
+            relations: contract.allowed.iter().cloned().collect(),
+            node_kinds: contract.node_kinds.clone(),
+            compositions,
+            composition_mode: contract.composition_mode.clone(),
+            state: StateSpec::from_head(&head),
+            dated: count("dated")?,
+            article_index: store::count_rows(&conn, "refs")?,
         };
-        let allowed = Contract::from_value(&meta_json(&conn, "contract")?)?.allowed;
         Ok(Self {
             entry,
-            allowed,
+            contract,
+            fields: fields::for_shape(&shape),
             path: path.to_path_buf(),
             mmap_bytes,
             cache_kib,
@@ -110,6 +130,14 @@ impl KgSet {
 
     pub fn contains(&self, graph: &str) -> bool {
         self.graphs.contains_key(graph)
+    }
+
+    pub fn sha256(&self, graph: &str) -> Option<&str> {
+        self.graphs.get(graph).map(|g| g.entry.sha256.as_str())
+    }
+
+    pub fn state_spec(&self, graph: &str) -> Option<&StateSpec> {
+        self.graphs.get(graph).and_then(|g| g.entry.state.as_ref())
     }
 
     pub(crate) fn graph(&self, name: &str) -> Result<&Graph, KgError> {

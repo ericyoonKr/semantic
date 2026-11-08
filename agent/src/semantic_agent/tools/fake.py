@@ -66,6 +66,8 @@ JUDGE_CATALOG = [
 
 KG_CATALOG = [{"graph": "fake-graph", "scope": "가짜 범위", "shape": "찾아보기", "nodes": 1, "status": "가짜"}]
 
+KG_STATE = {"accepted": True, "node": "L1", "name": "가짜 노드", "sha256": "가짜해시", "allowed": ["해당"]}
+
 KG_FIND = {"nodes": [{"node": "L1", "name": "가짜 노드", "kind": "개념", "gloss": "가짜 뜻풀이", "status": "가짜"}]}
 
 KG_EXPAND = {
@@ -121,6 +123,8 @@ def _answer(method: str, path: str) -> Any:
         return KG_FIND
     if path.endswith("/kg/expand"):
         return KG_EXPAND
+    if path.endswith("/kg/state-check"):
+        return KG_STATE
     if path.endswith("/judge"):
         return JUDGE
     if path.endswith("/files"):

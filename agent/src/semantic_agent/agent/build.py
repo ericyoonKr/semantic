@@ -20,13 +20,15 @@ from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import ContextMiddleware
 from semantic_agent.agent.delegation import SubagentGate
 from semantic_agent.agent.guards import ScopeGuard, ToolGuard
+from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.config import Settings
 from semantic_agent.memory.store import prefs_namespace
 from semantic_agent.tools.client import ToolClient
 from semantic_agent.tools.judge import format_judge_catalog, make_judge_tool
-from semantic_agent.tools.kg import format_kg_catalog, make_kg_tools
+from semantic_agent.tools.kg import catalog_hashes, format_kg_catalog, make_kg_tools
+from semantic_agent.tools.kg_state import make_kg_state_tool
 from semantic_agent.tools.search import make_search_tools
 
 MAIN_AGENT = "main"
@@ -43,6 +45,7 @@ class Catalogs:
     judge: str
     kg: str
     routes: dict[str, list[str]] = field(default_factory=dict)
+    kg_hashes: dict[str, str] = field(default_factory=dict)
 
 
 def claim_routes(data: Any) -> dict[str, list[str]]:
@@ -68,6 +71,7 @@ async def load_catalogs(client: ToolClient) -> Catalogs:
         judge=judge_err or format_judge_catalog(judge_data),
         kg=kg_err or format_kg_catalog(kg_data),
         routes={} if judge_err else claim_routes(judge_data),
+        kg_hashes={} if kg_err else catalog_hashes(kg_data),
     )
 
 
@@ -114,12 +118,13 @@ def build_agent(
     subagents = make_subagents(backend, make_search_tools(client))
     return create_deep_agent(
         model=model,
-        tools=[make_judge_tool(client, catalogs.judge), *make_kg_tools(client)],
+        tools=[make_judge_tool(client, catalogs.judge), *make_kg_tools(client), make_kg_state_tool(client)],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
             QuestionBudget(),
             ScopeGuard(),
             ContextMiddleware(catalogs.judge, catalogs.kg),
+            ProgressMiddleware(catalogs.kg_hashes),
             TodoListMiddleware(system_prompt=PLAN_PROMPT),
             ToolGuard(),
             SubagentGate(SUBAGENT_NAMES, routes=catalogs.routes),

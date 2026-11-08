@@ -19,7 +19,9 @@ pub fn cfg() -> KgConfig {
 pub struct Spec<'a> {
     pub graph: &'a str,
     pub schema: &'a str,
+    pub shape: &'a str,
     pub extra_edges: Vec<Value>,
+    pub compositions: Value,
 }
 
 impl<'a> Spec<'a> {
@@ -27,12 +29,14 @@ impl<'a> Spec<'a> {
         Self {
             graph,
             schema: CONSUMER,
+            shape: "연결망",
             extra_edges: Vec::new(),
+            compositions: json!([["rel_x", "kind_a", "rel_x"]]),
         }
     }
 }
 
-fn edge(id: &str, src: &str, dst: &str, relation: &str, evidence: Value) -> Value {
+pub fn edge(id: &str, src: &str, dst: &str, relation: &str, evidence: Value) -> Value {
     json!({"edge": {
         "id": id,
         "source": {"graph": "g", "id": src},
@@ -50,8 +54,11 @@ pub fn lines(spec: &Spec<'_>) -> Vec<String> {
         json!({"node": {"id": "n2", "kind": "kind_a", "label": "beta idea", "evidence": [],
             "item_state": {"judgment": "unknown", "reason_ref": 1}}}),
         json!({"node": {"id": "n3", "kind": "kind_b", "label": "gamma group",
-            "evidence": [{"source": "s", "quote_ref": 2}]}}),
-        json!({"node": {"id": "n4", "kind": "kind_a", "label": "xy pair", "evidence": []}}),
+            "evidence": [{"source": "s", "quote_ref": 2}], "record": {"gloss": "gamma gloss"}}}),
+        json!({"node": {"id": "n4", "kind": "kind_a", "label": "xy pair", "evidence": [],
+            "item_state": {"judgment": "not_judged", "search_records": [
+                {"relation": "rel_x", "direction": "out", "result": "none_confirmed", "basis_ref": 1},
+                {"relation": "rel_z", "direction": "both", "result": "unknown", "basis_ref": 1}]}}}),
         edge(
             "e1",
             "n1",
@@ -59,8 +66,17 @@ pub fn lines(spec: &Spec<'_>) -> Vec<String> {
             "rel_x",
             json!([{"source": "s", "quote_ref": 0}]),
         ),
-        edge("e2", "n2", "n3", "rel_x", json!([])),
-        edge("e3", "n1", "n4", "rel_y", json!([])),
+        {
+            let mut e = edge("e2", "n2", "n3", "rel_x", json!([]));
+            e["edge"]["book_evidence"] = json!([{"source": "book", "loc": {"book": [7]}}]);
+            e
+        },
+        {
+            let mut e = edge("e3", "n1", "n4", "rel_y", json!([]));
+            e["edge"]["period"] =
+                json!({"state": "known", "start": "2020-01-01", "end": "2021-01-01"});
+            e
+        },
         json!({"unattached_state": {"judgment": "not_judged", "reason_ref": 1}}),
     ];
     items.extend(spec.extra_edges.iter().cloned());
@@ -73,11 +89,14 @@ pub fn lines(spec: &Spec<'_>) -> Vec<String> {
     let head = json!({"head": {
         "schema": spec.schema,
         "graph": spec.graph,
-        "shape": "network",
+        "shape": spec.shape,
+        "state": {"kind": "note", "values": ["yes", "no"]},
         "contract": {
             "node_kinds": ["kind_a"],
             "relations": {"rel_x": {"acyclic": true}},
-            "optional_relations": ["rel_y", "rel_z"]
+            "optional_relations": ["rel_y", "rel_z"],
+            "compositions": spec.compositions,
+            "composition_mode": "chain_only"
         },
         "measurement": {"state": "unmeasured"},
         "counts": {"nodes": count("node"), "edges": count("edge"), "states": states},
@@ -87,6 +106,40 @@ pub fn lines(spec: &Spec<'_>) -> Vec<String> {
         .chain(items)
         .map(|v| v.to_string())
         .collect()
+}
+
+pub fn nodes(
+    set: &kg::KgSet,
+    graph: &str,
+    by: kg::FindBy<'_>,
+    kind: Option<&str>,
+    limit: usize,
+) -> Result<Vec<kg::NodeHit>, kg::KgError> {
+    let q = kg::FindQuery {
+        by,
+        kind,
+        limit,
+        as_of: None,
+    };
+    Ok(set.find(graph, &q)?.nodes)
+}
+
+pub fn expand(
+    set: &kg::KgSet,
+    node: &str,
+    relation: Option<&str>,
+    direction: kg::Direction,
+    depth: u8,
+    limit: usize,
+) -> Result<kg::Expansion, kg::KgError> {
+    let q = kg::ExpandQuery {
+        relation,
+        direction,
+        depth,
+        limit,
+        as_of: None,
+    };
+    set.expand("g", node, &q)
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -115,7 +168,7 @@ pub fn write_bundle(
     let manifest = json!({
         "schema": MANIFEST,
         "source_bundle": bundle,
-        "graphs": [{"name": graph, "file": file, "sha256": digest, "shape": "network"}],
+        "graphs": [{"name": graph, "file": file, "sha256": digest, "shape": "연결망"}],
         "version_mismatches": []
     });
     fs::write(dir.join("manifest.json"), manifest.to_string())?;

@@ -3,6 +3,7 @@ pub mod files;
 pub mod health;
 pub mod judge;
 pub mod kg;
+pub mod kgstate;
 pub mod middleware;
 pub mod rules;
 pub mod search;
@@ -29,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/kg/catalog", get(catalog::kg_catalog))
         .route("/sessions/{sid}/kg/find", post(kg::find))
         .route("/sessions/{sid}/kg/expand", post(kg::expand))
+        .route("/sessions/{sid}/kg/state-check", post(kgstate::check))
         .route("/catalog", get(rules::catalog))
         .route("/sessions/{sid}/judge", post(judge::judge))
         .route("/search/laws", post(search::search_laws))

@@ -18,6 +18,8 @@ pub enum KgError {
     HeadMissing,
     #[error("format name does not match the configured value")]
     Schema,
+    #[error("graph shape is not registered")]
+    Shape,
     #[error("head has no valid {0}")]
     HeadField(&'static str),
     #[error("line {0}: unknown item")]

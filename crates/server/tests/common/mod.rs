@@ -139,8 +139,10 @@ pub fn bundle_lines(graph: &str) -> Vec<String> {
         edge("e2", "long-node-id-0002", "long-node-id-0003", json!([])),
     ];
     let head = json!({"head": {
-        "schema": CONSUMER, "graph": graph, "shape": "network",
-        "contract": {"node_kinds": ["kind_a"], "relations": {"rel_x": {"acyclic": true}}},
+        "schema": CONSUMER, "graph": graph, "shape": "연결망",
+        "state": {"kind": "note", "values": ["해당", "해당 아님"]},
+        "contract": {"node_kinds": ["kind_a"], "relations": {"rel_x": {"acyclic": true}},
+            "compositions": [["rel_x", "kind_a", "rel_x"]], "composition_mode": "chain_only"},
         "measurement": {"state": "unmeasured"},
         "counts": {"nodes": 3, "edges": 2, "states": 1},
         "texts": ["quoted line", "reason text"]
@@ -162,7 +164,7 @@ pub fn write_bundle(kg_dir: &Path, bundle: &str, graph: &str, lines: &[String]) 
     let manifest = json!({
         "schema": MANIFEST,
         "source_bundle": bundle,
-        "graphs": [{"name": graph, "file": file, "sha256": digest, "shape": "network"}],
+        "graphs": [{"name": graph, "file": file, "sha256": digest, "shape": "연결망"}],
         "version_mismatches": []
     });
     std::fs::write(dir.join("manifest.json"), manifest.to_string())?;

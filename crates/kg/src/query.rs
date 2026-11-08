@@ -1,11 +1,12 @@
-use std::collections::HashSet;
-
-use rusqlite::{Connection, OptionalExtension, Row, params_from_iter, types::Value as SqlValue};
+use rusqlite::{Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::KgError;
+use crate::fields::{self, Fields};
+use crate::index;
 use crate::set::KgSet;
+use crate::status::{AsOf, AsOfSummary, Period, Reason, Status};
 
 pub const MAX_LIMIT: usize = 20;
 pub const MAX_DEPTH: u8 = 2;
@@ -15,6 +16,7 @@ const LIKE_MAX_CHARS: usize = 2;
 pub enum FindBy<'a> {
     Text(&'a str),
     LawKey(&'a str),
+    Article { law: &'a str, unit: &'a str },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,58 +26,145 @@ pub enum Direction {
     In,
 }
 
+impl Direction {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Direction::Out => "out",
+            Direction::In => "in",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct NodeHit {
-    pub id: String,
-    pub kind: String,
-    pub name: String,
-    pub state: Option<Value>,
-    pub data: Value,
+pub struct EvidenceItem {
+    pub field: String,
+    pub item: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status", content = "items", rename_all = "snake_case")]
 pub enum Evidence {
     NoEvidence,
-    Present(Vec<Value>),
+    Present(Vec<EvidenceItem>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ExpandEdge {
-    pub src: String,
-    pub dst: String,
-    pub relation: String,
-    pub depth: u8,
-    pub certainty: Option<Value>,
+pub struct NodeHit {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub gloss: Option<String>,
     pub evidence: Evidence,
+    pub state: Option<Value>,
+    pub period: Option<Period>,
     pub data: Value,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FindQuery<'a> {
+    pub by: FindBy<'a>,
+    pub kind: Option<&'a str>,
+    pub limit: usize,
+    pub as_of: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Expansion {
-    pub origin: String,
-    pub edges: Vec<ExpandEdge>,
+pub struct Found {
+    pub status: Status,
+    pub reason: Option<Reason>,
+    pub as_of: Option<AsOfSummary>,
     pub nodes: Vec<NodeHit>,
 }
 
-fn check_limit(limit: usize) -> Result<(), KgError> {
+impl Found {
+    pub(crate) fn empty(status: Status, reason: Reason) -> Self {
+        Self {
+            status,
+            reason: Some(reason),
+            as_of: None,
+            nodes: Vec::new(),
+        }
+    }
+}
+
+pub(crate) fn check_limit(limit: usize) -> Result<(), KgError> {
     if limit == 0 || limit > MAX_LIMIT {
         return Err(KgError::Argument("limit"));
     }
     Ok(())
 }
 
-fn node_from_row(row: &Row<'_>) -> rusqlite::Result<NodeHit> {
-    let raw: String = row.get(3)?;
-    let data: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-    let state = data.get("item_state").filter(|v| !v.is_null()).cloned();
-    Ok(NodeHit {
+pub(crate) fn evidence_of(data: &Value, fields: &Fields) -> Evidence {
+    let items: Vec<EvidenceItem> = fields
+        .evidence
+        .iter()
+        .flat_map(|path| {
+            let list = match fields::at(data, path) {
+                Some(Value::Array(items)) => items.clone(),
+                _ => Vec::new(),
+            };
+            list.into_iter().map(move |item| EvidenceItem {
+                field: (*path).to_string(),
+                item,
+            })
+        })
+        .collect();
+    if items.is_empty() {
+        Evidence::NoEvidence
+    } else {
+        Evidence::Present(items)
+    }
+}
+
+pub(crate) struct RawNode {
+    id: String,
+    kind: String,
+    name: String,
+    data: String,
+}
+
+pub(crate) fn raw_node(row: &Row<'_>) -> rusqlite::Result<RawNode> {
+    Ok(RawNode {
         id: row.get(0)?,
         kind: row.get(1)?,
         name: row.get(2)?,
-        state,
-        data,
+        data: row.get(3)?,
     })
+}
+
+impl RawNode {
+    pub(crate) fn into_hit(self, fields: &Fields) -> NodeHit {
+        let data: Value = serde_json::from_str(&self.data).unwrap_or(Value::Null);
+        let state = data.get("item_state").filter(|v| !v.is_null()).cloned();
+        let gloss = fields
+            .gloss
+            .iter()
+            .find_map(|p| fields::at(&data, p).and_then(Value::as_str))
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string);
+        NodeHit {
+            id: self.id,
+            kind: self.kind,
+            name: self.name,
+            gloss,
+            evidence: evidence_of(&data, fields),
+            state,
+            period: None,
+            data,
+        }
+    }
+}
+
+pub(crate) fn node_by_id(
+    conn: &Connection,
+    id: &str,
+    fields: &Fields,
+) -> Result<Option<NodeHit>, KgError> {
+    Ok(conn
+        .prepare_cached("SELECT id, kind, name, data FROM nodes WHERE id = ?1")?
+        .query_row([id], raw_node)
+        .optional()?
+        .map(|r| r.into_hit(fields)))
 }
 
 fn escape_like(text: &str) -> String {
@@ -95,180 +184,116 @@ fn fts_phrase(text: &str) -> String {
     format!("\"{}\"", text.replace('"', "\"\""))
 }
 
-fn find_in(
+pub(crate) fn select_nodes(
     conn: &Connection,
-    by: FindBy<'_>,
-    kind: Option<&str>,
-    limit: usize,
+    sql: &str,
+    key: &str,
+    q: &FindQuery<'_>,
+    fields: &Fields,
 ) -> Result<Vec<NodeHit>, KgError> {
-    let limit = i64::try_from(limit).map_err(|_| KgError::Argument("limit"))?;
-    let (sql, key) = match by {
-        FindBy::Text(text) if text.chars().count() <= LIKE_MAX_CHARS => (
-            "SELECT id, kind, name, data FROM nodes WHERE name LIKE ?1 ESCAPE '\\' \
-             AND (?2 IS NULL OR kind = ?2) ORDER BY length(name), id LIMIT ?3",
-            escape_like(text),
-        ),
-        FindBy::Text(text) => (
-            "SELECT n.id, n.kind, n.name, n.data FROM nodes_fts f JOIN nodes n ON n.rowid = f.rowid \
-             WHERE nodes_fts MATCH ?1 AND (?2 IS NULL OR n.kind = ?2) ORDER BY f.rank, n.id LIMIT ?3",
-            fts_phrase(text),
-        ),
-        FindBy::LawKey(law) => (
-            "SELECT DISTINCT n.id, n.kind, n.name, n.data FROM refs r JOIN nodes n ON n.id = r.node_id \
-             WHERE r.article_id = ?1 AND (?2 IS NULL OR n.kind = ?2) ORDER BY n.id LIMIT ?3",
-            law.to_string(),
-        ),
+    let limit = match q.as_of {
+        Some(_) => -1,
+        None => i64::try_from(q.limit).map_err(|_| KgError::Argument("limit"))?,
     };
     let mut stmt = conn.prepare_cached(sql)?;
-    let rows = stmt.query_map(rusqlite::params![key, kind, limit], node_from_row)?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    let rows = stmt.query_map(rusqlite::params![key, q.kind, limit], raw_node)?;
+    Ok(rows
+        .map(|r| r.map(|raw| raw.into_hit(fields)))
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn node_by_id(conn: &Connection, id: &str) -> Result<Option<NodeHit>, KgError> {
-    Ok(conn
-        .prepare_cached("SELECT id, kind, name, data FROM nodes WHERE id = ?1")?
-        .query_row([id], node_from_row)
-        .optional()?)
-}
-
-fn edge_from_parts(src: String, dst: String, relation: String, raw: &str, depth: u8) -> ExpandEdge {
-    let data: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
-    let evidence = match data.get("evidence") {
-        Some(Value::Array(items)) if !items.is_empty() => Evidence::Present(items.clone()),
-        _ => Evidence::NoEvidence,
-    };
-    let certainty = data.get("certainty").filter(|v| !v.is_null()).cloned();
-    ExpandEdge {
-        src,
-        dst,
-        relation,
-        depth,
-        certainty,
-        evidence,
-        data,
+fn text_hits(
+    conn: &Connection,
+    text: &str,
+    q: &FindQuery<'_>,
+    fields: &Fields,
+) -> Result<Vec<NodeHit>, KgError> {
+    if text.chars().count() <= LIKE_MAX_CHARS {
+        select_nodes(
+            conn,
+            "SELECT id, kind, name, data FROM nodes WHERE name LIKE ?1 ESCAPE '\\' \
+             AND (?2 IS NULL OR kind = ?2) ORDER BY length(name), id LIMIT ?3",
+            &escape_like(text),
+            q,
+            fields,
+        )
+    } else {
+        select_nodes(
+            conn,
+            "SELECT n.id, n.kind, n.name, n.data FROM nodes_fts f JOIN nodes n ON n.rowid = f.rowid \
+             WHERE nodes_fts MATCH ?1 AND (?2 IS NULL OR n.kind = ?2) ORDER BY f.rank, n.id LIMIT ?3",
+            &fts_phrase(text),
+            q,
+            fields,
+        )
     }
 }
 
-struct ExpandArgs<'a> {
-    relations: &'a [String],
-    direction: Direction,
-    depth: u8,
-    limit: usize,
-}
-
-fn expand_in(conn: &Connection, origin: &str, args: &ExpandArgs<'_>) -> Result<Expansion, KgError> {
-    if node_by_id(conn, origin)?.is_none() {
-        return Err(KgError::UnknownNode);
-    }
-    let placeholders = vec!["?"; args.relations.len()].join(", ");
-    let (near, far) = match args.direction {
-        Direction::Out => ("src", "dst"),
-        Direction::In => ("dst", "src"),
-    };
-    let sql = format!(
-        "SELECT src, dst, type, data FROM edges WHERE {near} = ? AND type IN ({placeholders}) ORDER BY {far}, type LIMIT ?"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let mut visited: HashSet<String> = HashSet::from([origin.to_string()]);
-    let mut frontier = vec![origin.to_string()];
-    let mut out = Expansion {
-        origin: origin.to_string(),
-        edges: Vec::new(),
-        nodes: Vec::new(),
-    };
-    for level in 1..=args.depth {
-        let mut next = Vec::new();
-        for node in &frontier {
-            let room = args.limit.saturating_sub(out.edges.len());
-            if room == 0 {
-                return Ok(out);
-            }
-            let mut bind: Vec<SqlValue> = Vec::with_capacity(args.relations.len() + 2);
-            bind.push(SqlValue::Text(node.clone()));
-            bind.extend(args.relations.iter().cloned().map(SqlValue::Text));
-            bind.push(SqlValue::Integer(
-                i64::try_from(room).map_err(|_| KgError::Argument("limit"))?,
-            ));
-            let rows = stmt.query_map(params_from_iter(bind), |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                ))
-            })?;
-            for row in rows {
-                let (src, dst, relation, raw) = row?;
-                let neighbour = match args.direction {
-                    Direction::Out => dst.clone(),
-                    Direction::In => src.clone(),
-                };
-                out.edges
-                    .push(edge_from_parts(src, dst, relation, &raw, level));
-                if visited.insert(neighbour.clone()) {
-                    if let Some(hit) = node_by_id(conn, &neighbour)? {
-                        out.nodes.push(hit);
-                    }
-                    next.push(neighbour);
-                }
-            }
+pub(crate) fn keep(
+    hits: Vec<NodeHit>,
+    q: &FindQuery<'_>,
+    fields: &Fields,
+) -> Result<Found, KgError> {
+    let mut as_of = AsOf::new(q.as_of)?;
+    let mut nodes = Vec::new();
+    for mut hit in hits {
+        if nodes.len() == q.limit {
+            break;
         }
-        frontier = next;
+        if let Some(a) = as_of.as_mut() {
+            let p = a.judge(fields::at(&hit.data, fields.period));
+            if p == Period::NotInForce {
+                continue;
+            }
+            hit.period = Some(p);
+        }
+        nodes.push(hit);
     }
-    Ok(out)
+    let excluded = as_of.as_ref().map_or(0, AsOf::excluded);
+    let (status, reason) = match (nodes.is_empty(), excluded) {
+        (false, _) => (Status::Found, None),
+        (true, 0) => (Status::Unknown, Some(Reason::NoMatch)),
+        (true, _) => (Status::Unknown, Some(Reason::ExcludedByAsOf)),
+    };
+    Ok(Found {
+        status,
+        reason,
+        as_of: as_of.map(AsOf::finish),
+        nodes,
+    })
 }
 
 impl KgSet {
-    pub fn find(
-        &self,
-        graph: &str,
-        by: FindBy<'_>,
-        kind: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<NodeHit>, KgError> {
-        check_limit(limit)?;
-        let key = match by {
-            FindBy::Text(t) | FindBy::LawKey(t) => t.trim(),
+    pub fn find(&self, graph: &str, q: &FindQuery<'_>) -> Result<Found, KgError> {
+        check_limit(q.limit)?;
+        let by = match q.by {
+            FindBy::Text(t) => FindBy::Text(t.trim()),
+            FindBy::LawKey(t) => FindBy::LawKey(t.trim()),
+            FindBy::Article { law, unit } => FindBy::Article {
+                law: law.trim(),
+                unit: unit.trim(),
+            },
         };
-        if key.is_empty() {
+        let empty = match by {
+            FindBy::Text(t) | FindBy::LawKey(t) => t.is_empty(),
+            FindBy::Article { law, unit } => law.is_empty() || unit.is_empty(),
+        };
+        if empty {
             return Err(KgError::Argument("text"));
         }
-        let by = match by {
-            FindBy::Text(_) => FindBy::Text(key),
-            FindBy::LawKey(_) => FindBy::LawKey(key),
+        let Ok(g) = self.graph(graph) else {
+            return Ok(Found::empty(Status::OutOfScope, Reason::UnknownGraph));
         };
-        self.graph(graph)?
-            .with_conn(|c| find_in(c, by, kind, limit))
+        let fields = g.fields;
+        g.with_conn(|c| match by {
+            FindBy::Text(text) => keep(text_hits(c, text, q, fields)?, q, fields),
+            FindBy::LawKey(key) => index::by_law_key(c, key, q, fields),
+            FindBy::Article { .. } => index::by_article(c),
+        })
     }
 
-    pub fn expand(
-        &self,
-        graph: &str,
-        node_id: &str,
-        relation: Option<&str>,
-        direction: Direction,
-        depth: u8,
-        limit: usize,
-    ) -> Result<Expansion, KgError> {
-        check_limit(limit)?;
-        if depth == 0 || depth > MAX_DEPTH {
-            return Err(KgError::Argument("depth"));
-        }
+    pub fn node(&self, graph: &str, id: &str) -> Result<Option<NodeHit>, KgError> {
         let g = self.graph(graph)?;
-        let relations: Vec<String> = match relation {
-            Some(r) if g.allowed.contains(r) => vec![r.to_string()],
-            Some(_) => return Err(KgError::RelationNotAllowed),
-            None => g.allowed.iter().cloned().collect(),
-        };
-        if relations.is_empty() {
-            return Err(KgError::RelationNotAllowed);
-        }
-        let args = ExpandArgs {
-            relations: &relations,
-            direction,
-            depth,
-            limit,
-        };
-        g.with_conn(|c| expand_in(c, node_id, &args))
+        g.with_conn(|c| node_by_id(c, id, g.fields))
     }
 }

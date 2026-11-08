@@ -1,7 +1,7 @@
 #[path = "fake/bundle.rs"]
 mod bundle;
 
-use bundle::{Spec, TestResult, cfg, lines, sqlite_files, write_bundle};
+use bundle::{Spec, TestResult, cfg, lines, nodes, sqlite_files, write_bundle};
 use kg::{FindBy, sync_all};
 use serde_json::json;
 
@@ -14,9 +14,16 @@ fn good_bundle_loads_with_matching_counts() -> TestResult {
     let catalog = set.catalog();
     assert_eq!(catalog.len(), 1);
     let entry = &catalog[0];
-    assert_eq!((entry.nodes, entry.edges, entry.states), (4, 3, 2));
+    assert_eq!((entry.nodes, entry.edges, entry.states), (4, 3, 3));
     assert_eq!(entry.graph, "g");
-    assert_eq!(entry.shape, "network");
+    assert_eq!(entry.shape, "연결망");
+    assert_eq!(
+        (entry.compositions, entry.dated, entry.article_index),
+        (1, 1, 0)
+    );
+    assert_eq!(entry.composition_mode.as_deref(), Some("chain_only"));
+    assert_eq!(entry.relations, vec!["rel_x", "rel_y", "rel_z"]);
+    assert_eq!(entry.state.as_ref().map(|s| s.values.len()), Some(2));
     assert_eq!(entry.signature, "unchecked");
     assert_eq!(entry.acyclic, json!({"checked": ["rel_x"]}));
     assert_eq!(sqlite_files(tmp.path(), "b1"), vec!["g.sqlite".to_string()]);
@@ -41,7 +48,7 @@ fn removed_line_disables_only_that_bundle() -> TestResult {
     assert!(sqlite_files(tmp.path(), "a_bad").is_empty());
     assert!(!set.contains("g"));
     assert!(set.contains("h"));
-    assert_eq!(set.find("h", FindBy::Text("alpha"), None, 5)?.len(), 1);
+    assert_eq!(nodes(&set, "h", FindBy::Text("alpha"), None, 5)?.len(), 1);
     Ok(())
 }
 
@@ -90,6 +97,38 @@ fn changed_file_is_reloaded() -> TestResult {
     write_bundle(tmp.path(), "b1", "g", &lines(&spec), None)?;
     let set = sync_all(tmp.path(), &cfg())?;
     assert_eq!(set.catalog()[0].edges, 4);
+    Ok(())
+}
+
+#[test]
+fn cache_from_older_loader_is_rebuilt() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    write_bundle(tmp.path(), "b1", "g", &lines(&Spec::new("g")), None)?;
+    drop(sync_all(tmp.path(), &cfg())?);
+    let db = tmp.path().join("sqlite").join("b1").join("g.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&db)?;
+        conn.execute("UPDATE meta SET value = '1' WHERE key = 'loader'", [])?;
+        conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'old')", [])?;
+    }
+    drop(sync_all(tmp.path(), &cfg())?);
+    let conn = rusqlite::Connection::open(&db)?;
+    let probes: i64 = conn.query_row("SELECT count(*) FROM meta WHERE key = 'probe'", [], |r| {
+        r.get(0)
+    })?;
+    assert_eq!(probes, 0);
+    Ok(())
+}
+
+#[test]
+fn unregistered_shape_disables_bundle() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let mut spec = Spec::new("g");
+    spec.shape = "unregistered";
+    write_bundle(tmp.path(), "b1", "g", &lines(&spec), None)?;
+    let set = sync_all(tmp.path(), &cfg())?;
+    assert!(set.catalog().is_empty());
+    assert!(set.disabled()[0].reason.contains("shape"));
     Ok(())
 }
 

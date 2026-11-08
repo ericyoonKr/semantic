@@ -62,12 +62,19 @@ pub(crate) fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, K
         .optional()?)
 }
 
-pub(crate) fn stored_sha256(path: &Path) -> Option<String> {
+pub(crate) fn stored_meta(path: &Path, keys: [&str; 2]) -> Option<[String; 2]> {
     if !path.is_file() {
         return None;
     }
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    get_meta(&conn, "sha256").ok().flatten()
+    let a = get_meta(&conn, keys[0]).ok().flatten()?;
+    let b = get_meta(&conn, keys[1]).ok().flatten()?;
+    Some([a, b])
+}
+
+pub(crate) fn count_rows(conn: &Connection, table: &str) -> Result<u64, KgError> {
+    let n: i64 = conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))?;
+    u64::try_from(n).map_err(|_| KgError::Meta)
 }
 
 pub(crate) fn insert_node(

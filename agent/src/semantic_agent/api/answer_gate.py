@@ -13,7 +13,8 @@ NOTICE_SEARCH = "법령·판례 검색이 지금 되지 않아 근거를 확인�
 TOOL_LABELS = {
     "read_file": "문서", "write_file": "메모", "edit_file": "메모", "grep": "문서", "glob": "문서", "ls": "문서",
     "search_laws": "법령 검색", "search_cases": "판례 검색", "read_law": "법령", "read_case": "판례",
-    "case_citations": "인용 관계", "kg_find": "지식그래프", "kg_expand": "지식그래프", "judge": "요건 판단",
+    "case_citations": "인용 관계", "kg_find": "지식그래프", "kg_expand": "지식그래프",
+    "kg_write_state": "지식그래프", "judge": "요건 판단",
     "task": "조사", "write_todos": "계획", "researcher": "조사",
 }
 _NAMES = "|".join(sorted(TOOL_LABELS, key=len, reverse=True))

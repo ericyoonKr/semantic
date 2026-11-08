@@ -5,6 +5,8 @@ use serde_json::Value;
 
 use crate::contract::Contract;
 use crate::error::KgError;
+use crate::fields::{self, Fields};
+use crate::shapes::{self, Item};
 use crate::store;
 use crate::texts;
 
@@ -13,6 +15,7 @@ pub(crate) struct Counts {
     pub nodes: u64,
     pub edges: u64,
     pub states: u64,
+    pub dated: u64,
 }
 
 #[derive(Debug)]
@@ -20,12 +23,14 @@ pub(crate) struct Loaded {
     pub head: Value,
     pub contract: Contract,
     pub counts: Counts,
+    pub shape: String,
 }
 
 pub(crate) fn load(
     reader: impl Read,
     conn: &mut Connection,
     consumer_schema: &str,
+    manifest_shape: Option<&str>,
 ) -> Result<Loaded, KgError> {
     let mut lines = BufReader::with_capacity(256 * 1024, reader).lines();
     let first = lines.next().ok_or(KgError::HeadMissing)??;
@@ -37,6 +42,14 @@ pub(crate) fn load(
     let expected = head_counts(&head)?;
     let contract =
         Contract::from_value(head.get("contract").ok_or(KgError::HeadField("contract"))?)?;
+    let shape = head
+        .get("shape")
+        .and_then(Value::as_str)
+        .or(manifest_shape)
+        .ok_or(KgError::HeadField("shape"))?
+        .to_string();
+    let shape_reader = shapes::reader(&shape).ok_or(KgError::Shape)?;
+    let fields = fields::for_shape(&shape);
 
     let tx = conn.transaction()?;
     let mut counts = Counts::default();
@@ -60,23 +73,24 @@ pub(crate) fn load(
             .map(|(k, v)| (k.clone(), v.take()))
             .ok_or(KgError::UnknownItem(line_no))?;
         texts::resolve(&mut body, &texts).map_err(|_| KgError::TextRef(line_no))?;
-        match tag.as_str() {
-            "node" => {
-                let has_state = put_node(&tx, &body, line_no)?;
-                counts.nodes += 1;
-                if has_state {
+        for item in shape_reader.read(&tag, body, line_no)? {
+            match item {
+                Item::Node(body) => {
+                    let has_state = put_node(&tx, &body, line_no)?;
+                    counts.nodes += 1;
+                    counts.states += u64::from(has_state);
+                    counts.dated += u64::from(dated(&body, fields));
+                }
+                Item::Edge(body) => {
+                    put_edge(&tx, &body, &contract, line_no)?;
+                    counts.edges += 1;
+                    counts.dated += u64::from(dated(&body, fields));
+                }
+                Item::State(body) => {
+                    store::insert_state(&tx, None, &body.to_string())?;
                     counts.states += 1;
                 }
             }
-            "edge" => {
-                put_edge(&tx, &body, &contract, line_no)?;
-                counts.edges += 1;
-            }
-            "unattached_state" => {
-                store::insert_state(&tx, None, &body.to_string())?;
-                counts.states += 1;
-            }
-            _ => return Err(KgError::UnknownItem(line_no)),
         }
     }
     check_count("node", expected.nodes, counts.nodes)?;
@@ -87,7 +101,15 @@ pub(crate) fn load(
         head,
         contract,
         counts,
+        shape,
     })
+}
+
+fn dated(body: &Value, fields: &Fields) -> bool {
+    fields::at(body, fields.period)
+        .and_then(|p| p.get("state"))
+        .and_then(Value::as_str)
+        == Some("known")
 }
 
 fn parse_head(line: &str) -> Result<Value, KgError> {
@@ -137,6 +159,7 @@ fn head_counts(head: &Value) -> Result<Counts, KgError> {
         nodes: get("nodes")?,
         edges: get("edges")?,
         states: get("states")?,
+        dated: 0,
     })
 }
 

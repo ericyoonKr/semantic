@@ -16,6 +16,7 @@ use crate::verify::{HashingReader, SignatureStatus, file_sha256, same_hash};
 
 const MANIFEST: &str = "manifest.json";
 const SIGNATURE: &str = "manifest.json.sig";
+const LOADER: &str = "2";
 
 pub fn sync_all(kg_dir: &Path, cfg: &KgConfig) -> Result<KgSet, KgError> {
     let mut set = KgSet::default();
@@ -163,7 +164,9 @@ fn prepare_graph(
     if !same_hash(&sha, &entry.sha256) {
         return Err(KgError::Sha256);
     }
-    if store::stored_sha256(final_path).is_some_and(|s| same_hash(&s, &sha)) {
+    if store::stored_meta(final_path, ["sha256", "loader"])
+        .is_some_and(|[s, loader]| same_hash(&s, &sha) && loader == LOADER)
+    {
         return Ok(None);
     }
     let tmp = ctx.out_dir.join(format!("{}.sqlite.tmp", entry.name));
@@ -180,7 +183,13 @@ fn prepare_graph(
 fn build(ctx: &BundleCtx<'_>, entry: &GraphEntry, jsonl: &Path, tmp: &Path) -> Result<(), KgError> {
     let mut conn = store::create(tmp)?;
     let mut reader = HashingReader::open(jsonl)?;
-    let loaded = load::load(&mut reader, &mut conn, &ctx.cfg.consumer_schema)?;
+    let manifest_shape = entry.rest.get("shape").and_then(Value::as_str);
+    let loaded = load::load(
+        &mut reader,
+        &mut conn,
+        &ctx.cfg.consumer_schema,
+        manifest_shape,
+    )?;
     let streamed = reader.finish_hex();
     if !same_hash(&streamed, &entry.sha256) {
         return Err(KgError::Sha256);
@@ -196,29 +205,26 @@ fn build(ctx: &BundleCtx<'_>, entry: &GraphEntry, jsonl: &Path, tmp: &Path) -> R
         json!({ "checked": loaded.contract.acyclic })
     };
     let head = &loaded.head;
-    let shape = head
-        .get("shape")
-        .and_then(Value::as_str)
-        .or_else(|| entry.rest.get("shape").and_then(Value::as_str))
-        .ok_or(KgError::HeadField("shape"))?;
     let counts = json!({
         "nodes": loaded.counts.nodes,
         "edges": loaded.counts.edges,
         "states": loaded.counts.states,
+        "dated": loaded.counts.dated,
     });
     let field = |k: &str| head.get(k).cloned().unwrap_or(Value::Null).to_string();
-    let rows: [(&str, String); 11] = [
+    let rows: [(&str, String); 12] = [
         ("graph", entry.name.clone()),
         ("bundle", ctx.bundle.to_string()),
         ("sha256", streamed),
         ("schema", ctx.cfg.consumer_schema.clone()),
-        ("shape", shape.to_string()),
+        ("shape", loaded.shape.clone()),
         ("contract", field("contract")),
         ("measurement", field("measurement")),
         ("counts", counts.to_string()),
         ("signature", ctx.status.as_str().to_string()),
         ("acyclic", acyclic.to_string()),
         ("manifest_entry", entry.as_value().to_string()),
+        ("loader", LOADER.to_string()),
     ];
     for (key, value) in &rows {
         store::put_meta(&conn, key, value)?;
