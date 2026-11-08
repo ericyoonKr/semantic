@@ -8,6 +8,8 @@ pub enum RetrievalError {
     EmbedMalformed,
     #[error("embedding has {0} dimensions, expected 1024")]
     Dimension(usize),
+    #[error("no embeddings are loaded")]
+    VectorEmpty,
     #[error("corpus database failed: {0}")]
     Db(#[from] sqlx::Error),
     #[error("query rewriting failed: {0}")]

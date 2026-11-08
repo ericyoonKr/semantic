@@ -11,9 +11,11 @@ pub use embed_client::{EmbedClient, EmbedSettings};
 pub use embedder::{DIM, EmbedFuture, Embedder, NoEmbedder};
 pub use error::RetrievalError;
 pub use model::{
-    CaseDoc, CaseHit, CaseQuery, CaseSection, CitationItem, Citations, CitationsBy, CitedUnit,
-    CitingCase, LawHit, LawQuery, LawUnit, LawVersion, SearchResult,
+    AnnexCompute, AnnexLookup, AnnexPara, AnnexRow, AnnexRuleItem, AnnexTable, AnnexVersion, CaseDoc,
+    CaseHit, CaseQuery, CaseSection, CitationItem, Citations, CitationsBy, CitedUnit, CitingCase,
+    Computation, Computed, LawHit, LawQuery, LawUnit, LawVersion, RelatedArticle, SearchResult,
 };
+pub use query::annex::{LOOKUP_DEFAULT, LOOKUP_MAX, annex_compute, annex_lookup};
 pub use query::cases::read_case;
 pub use query::citations::citations;
 pub use query::laws::read_law_unit;
