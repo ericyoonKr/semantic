@@ -23,6 +23,7 @@ from semantic_agent.agent.delegation import SubagentGate
 from semantic_agent.agent.guards import ScopeGuard, ToolGuard
 from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
+from semantic_agent.agent.repeat import RepeatCut
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.config import Settings
 from semantic_agent.memory.store import prefs_namespace
@@ -87,6 +88,7 @@ def build_model(settings: Settings) -> ChatOpenAI:
         timeout=httpx.Timeout(settings.llm_read_timeout_s, connect=settings.llm_connect_timeout_s),
         max_retries=settings.llm_max_retries,
         stream_usage=True,
+        callbacks=[RepeatCut()],
         extra_body={"priority": 0},
     )
 
