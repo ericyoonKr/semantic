@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from semantic_agent.api.sse import to_sse
 from semantic_agent.config import Settings
+from semantic_agent.ledger import LEDGER, Ledger
 from semantic_agent.tools.client import RustClient, server_reason
 from semantic_agent.tools.search import make_search_tools
 
@@ -110,3 +111,30 @@ def test_refusal_reason_from_server_reaches_the_tool_result() -> None:
     assert server_reason(gone) == "검색 실패: 판례 자료가 아직 법령·판례 DB에 들어 있지 않습니다"
     assert server_reason(httpx.Response(503, text="<html>")) is None
     assert server_reason(httpx.Response(400, json=["x"])) is None
+
+
+def test_missing_case_data_is_asked_once_per_question() -> None:
+    sent: list[str] = []
+    said = "검색 실패: 판례 자료가 아직 법령·판례 DB에 들어 있지 않습니다"
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        sent.append(request.url.path)
+        return httpx.Response(503, json={"error": said, "request_id": "r"})
+
+    async def scenario() -> list[str]:
+        token = LEDGER.set(Ledger())
+        try:
+            client = RustClient(Settings(internal_key=KEY, rust_api_url="http://rust.test"), transport=httpx.MockTransport(handle))
+            tools = {t.name: t for t in make_search_tools(client)}
+            first = await tools["search_cases"].ainvoke({"queries": ["가짜 하나"]})
+            more = await tools["search_cases"].ainvoke({"queries": ["가짜 둘", "가짜 셋"]})
+            case = await tools["read_case"].ainvoke({"decision_id": "1"})
+            cites = await tools["case_citations"].ainvoke({"law": "가짜법", "unit": "제1조"})
+            return [first, more, case, cites]
+        finally:
+            LEDGER.reset(token)
+
+    first, more, case, cites = asyncio.run(scenario())
+    assert sent == ["/search/cases"]
+    assert first.startswith(said) and "요청 ID" in first
+    assert more.count(said) == 2 and case == said and cites == said

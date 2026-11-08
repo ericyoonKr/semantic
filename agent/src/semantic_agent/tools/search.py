@@ -14,10 +14,23 @@ Queries = Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=
 EXCERPT_NOTE = "발췌라 인용할 수 없음 — 인용하려면 read_law·read_case로 본문을 읽는다"
 
 
+CASE_DATA_MISSING = "판례 자료가 아직"
+
+
 def failed(err: str | None) -> str | None:
     if err:
         current_ledger().search_failed = True
     return err
+
+
+def case_failed(err: str | None) -> str | None:
+    if err and CASE_DATA_MISSING in err:
+        current_ledger().case_data_missing = err.split(" (요청 ID")[0]
+    return failed(err)
+
+
+def case_data_gone() -> str | None:
+    return current_ledger().case_data_missing
 
 
 def ref_line(ref: int) -> str:
@@ -150,6 +163,8 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         decided_to: IsoDate | None = None,
     ) -> str:
         async def one(query: str) -> str:
+            if gone := case_data_gone():
+                return gone
             body = {
                 "query": query,
                 "k": k,
@@ -159,7 +174,7 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
                 "decided_to": decided_to,
             }
             data, err = await client.fetch("POST", "/search/cases", kind="search", fail=SEARCH_FAIL, json=body)
-            return failed(err) or material("판례 검색", format_cases(data))
+            return case_failed(err) or material("판례 검색", format_cases(data))
 
         return await run_queries(queries, one)
 
@@ -176,12 +191,14 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
 
     @tool("read_case", description="판례를 절 단위로 읽는다. sections를 주면 그 절만 읽는다.")
     async def read_case(decision_id: str, sections: list[str] | None = None) -> str:
+        if gone := case_data_gone():
+            return gone
         params = {"sections": ",".join(sections) if sections else None}
         data, err = await client.fetch(
             "GET", f"/cases/{decision_id}", kind="search", fail=SEARCH_FAIL, params=params
         )
         if err:
-            return failed(err)
+            return case_failed(err) or err
         text = f"{ref_line(current_ledger().add_case(data).ref)}\n{format_case(data)}"
         return material(f"판례 {decision_id}", text)
 
@@ -193,8 +210,10 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
     ) -> str:
         if not decision_id and not (law and unit):
             return "인자 오류: decision_id 또는 law와 unit이 필요합니다"
+        if gone := case_data_gone():
+            return gone
         params = {"decision_id": decision_id, "law": law, "unit": unit}
         data, err = await client.fetch("GET", "/citations", kind="search", fail=SEARCH_FAIL, params=params)
-        return failed(err) or material("인용 관계", format_citations(data))
+        return case_failed(err) or material("인용 관계", format_citations(data))
 
     return [search_laws, search_cases, read_law, read_case, case_citations]

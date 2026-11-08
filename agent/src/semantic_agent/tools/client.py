@@ -110,7 +110,8 @@ class RustClient:
             status = exc.response.status_code
             log.warning("tool call status=%s request_id=%s", status, request_id)
             reason = server_reason(exc.response) if status in SHOWN_STATUSES else None
-            return None, f"{fail}: {reason or '지금 처리할 수 없음'} (요청 ID {request_id})"
+            said = reason if reason and reason.startswith(fail) else f"{fail}: {reason or '지금 처리할 수 없음'}"
+            return None, f"{said} (요청 ID {request_id})"
         except httpx.HTTPError as exc:
             log.warning("tool call failed type=%s request_id=%s", type(exc).__name__, request_id)
             return None, f"{fail}: 지금 연결되지 않음 (요청 ID {request_id})"
