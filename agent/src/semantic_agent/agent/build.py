@@ -25,6 +25,7 @@ from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.config import Settings
 from semantic_agent.memory.store import prefs_namespace
+from semantic_agent.tools.annex import make_annex_tools
 from semantic_agent.tools.client import ToolClient
 from semantic_agent.tools.judge import format_judge_catalog, make_judge_tool
 from semantic_agent.tools.kg import catalog_hashes, format_kg_catalog, make_kg_tools
@@ -115,7 +116,7 @@ def build_agent(
         default=StateBackend(),
         routes={"/prefs/": StoreBackend(namespace=_prefs_namespace)},
     )
-    subagents = make_subagents(backend, make_search_tools(client))
+    subagents = make_subagents(backend, [*make_search_tools(client), *make_annex_tools(client)])
     return create_deep_agent(
         model=model,
         tools=[make_judge_tool(client, catalogs.judge), *make_kg_tools(client), make_kg_state_tool(client)],

@@ -31,12 +31,18 @@ def _version(kind: Any, lsi_seq: Any) -> str:
     return " ".join(str(part) for part in (kind, lsi_seq) if part not in (None, ""))
 
 
+def _scheduled(value: Any) -> str:
+    return f" · 시행 예정: {value}" if value else ""
+
+
 def format_laws(data: dict[str, Any]) -> str:
-    lines = _degraded_line(data.get("degraded"))
+    lines = _degraded_line(data.get("degraded_reason") or data.get("degraded"))
     for hit in data.get("hits", []):
+        version = hit.get("version_id") or _version(hit.get("kind"), hit.get("lsi_seq"))
+        node = f" · node_id {hit['node_id']}" if hit.get("node_id") else ""
         head = (
             f"[{hit.get('law_name', '')} {hit.get('unit_key', '')}({hit.get('title', '')})"
-            f" · {hit.get('enforcement_date', '')} · {_version(hit.get('kind'), hit.get('lsi_seq'))}]"
+            f" · {hit.get('enforcement_date', '')} · {version}{node}{_scheduled(hit.get('scheduled_from'))}]"
         )
         lines.append(f"{head}\n{str(hit.get('text', ''))[:SNIPPET_CHARS]}")
     if not data.get("hits"):
@@ -47,7 +53,7 @@ def format_laws(data: dict[str, Any]) -> str:
 
 
 def format_cases(data: dict[str, Any]) -> str:
-    lines = _degraded_line(data.get("degraded"))
+    lines = _degraded_line(data.get("degraded_reason") or data.get("degraded"))
     for hit in data.get("hits", []):
         head = (
             f"[{hit.get('court', '')} {hit.get('case_no', '')} · {hit.get('decided_on', '')}"
@@ -66,7 +72,8 @@ def format_law_unit(data: dict[str, Any]) -> str:
     head = (
         f"[{data.get('law_name', '')} {data.get('unit_key', '')}({data.get('title', '')})"
         f" · {data.get('enforcement_date', '')}"
-        f" · {_version(version.get('kind'), version.get('lsi_seq'))} {version.get('status', '')}]".rstrip()
+        f" · {version.get('version_id') or _version(version.get('kind'), version.get('lsi_seq'))}"
+        f" {version.get('status', '')}{_scheduled(data.get('scheduled_from'))}]".rstrip()
     )
     if data.get("deleted"):
         head += " 삭제된 단위"
