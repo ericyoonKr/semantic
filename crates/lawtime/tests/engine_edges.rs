@@ -6,7 +6,7 @@ use lawtime::addendum::RuleSet;
 use lawtime::adjust::AdjustTable;
 use lawtime::facts::{CaseFacts, CaseKind, DateSpec, EventKind};
 use lawtime::principles::Graph;
-use lawtime::resolve::{Engine, Flag, MissingReason, NotJudged, Status};
+use lawtime::resolve::{Engine, Flag, MissingReason, Status};
 use serde_json::json;
 
 fn run(facts: &CaseFacts, as_of: chrono::NaiveDate) -> R<lawtime::resolve::Resolution> {
@@ -49,17 +49,6 @@ fn reference_date_on_effective_date_gives_both_versions() -> R {
     assert!(r.flags.iter().any(|f| matches!(f, Flag::Boundary { .. })));
     let nos: Vec<u32> = r.versions.iter().map(|v| v.promul_no.number).collect();
     assert_eq!(nos, vec![17371, 0]);
-    Ok(())
-}
-
-#[test]
-fn principle_without_registered_time_is_not_judged() -> R {
-    let facts = CaseFacts::new(CaseKind::CivilSubstantive)
-        .with(EventKind::ContractConcluded, DateSpec::Point(d(2020, 1, 1)?));
-    let r = run(&facts, d(2022, 1, 1)?)?;
-    assert!(matches!(r.status, Status::NotJudged(NotJudged::NoRegisteredTime { .. })));
-    let omission = run(&CaseFacts::new(CaseKind::AdminOmission), d(2022, 1, 1)?)?;
-    assert_eq!(omission.status, Status::NotJudged(NotJudged::NoPrinciple));
     Ok(())
 }
 

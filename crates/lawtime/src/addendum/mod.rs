@@ -4,7 +4,7 @@ mod trigger;
 use chrono::NaiveDate;
 use serde::Serialize;
 
-pub use eval::{AddendumResult, COMMON_PRINCIPLE, evaluate};
+pub use eval::{AddendumResult, AppliedRule, COMMON_PRINCIPLE, evaluate};
 pub use trigger::{Holds, Unknown, holds};
 
 use crate::Error;

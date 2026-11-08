@@ -39,9 +39,9 @@ fn phrase_fields_are_read() -> R {
         vec!["도로교통법", "국토의계획 및 이용에 관한 법률", "국세기본법", "조세감면규제법", "조세감면규제법", "동물보호법", "소득세법 시행령", "도로교통법"]
     );
     let Some(c) = parse_one(PHRASES[4].0)? else { return Err("공포 단위 지정을 못 읽음".into()) };
-    assert_eq!(c.article.as_deref(), Some("부칙 제23조"));
+    assert_eq!(c.first_article(), Some("부칙 제23조"));
     let Some(c) = parse_one(PHRASES[5].0)? else { return Err("산문형을 못 읽음".into()) };
-    assert_eq!(c.article.as_deref(), Some("제33조 제4항 제5호 (나)목"));
+    assert_eq!(c.first_article(), Some("제33조 제4항 제5호 (나)목"));
     let Some(c) = parse_one(PHRASES[2].0)? else { return Err("양측 경계를 못 읽음".into()) };
     match c.bound {
         Bound::Both { lower, upper, .. } => {
@@ -60,7 +60,7 @@ fn same_below_carries_bound_to_unmarked_mention() -> R {
     assert_eq!(cites.len(), 2);
     assert!(cites[1].inherited);
     assert_eq!(cites[1].cite_type(), CiteType::UpperOnly);
-    assert_eq!(cites[1].article.as_deref(), Some("제44조 제1항"));
+    assert_eq!(cites[1].first_article(), Some("제44조 제1항"));
     Ok(())
 }
 
@@ -109,5 +109,34 @@ fn wrong_citations_become_mistake_candidates() -> R {
     assert!(matches!(reasons[0], MistakeReason::PromulDateMismatch { .. }));
     assert!(matches!(reasons[1], MistakeReason::UnknownPromulgation(_)));
     assert!(matches!(reasons[2], MistakeReason::InvertedBounds { .. }));
+    Ok(())
+}
+
+const ROAD: &str = "구 도로교통법(2020. 6. 9. 법률 제17371호로 개정되기 전의 것)";
+
+#[test]
+fn listed_articles_share_the_bracket_bound() -> R {
+    let text = format!("{ROAD} 제148조의2 제1항, 제2항, 제156조 제11호(현행 제156조 제10호 참조), 제3항 및 제44조, 부칙(2020. 6. 9.) 제1항, 제2항, 구 동물보호법(2018. 12. 24. 법률 제16075호로 일부 개정되기 전의 것) 제33조 제4항 제5호 (나)목, (다)목");
+    let cites = parse_citations(&text)?;
+    assert_eq!(cites.len(), 2);
+    assert_eq!(cites[0].articles, vec!["제148조의2 제1항", "제148조의2 제2항", "제156조 제11호", "제156조 제3항", "제44조", "부칙(2020. 6. 9.) 제1항", "부칙(2020. 6. 9.) 제2항"]);
+    assert!(!cites[0].list_unresolved);
+    assert_eq!(cites[1].articles, vec!["제33조 제4항 제5호 (나)목", "제33조 제4항 제5호 (다)목"]);
+    Ok(())
+}
+
+#[test]
+fn range_and_anaphora_are_marked_not_read() -> R {
+    let mut flagged = 0;
+    for tail in ["제148조의2 제1항부터 제3항까지", "제148조의2 제1항 내지 제3항", "제148조의2 제1항, 같은 법 시행령 제3조"] {
+        let Some(c) = parse_one(&format!("{ROAD} {tail}"))? else { return Err(format!("못 읽음: {tail}").into()) };
+        assert_eq!(c.articles, vec!["제148조의2 제1항"], "{tail}");
+        assert!(c.list_unresolved, "{tail}");
+        let r = resolve_citation(&road_store()?, &c, &road_unit(), d(2022, 12, 22)?)?;
+        if r.flags.contains(&lawtime::citation::CiteFlag::ListNotInterpreted) {
+            flagged += 1;
+        }
+    }
+    assert_eq!(flagged, 3);
     Ok(())
 }

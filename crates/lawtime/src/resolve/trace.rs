@@ -16,6 +16,14 @@ pub enum Step {
         time_id: String,
         date: DateSpec,
     },
+    RefTimeAnswer {
+        kind: CaseKind,
+        field: String,
+        source: String,
+        basis: String,
+        event: EventKind,
+        date: DateSpec,
+    },
     Addendum {
         rule_id: String,
         source: String,
@@ -39,6 +47,12 @@ pub enum Step {
         as_of: NaiveDate,
         note: String,
     },
+    AdjustYielded {
+        family: Family,
+        adjust_rule_id: Option<String>,
+        addendum_rule_id: String,
+        note: String,
+    },
     Check {
         id: String,
         note: String,
@@ -57,6 +71,7 @@ pub enum Flag {
     RefTimeUndetermined { note: String },
     AddendumUndetermined { rule_id: String, note: String },
     NoVersion { note: String },
+    BasisUnverified { source: String, basis: String },
 }
 
 impl Flag {
@@ -67,6 +82,7 @@ impl Flag {
                 | Self::FullRevisionRetired { .. }
                 | Self::FullRevisionKept { .. }
                 | Self::UnconstitutionalScope { .. }
+                | Self::BasisUnverified { .. }
         )
     }
 
@@ -80,6 +96,7 @@ pub enum MissingReason {
     Absent,
     Several,
     Imprecise,
+    Conflicting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

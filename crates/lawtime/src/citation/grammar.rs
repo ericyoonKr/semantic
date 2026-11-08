@@ -21,7 +21,6 @@ pub struct Grammar {
     pub lower: Regex,
     pub promul: Regex,
     pub prose: Regex,
-    pub article_at: Regex,
     pub unmarked: Regex,
     pub tail: Regex,
 }
@@ -39,8 +38,7 @@ fn build() -> Result<Grammar, regex::Error> {
         prose: Regex::new(&format!(
             r"{D}\s*{P}{TO}(?:일부\s*|전부\s*)?개정되어\s*{D}\s*부터\s*시행된\s+([^,()]+?)\s+({ARTICLE})"
         ))?,
-        article_at: Regex::new(&format!(r"^\s*({ARTICLE})"))?,
-        unmarked: Regex::new(&format!(r"^\s*(구\s+)?([^()]+?)\s+({ARTICLE})\s*$"))?,
+        unmarked: Regex::new(&format!(r"^\s*(구\s+)?([^()]+?)\s+({ARTICLE})"))?,
         tail: Regex::new(r"\s*,\s*이하\s*(같다|[^,]*?라\s*(?:고\s*)?한다)\s*$")?,
     })
 }

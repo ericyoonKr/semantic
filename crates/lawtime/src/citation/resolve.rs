@@ -27,6 +27,7 @@ pub enum CiteFlag {
     SeveralVersionsInSpan(usize),
     AssumedCurrent,
     Remapped { from: UnitKey, to: UnitKey },
+    ListNotInterpreted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -110,6 +111,9 @@ pub fn resolve_citation(
     judgment_date: NaiveDate,
 ) -> Result<CitationResolution, Error> {
     let mut flags = Vec::new();
+    if cite.list_unresolved {
+        flags.push(CiteFlag::ListNotInterpreted);
+    }
     let unit = match store.current_key(unit)? {
         Some(k) if &k != unit => {
             flags.push(CiteFlag::Remapped { from: unit.clone(), to: k.clone() });

@@ -1,3 +1,4 @@
+mod articles;
 mod grammar;
 mod parse;
 mod resolve;
@@ -47,7 +48,8 @@ pub struct Citation {
     pub law_name: String,
     pub old: bool,
     pub bound: Bound,
-    pub article: Option<String>,
+    pub articles: Vec<String>,
+    pub list_unresolved: bool,
     pub same_below: bool,
     pub inherited: bool,
     pub start: usize,
@@ -70,6 +72,10 @@ impl Bound {
 }
 
 impl Citation {
+    pub fn first_article(&self) -> Option<&str> {
+        self.articles.first().map(String::as_str)
+    }
+
     pub fn cite_type(&self) -> CiteType {
         match &self.bound {
             Bound::UpperWithEffective { .. } => CiteType::UpperWithEffective,

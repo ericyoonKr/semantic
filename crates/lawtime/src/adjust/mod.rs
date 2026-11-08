@@ -23,6 +23,12 @@ pub enum Family {
     TaxPeriodChange,
 }
 
+impl Family {
+    pub fn yields_to_transition(self) -> bool {
+        matches!(self, Self::CriminalLighter | Self::SanctionLighter | Self::FineLighter)
+    }
+}
+
 pub struct Input<'a> {
     pub facts: &'a CaseFacts,
     pub unit: &'a UnitKey,

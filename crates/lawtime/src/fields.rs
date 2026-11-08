@@ -2,8 +2,16 @@ use serde::Serialize;
 
 use crate::Error;
 use crate::adjust::Family;
-use crate::facts::CaseKind;
+use crate::facts::{CaseKind, EventKind};
 use crate::principles::Graph;
+
+pub const ANSWER_SOURCE: &str = "해답 3장 표";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct AnswerRow {
+    pub basis: &'static str,
+    pub events: &'static [EventKind],
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Row {
@@ -11,6 +19,7 @@ pub struct Row {
     pub field: &'static str,
     pub principle: Option<&'static str>,
     pub span_principle: Option<&'static str>,
+    pub answer: Option<AnswerRow>,
     pub adjust: Option<Family>,
 }
 
@@ -20,7 +29,11 @@ const fn row(
     principle: Option<&'static str>,
     adjust: Option<Family>,
 ) -> Row {
-    Row { kind, field, principle, span_principle: None, adjust }
+    Row { kind, field, principle, span_principle: None, answer: None, adjust }
+}
+
+const fn answer_row(kind: CaseKind, field: &'static str, basis: &'static str, events: &'static [EventKind]) -> Row {
+    Row { kind, field, principle: None, span_principle: None, answer: Some(AnswerRow { basis, events }), adjust: None }
 }
 
 pub const ROWS: [Row; 12] = [
@@ -29,6 +42,7 @@ pub const ROWS: [Row; 12] = [
         field: "F:형사",
         principle: Some("P:행위시법"),
         span_principle: Some("P:포괄일죄실행종료"),
+        answer: None,
         adjust: Some(Family::CriminalLighter),
     },
     row(CaseKind::CriminalProcedure, "F:형사", Some("P:형사절차신법"), None),
@@ -37,8 +51,13 @@ pub const ROWS: [Row; 12] = [
     row(CaseKind::AdminApplication, "F:행정", Some("P:처분시법"), Some(Family::ApplicationChange)),
     row(CaseKind::AdminGeneral, "F:행정", Some("P:행정소급금지"), None),
     row(CaseKind::AdminLitigation, "F:행정", Some("P:위법판단처분시"), None),
-    row(CaseKind::AdminOmission, "F:행정", None, None),
-    row(CaseKind::CivilSubstantive, "F:민사", Some("P:민법소급효"), None),
+    answer_row(CaseKind::AdminOmission, "F:행정", "판례·통설 정리", &[EventKind::FactualTrialClosed]),
+    answer_row(
+        CaseKind::CivilSubstantive,
+        "F:민사",
+        "민법 부칙 제2조, 약관규제법 부칙 제2조(1986)",
+        &[EventKind::ContractConcluded, EventKind::Tort],
+    ),
     row(CaseKind::CivilProcedure, "F:민사", Some("P:민사소송신법"), None),
     row(CaseKind::Tax, "F:조세", Some("P:납세의무성립시기"), Some(Family::TaxPeriodChange)),
     row(CaseKind::InternationalInheritance, "F:국제사법", Some("P:상속준거법사망시"), None),

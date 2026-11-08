@@ -1,6 +1,8 @@
 use chrono::NaiveDate;
 
-use super::{AddendumRule, Holds, Outcome, Pivot, RuleSet, Unknown, holds};
+use serde::Serialize;
+
+use super::{AddendumRule, Holds, Outcome, Pivot, RuleSet, RuleType, Unknown, holds};
 use crate::Error;
 use crate::facts::CaseFacts;
 use crate::period::prev_day;
@@ -10,9 +12,23 @@ use crate::versions::{UnitKey, Version, VersionStore};
 
 pub const COMMON_PRINCIPLE: &str = "P:경과규정우선";
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AppliedRule {
+    pub rule_id: String,
+    pub rule_type: RuleType,
+    pub outcome: Outcome,
+}
+
+impl AddendumRule {
+    pub fn is_deeming(&self) -> bool {
+        self.rule_type == RuleType::TransitionDeem || self.outcome == Outcome::DeemedNew
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AddendumResult {
-    pub applied: bool,
+    pub applied: Option<AppliedRule>,
+    pub deemed: Vec<String>,
     pub candidate: Option<Version>,
     pub steps: Vec<Step>,
     pub flags: Vec<Flag>,
@@ -113,8 +129,16 @@ pub fn evaluate(
                 effective: rev.effective,
             });
         }
-        out.candidate = apply(rule, unit, out.candidate.take(), store)?;
-        out.applied = true;
+        if rule.is_deeming() {
+            out.deemed.push(rule.rule_id.clone());
+        } else {
+            out.candidate = apply(rule, unit, out.candidate.take(), store)?;
+            out.applied = Some(AppliedRule {
+                rule_id: rule.rule_id.clone(),
+                rule_type: rule.rule_type,
+                outcome: rule.outcome,
+            });
+        }
         if rule.reviewed_by.is_none() {
             out.flags.push(Flag::UnreviewedRule { rule_id: rule.rule_id.clone() });
         }
@@ -125,7 +149,9 @@ pub fn evaluate(
             reviewed: rule.reviewed_by.is_some(),
             common: graph.reference(COMMON_PRINCIPLE)?,
         });
-        break;
+        if out.applied.is_some() {
+            break;
+        }
     }
     Ok(out)
 }

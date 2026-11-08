@@ -165,3 +165,35 @@ pub fn tax_rules(kept: bool) -> R<RuleSet> {
         kept_flag: kept,
     }]))
 }
+
+pub fn simple_rule(
+    id: &str,
+    unit: &UnitKey,
+    promul: (u32, NaiveDate),
+    rule_type: RuleType,
+    trigger: Trigger,
+    outcome: Outcome,
+) -> AddendumRule {
+    AddendumRule {
+        rule_id: id.to_string(),
+        source: RuleSource {
+            law_id: unit.law_id.clone(),
+            promul_no: PromulNo::statute(promul.0),
+            promul_date: promul.1,
+            addendum_article: "부칙 제2조".to_string(),
+        },
+        rule_type,
+        targets: vec![unit.clone()],
+        trigger: Some(trigger),
+        outcome,
+        scope_note: "시험".to_string(),
+        reviewed_by: Some("시험 고정 데이터".to_string()),
+        original_text: "시험".to_string(),
+        retired_by_full_revision: None,
+        kept_flag: false,
+    }
+}
+
+pub fn trig(event: EventKind, comparator: Comparator, pivot: Pivot) -> Trigger {
+    Trigger { event: TriggerEvent::Event(event), comparator, pivot, first_only: false }
+}

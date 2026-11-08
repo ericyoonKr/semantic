@@ -1,3 +1,4 @@
+use super::articles::{ArticleList, read_list};
 use super::grammar::{date, full, grammar, promul};
 use super::{Bound, Citation};
 use crate::Error;
@@ -96,14 +97,6 @@ fn law_before(text: &str, open: usize) -> Option<(String, bool)> {
     (!name.is_empty()).then_some((name, old))
 }
 
-fn article_after(text: &str, close: usize) -> Result<(Option<String>, usize), Error> {
-    let rest = &text[close + 1..];
-    Ok(match grammar()?.article_at.captures(rest).and_then(|c| c.get(1)) {
-        Some(m) => (Some(m.as_str().to_string()), close + 1 + m.end()),
-        None => (None, close + 1),
-    })
-}
-
 fn inherited(text: &str, from: &Citation, taken: &[(usize, usize)]) -> Result<Vec<Citation>, Error> {
     let mut out = Vec::new();
     for (pos, _) in text[from.end..].match_indices(from.law_name.as_str()) {
@@ -120,17 +113,21 @@ fn inherited(text: &str, from: &Citation, taken: &[(usize, usize)]) -> Result<Ve
         if !rest.starts_with(char::is_whitespace) {
             continue;
         }
-        let Some(m) = grammar()?.article_at.captures(rest).and_then(|c| c.get(1)) else { continue };
+        let list = read_list(text, end_name)?;
+        if list.items.is_empty() {
+            continue;
+        }
         let old = text[..start].trim_end().ends_with(" 구") || text[..start].trim_end() == "구";
         out.push(Citation {
             law_name: from.law_name.clone(),
             old,
             bound: from.bound.clone(),
-            article: Some(m.as_str().to_string()),
+            articles: list.items,
+            list_unresolved: list.unresolved,
             same_below: false,
             inherited: true,
             start,
-            end: end_name + m.end(),
+            end: list.end,
         });
     }
     Ok(out)
@@ -141,9 +138,19 @@ pub fn parse_citations(text: &str) -> Result<Vec<Citation>, Error> {
     for (open, close) in brackets(text) {
         let Some((bound, same_below)) = parse_bracket(&text[open + 1..close])? else { continue };
         let Some((law_name, old)) = law_before(text, open) else { continue };
-        let (article, end) = article_after(text, close)?;
+        let ArticleList { items, unresolved, end } = read_list(text, close + 1)?;
         let start = text[..open].rfind(law_name.as_str()).unwrap_or(open);
-        cites.push(Citation { law_name, old, bound, article, same_below, inherited: false, start, end });
+        cites.push(Citation {
+            law_name,
+            old,
+            bound,
+            articles: items,
+            list_unresolved: unresolved,
+            same_below,
+            inherited: false,
+            start,
+            end,
+        });
     }
     for c in grammar()?.prose.captures_iter(text) {
         let (Some(whole), Some(p), Some(e), Some(name), Some(art)) =
@@ -152,15 +159,17 @@ pub fn parse_citations(text: &str) -> Result<Vec<Citation>, Error> {
             continue;
         };
         let (law_name, old) = split_old(name.as_str());
+        let list = read_list(text, art.start())?;
         cites.push(Citation {
             law_name,
             old,
             bound: Bound::Prose { promul: p, effective: e },
-            article: Some(art.as_str().to_string()),
+            articles: list.items,
+            list_unresolved: list.unresolved,
             same_below: false,
             inherited: false,
             start: whole.start(),
-            end: whole.end(),
+            end: list.end.max(whole.end()),
         });
     }
     let taken: Vec<(usize, usize)> = cites.iter().map(|c| (c.start, c.end)).collect();
@@ -182,11 +191,13 @@ pub fn parse_one(text: &str) -> Result<Option<Citation>, Error> {
     }
     let Some(c) = grammar()?.unmarked.captures(text) else { return Ok(None) };
     let (Some(name), Some(art)) = (c.get(2), c.get(3)) else { return Ok(None) };
+    let list = read_list(text, art.start())?;
     Ok(Some(Citation {
         law_name: name.as_str().trim().to_string(),
         old: c.get(1).is_some(),
         bound: Bound::Unmarked,
-        article: Some(art.as_str().to_string()),
+        articles: list.items,
+        list_unresolved: list.unresolved,
         same_below: false,
         inherited: false,
         start: 0,
