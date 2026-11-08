@@ -3,11 +3,11 @@ use std::sync::LazyLock;
 use chrono::{Datelike, NaiveDate};
 use regex::Regex;
 
-static FULL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*([0-9]{4})\s*[.\-/년]\s*([0-9]{1,2})\s*[.\-/월]\s*([0-9]{1,2})\s*[.일]?\s*$").expect("FULL 정규식")
+static FULL: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"^\s*([0-9]{4})\s*[.\-/년]\s*([0-9]{1,2})\s*[.\-/월]\s*([0-9]{1,2})\s*[.일]?\s*$").ok()
 });
-static SHORT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*([0-9]{2})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})\s*\.?\s*$").expect("SHORT 정규식")
+static SHORT: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"^\s*([0-9]{2})\s*[.\-/]\s*([0-9]{1,2})\s*[.\-/]\s*([0-9]{1,2})\s*\.?\s*$").ok()
 });
 
 static WITHIN: LazyLock<Option<Regex>> = LazyLock::new(|| {
@@ -33,7 +33,7 @@ pub fn to_ordinal(d: NaiveDate) -> i64 {
 }
 
 pub fn parse_korean_date(s: &str) -> Option<NaiveDate> {
-    let c = FULL.captures(s)?;
+    let c = FULL.as_ref()?.captures(s)?;
     let y = c.get(1)?.as_str().parse().ok()?;
     let m = c.get(2)?.as_str().parse().ok()?;
     let d = c.get(3)?.as_str().parse().ok()?;
@@ -41,7 +41,7 @@ pub fn parse_korean_date(s: &str) -> Option<NaiveDate> {
 }
 
 pub fn parse_short_year_candidates(s: &str) -> Vec<NaiveDate> {
-    let Some(c) = SHORT.captures(s) else {
+    let Some(c) = SHORT.as_ref().and_then(|r| r.captures(s)) else {
         return Vec::new();
     };
     let parts: Option<(i32, u32, u32)> = (|| {
@@ -62,6 +62,13 @@ pub fn parse_short_year_candidates(s: &str) -> Vec<NaiveDate> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn patterns_compile() {
+        assert!(super::FULL.is_some());
+        assert!(super::SHORT.is_some());
+        assert!(super::WITHIN.is_some());
+    }
+
     use super::*;
 
     #[test]

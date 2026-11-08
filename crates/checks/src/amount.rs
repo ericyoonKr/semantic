@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9][0-9,]*(\.[0-9]+)?$").expect("DIGITS 정규식"));
+static DIGITS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"^[0-9][0-9,]*(\.[0-9]+)?$").ok());
 
 const SMALL: [(char, i64); 3] = [('십', 10), ('백', 100), ('천', 1000)];
 const LARGE: [(char, i64); 3] = [('만', 10_000), ('억', 100_000_000), ('조', 1_000_000_000_000)];
@@ -22,7 +22,7 @@ fn strip(s: &str) -> String {
 }
 
 fn plain_number(t: &str) -> Option<i64> {
-    if !DIGITS.is_match(t) || t.contains('.') {
+    if !DIGITS.as_ref().is_some_and(|r| r.is_match(t)) || t.contains('.') {
         return None;
     }
     t.replace(',', "").parse().ok()
@@ -90,6 +90,11 @@ pub fn parse_percent(s: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn patterns_compile() {
+        assert!(super::DIGITS.is_some());
+    }
+
     use super::*;
 
     #[test]

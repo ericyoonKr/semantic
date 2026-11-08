@@ -7,8 +7,8 @@ use regex::Regex;
 use crate::amount::{parse_amount, parse_percent};
 use crate::finding::{Finding, FindingKind, Severity};
 
-static TOTAL_LABEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(합\s*계|총\s*계|총\s*액|계)\s*$").expect("TOTAL_LABEL 정규식"));
-static RATIO_HEADER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(비율|지분율|구성비)").expect("RATIO_HEADER 정규식"));
+static TOTAL_LABEL: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"^\s*(합\s*계|총\s*계|총\s*액|계)\s*$").ok());
+static RATIO_HEADER: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"(비율|지분율|구성비)").ok());
 
 fn grid(t: &Table) -> BTreeMap<(u32, u32), &Cell> {
     t.cells.iter().map(|c| ((c.row, c.col), c)).collect()
@@ -37,7 +37,7 @@ pub fn check_table_sums(t: &Table) -> Vec<Finding> {
     let mut out = Vec::new();
     for r in 1..rows {
         let Some(label) = g.get(&(r, 0)) else { continue };
-        if !TOTAL_LABEL.is_match(&label.text) {
+        if !TOTAL_LABEL.as_ref().is_some_and(|r| r.is_match(&label.text)) {
             continue;
         }
         for c in 1..cols {
@@ -82,14 +82,14 @@ pub fn check_ratios(t: &Table) -> Vec<Finding> {
     let mut out = Vec::new();
     for c in 0..cols {
         let Some(head) = g.get(&(0, c)) else { continue };
-        if !RATIO_HEADER.is_match(&head.text) {
+        if !RATIO_HEADER.as_ref().is_some_and(|r| r.is_match(&head.text)) {
             continue;
         }
         let mut sum = 0.0f64;
         let mut parts = 0usize;
         let mut has_total_row = false;
         for r in 1..rows {
-            if g.get(&(r, 0)).is_some_and(|l| TOTAL_LABEL.is_match(&l.text)) {
+            if g.get(&(r, 0)).is_some_and(|l| TOTAL_LABEL.as_ref().is_some_and(|t| t.is_match(&l.text))) {
                 has_total_row = true;
                 continue;
             }
@@ -112,3 +112,14 @@ pub fn check_ratios(t: &Table) -> Vec<Finding> {
 #[cfg(test)]
 #[path = "sums_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod pattern_tests {
+    use super::*;
+
+    #[test]
+    fn patterns_compile() {
+        assert!(TOTAL_LABEL.is_some());
+        assert!(RATIO_HEADER.is_some());
+    }
+}
