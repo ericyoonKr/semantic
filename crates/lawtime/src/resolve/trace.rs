@@ -72,6 +72,8 @@ pub enum Flag {
     AddendumUndetermined { rule_id: String, note: String },
     NoVersion { note: String },
     BasisUnverified { source: String, basis: String },
+    DataHold { unit: UnitKey, note: String },
+    DataReview { unit: UnitKey, note: String },
 }
 
 impl Flag {
@@ -87,7 +89,7 @@ impl Flag {
     }
 
     pub fn is_review(&self) -> bool {
-        matches!(self, Self::Review { .. })
+        matches!(self, Self::Review { .. } | Self::DataReview { .. })
     }
 }
 

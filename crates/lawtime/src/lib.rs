@@ -4,6 +4,7 @@ pub mod citation;
 pub mod error;
 pub mod facts;
 pub mod fields;
+pub mod lanes;
 pub mod period;
 pub mod principles;
 pub mod reftime;

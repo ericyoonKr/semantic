@@ -1,10 +1,10 @@
 use chrono::NaiveDate;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::Error;
 use crate::period::{prev_day, ymd};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaseKind {
     CriminalSubstantive,
     CriminalProcedure,
@@ -20,7 +20,7 @@ pub enum CaseKind {
     InternationalInheritance,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventKind {
     Act,
     ApplicationFiled,
@@ -96,7 +96,7 @@ pub struct Fact {
     pub source: Option<SourceSpan>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProcState {
     Pending,
     Finalized,

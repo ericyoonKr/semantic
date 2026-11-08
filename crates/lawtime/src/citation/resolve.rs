@@ -20,6 +20,7 @@ pub enum MistakeReason {
 pub enum CiteStatus {
     Resolved,
     MistakeCandidate(MistakeReason),
+    OutsideData { first: Option<NaiveDate>, why: MistakeReason },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -28,6 +29,7 @@ pub enum CiteFlag {
     AssumedCurrent,
     Remapped { from: UnitKey, to: UnitKey },
     ListNotInterpreted,
+    Data(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

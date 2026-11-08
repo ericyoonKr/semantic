@@ -8,6 +8,7 @@ use serde::Serialize;
 pub use engine::Engine;
 pub use trace::{Flag, Missing, MissingReason, Step, StepKind};
 
+use crate::facts::DateSpec;
 use crate::versions::Version;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -53,12 +54,31 @@ impl Resolution {
             if !self.missing.is_empty() {
                 self.status = Status::MissingFacts;
             } else if self.flags.iter().any(|f| {
-                matches!(f, Flag::AddendumUndetermined { .. } | Flag::RefTimeUndetermined { .. })
+                matches!(
+                    f,
+                    Flag::AddendumUndetermined { .. } | Flag::RefTimeUndetermined { .. } | Flag::DataHold { .. }
+                )
             }) {
                 self.status = Status::Undetermined;
             }
         }
         self
+    }
+
+    pub fn with_flags(mut self, flags: Vec<Flag>) -> Self {
+        for f in flags {
+            if !self.flags.contains(&f) {
+                self.flags.push(f);
+            }
+        }
+        self.finish()
+    }
+
+    pub fn ref_date(&self) -> Option<DateSpec> {
+        self.trace.iter().find_map(|s| match s {
+            Step::RefTime { date, .. } | Step::RefTimeAnswer { date, .. } => Some(*date),
+            _ => None,
+        })
     }
 
     pub fn has_review(&self) -> bool {

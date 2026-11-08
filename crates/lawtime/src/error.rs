@@ -24,4 +24,8 @@ pub enum Error {
     Regex(String),
     #[error("고정 규칙표가 맞지 않음: {0}")]
     Table(String),
+    #[error("법령 DB 조회 실패: {0}")]
+    Db(#[from] sqlx::Error),
+    #[error("법령 DB 자료가 맞지 않음: {0}")]
+    Data(String),
 }

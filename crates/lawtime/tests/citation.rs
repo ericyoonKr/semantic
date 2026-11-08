@@ -103,7 +103,7 @@ fn wrong_citations_become_mistake_candidates() -> R {
         let r = resolve_citation(&road, &c, &road_unit(), d(2022, 12, 22)?)?;
         match r.status {
             CiteStatus::MistakeCandidate(m) => reasons.push(m),
-            CiteStatus::Resolved => return Err(format!("오기 후보가 아님: {text}").into()),
+            other => return Err(format!("오기 후보가 아님: {text} {other:?}").into()),
         }
     }
     assert!(matches!(reasons[0], MistakeReason::PromulDateMismatch { .. }));
