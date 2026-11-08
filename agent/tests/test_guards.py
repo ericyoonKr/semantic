@@ -10,7 +10,7 @@ def test_out_of_range_arg_is_blocked() -> None:
     async def scenario() -> None:
         script = [
             delegate("researcher", "법령 찾기", "t1"),
-            call("search_laws", {"query": "가짜", "k": 50}, "c1"),
+            call("search_laws", {"queries": ["가짜"], "k": 50}, "c1"),
             answer([], ["가짜"]),
             AIMessage(content="끝"),
         ]
@@ -25,7 +25,7 @@ def test_out_of_range_arg_is_blocked() -> None:
 
 def test_third_identical_call_is_blocked() -> None:
     async def scenario() -> None:
-        same = {"query": "가짜"}
+        same = {"queries": ["가짜"]}
         script = (
             [delegate("researcher", "법령 찾기", "t1")]
             + [call("search_laws", same, f"c{i}") for i in range(3)]

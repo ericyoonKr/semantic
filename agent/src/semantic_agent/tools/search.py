@@ -1,11 +1,16 @@
-from typing import Any
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Any
 
 from langchain_core.tools import BaseTool, tool
+from pydantic import Field
 
 from semantic_agent.ledger import current_ledger
 from semantic_agent.tools.client import SEARCH_FAIL, IsoDate, Limit, ToolClient, material
 
 SNIPPET_CHARS = 300
+MAX_QUERIES = 6
+Queries = Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1, max_length=MAX_QUERIES)]
 EXCERPT_NOTE = "발췌라 인용할 수 없음 — 인용하려면 read_law·read_case로 본문을 읽는다"
 
 
@@ -103,39 +108,60 @@ def format_citations(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+async def run_queries(queries: list[str], one: Callable[[str], Awaitable[str]]) -> str:
+    unique = list(dict.fromkeys(q.strip() for q in queries if q.strip()))
+    for q in unique:
+        current_ledger().record_query(q)
+    results = await asyncio.gather(*(one(q) for q in unique))
+    if len(unique) == 1:
+        return results[0]
+    parts = [f"### 검색어 {i}: {q}\n{r}" for i, (q, r) in enumerate(zip(unique, results, strict=True), start=1)]
+    return "\n\n".join(parts)
+
+
 def make_search_tools(client: ToolClient) -> list[BaseTool]:
-    @tool("search_laws", description="법령 조문·별표를 검색한다. 항목마다 법령명·조문·시행일·판본이 붙는다.")
+    @tool(
+        "search_laws",
+        description=f"법령 조문·별표를 검색한다. 검색어를 {MAX_QUERIES}개까지 한 번에 주면 동시에 찾는다. 항목마다 법령명·조문·시행일·판본이 붙는다.",
+    )
     async def search_laws(
-        query: str,
+        queries: Queries,
         k: Limit = 8,
         as_of: IsoDate | None = None,
         law_type: list[str] | None = None,
     ) -> str:
-        current_ledger().record_query(query)
-        body = {"query": query, "k": k, "as_of": as_of, "law_type": law_type}
-        data, err = await client.fetch("POST", "/search/laws", kind="search", fail=SEARCH_FAIL, json=body)
-        return failed(err) or material("법령 검색", format_laws(data))
+        async def one(query: str) -> str:
+            body = {"query": query, "k": k, "as_of": as_of, "law_type": law_type}
+            data, err = await client.fetch("POST", "/search/laws", kind="search", fail=SEARCH_FAIL, json=body)
+            return failed(err) or material("법령 검색", format_laws(data))
 
-    @tool("search_cases", description="판례를 검색한다. 항목마다 법원·사건번호·선고일·분야·절이 붙는다.")
+        return await run_queries(queries, one)
+
+    @tool(
+        "search_cases",
+        description=f"판례를 검색한다. 검색어를 {MAX_QUERIES}개까지 한 번에 주면 동시에 찾는다. 항목마다 법원·사건번호·선고일·분야·절이 붙는다.",
+    )
     async def search_cases(
-        query: str,
+        queries: Queries,
         k: Limit = 8,
         field: list[str] | None = None,
         court_level: list[str] | None = None,
         decided_from: IsoDate | None = None,
         decided_to: IsoDate | None = None,
     ) -> str:
-        current_ledger().record_query(query)
-        body = {
-            "query": query,
-            "k": k,
-            "field": field,
-            "court_level": court_level,
-            "decided_from": decided_from,
-            "decided_to": decided_to,
-        }
-        data, err = await client.fetch("POST", "/search/cases", kind="search", fail=SEARCH_FAIL, json=body)
-        return failed(err) or material("판례 검색", format_cases(data))
+        async def one(query: str) -> str:
+            body = {
+                "query": query,
+                "k": k,
+                "field": field,
+                "court_level": court_level,
+                "decided_from": decided_from,
+                "decided_to": decided_to,
+            }
+            data, err = await client.fetch("POST", "/search/cases", kind="search", fail=SEARCH_FAIL, json=body)
+            return failed(err) or material("판례 검색", format_cases(data))
+
+        return await run_queries(queries, one)
 
     @tool("read_law", description="조문·별표 전문을 기준일 판본으로 읽는다.")
     async def read_law(law: str, unit: str, as_of: IsoDate | None = None) -> str:

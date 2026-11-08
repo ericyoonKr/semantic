@@ -84,7 +84,7 @@ def test_dropped_sub_lines_and_sentences_are_audited_without_text() -> None:
 def test_token_budget_stops_question_inside_subagent() -> None:
     script = [
         _used(200_000, tool_calls=[{"name": "task", "args": {"description": "가짜 조사", "subagent_type": "researcher"}, "id": "t1"}]),
-        _used(150_000, tool_calls=[{"name": "search_laws", "args": {"query": "가짜"}, "id": "c1"}]),
+        _used(150_000, tool_calls=[{"name": "search_laws", "args": {"queries": ["가짜"]}, "id": "c1"}]),
         answer([]),
         AIMessage(content="끝"),
     ]

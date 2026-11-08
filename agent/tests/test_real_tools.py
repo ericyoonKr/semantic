@@ -85,8 +85,8 @@ def test_http_500_and_timeout_become_failure_strings() -> None:
 
     async def direct() -> tuple[str, str]:
         tools = {t.name: t for t in make_search_tools(rust.client())}
-        laws = await tools["search_laws"].ainvoke({"query": "가짜"})
-        cases = await tools["search_cases"].ainvoke({"query": "가짜"})
+        laws = await tools["search_laws"].ainvoke({"queries": ["가짜"]})
+        cases = await tools["search_cases"].ainvoke({"queries": ["가짜"]})
         return laws, cases
 
     laws, cases = asyncio.run(direct())

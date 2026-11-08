@@ -133,7 +133,7 @@ def test_fabricated_sources_and_quotes_are_dropped() -> None:
 def test_search_excerpt_alone_cannot_be_cited() -> None:
     script = [
         delegate("researcher", "가짜법 제1조를 찾아 줘", "t1"),
-        call("search_laws", {"query": "가짜법 제1조"}, "c1"),
+        call("search_laws", {"queries": ["가짜법 제1조"]}, "c1"),
         answer([{"claim": "발췌만 본 주장", "source": "근거 1", "quote": EXCERPT}]),
         AIMessage(content="끝"),
     ]
@@ -155,7 +155,7 @@ def test_invented_reverse_query_is_sent_back_until_real_search() -> None:
         delegate("researcher", "쟁점: 가짜 요건이 성립하는가\n목적: 판단", "t1"),
         call("read_law", READ, "c1"),
         _with_reverse([support], "지어낸 반대 검색어"),
-        call("search_laws", {"query": "가짜 요건 불성립"}, "c2"),
+        call("search_laws", {"queries": ["가짜 요건 불성립"]}, "c2"),
         _with_reverse([support], "가짜 요건 불성립"),
         AIMessage(content="끝"),
     ]
