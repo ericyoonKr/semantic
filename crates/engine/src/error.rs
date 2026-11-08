@@ -44,6 +44,10 @@ pub enum GraphIssue {
     GateWithoutElements(NodeId),
     #[error("negation_of가 가리키는 노드가 없다: {0}")]
     NegationTargetMissing(NodeId),
+    #[error("reduction 간선의 자식은 reduction 간선으로만 이어진 LEAF여야 한다: {0}")]
+    ReductionMisplaced(NodeId),
+    #[error("period_rule은 arithmetic이 있는 LEAF에만 쓴다: {0}")]
+    PeriodRuleWithoutArithmetic(NodeId),
     #[error("{kind} 수가 기대와 다르다: 기대 {expected}, 실제 {actual}")]
     CountMismatch {
         kind: CountKind,

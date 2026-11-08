@@ -1,6 +1,7 @@
-use engine::{ClaimGraph, GateType, NodeId, Outcome, Verdict};
+use engine::{Burden, ClaimGraph, GateType, NodeId, Outcome, Trit, Verdict};
 use serde::Serialize;
 
+use crate::judge::burden_text::burden_of;
 use crate::verdict_text::{label_of, reason};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -14,6 +15,21 @@ pub struct UnknownLine {
     pub node_id: NodeId,
     pub label: String,
     pub reason: String,
+    pub burden: Burden,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BurdenView {
+    pub outcome: Outcome,
+    pub unsat_core: Vec<NodeLine>,
+    pub fixed: Vec<NodeLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReductionLine {
+    pub node_id: NodeId,
+    pub label: String,
+    pub value: Trit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -30,6 +46,8 @@ pub struct VerdictView {
     pub unsat_core: Vec<NodeLine>,
     pub unknown_leaves: Vec<UnknownLine>,
     pub assumed: Vec<AssumedLine>,
+    pub burden_applied: Option<BurdenView>,
+    pub reductions: Vec<ReductionLine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -86,6 +104,7 @@ pub fn view(v: &Verdict, tree: &ClaimGraph) -> VerdictView {
                 node_id: id.clone(),
                 label: label_of(tree, id),
                 reason: reason(f),
+                burden: burden_of(tree, id),
             })
             .collect(),
         assumed: v
@@ -95,6 +114,20 @@ pub fn view(v: &Verdict, tree: &ClaimGraph) -> VerdictView {
                 node_id: id.clone(),
                 label: label_of(tree, id),
                 value: *value,
+            })
+            .collect(),
+        burden_applied: v.burden.as_ref().map(|b| BurdenView {
+            outcome: b.outcome,
+            unsat_core: b.unsat_core.iter().map(|(id, _)| line(id)).collect(),
+            fixed: b.fixed.iter().map(|(id, _)| line(id)).collect(),
+        }),
+        reductions: v
+            .reductions
+            .iter()
+            .map(|r| ReductionLine {
+                node_id: r.node_id.clone(),
+                label: label_of(tree, &r.node_id),
+                value: r.value,
             })
             .collect(),
     }

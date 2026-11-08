@@ -3,7 +3,7 @@ use std::path::Path;
 
 use engine::{
     ArithSpec, Burden, ClaimEdge, ClaimNode, ClaimType, Evidence, ExpectedCounts, GateType,
-    NodeId, Relation,
+    NodeId, PeriodRule, Relation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +42,8 @@ pub struct RawNode {
     pub negation_of: Option<NodeId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arithmetic: Option<ArithSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period_rule: Option<PeriodRule>,
     #[serde(default)]
     pub evidence: Vec<Evidence>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -113,6 +115,7 @@ impl RuleFile {
                     ask: n.ask.clone(),
                     negation_of: n.negation_of.clone(),
                     arithmetic: n.arithmetic.clone(),
+                    period_rule: n.period_rule,
                     evidence: n.evidence.clone(),
                 }
             })

@@ -1,3 +1,4 @@
+mod burden;
 mod period;
 
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ use crate::error::EngineError;
 use crate::graph::ClaimGraph;
 use crate::schema::{GateType, LeafResult, NodeId, Relation};
 
+pub use burden::{Checked, burden_fixes, check_both};
 pub use period::{PeriodFacts, period_facts};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,7 +88,7 @@ fn plan(
     }
     let mut facts = Vec::new();
     let mut free = Vec::new();
-    for leaf in subtree.leaves() {
+    for leaf in subtree.leaves().filter(|l| !subtree.is_reduction(&l.id)) {
         match leaves.get(&leaf.id) {
             None => return Err(EngineError::MissingLeafResult(leaf.id.clone())),
             Some(LeafResult::Judged { value, .. }) => facts.push((leaf.id.clone(), *value)),

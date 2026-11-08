@@ -11,6 +11,7 @@ pub struct PeriodFacts {
     pub to: i64,
     pub lo: i64,
     pub hi: Option<i64>,
+    pub elapsed: bool,
 }
 
 pub fn period_facts(reports: &[PeriodReport]) -> HashMap<NodeId, PeriodFacts> {
@@ -24,6 +25,7 @@ pub fn period_facts(reports: &[PeriodReport]) -> HashMap<NodeId, PeriodFacts> {
                     to: to_ordinal(r.to.date?),
                     lo: to_ordinal(r.lo?),
                     hi: r.hi.map(to_ordinal),
+                    elapsed: r.elapsed,
                 },
             ))
         })
@@ -33,7 +35,12 @@ pub fn period_facts(reports: &[PeriodReport]) -> HashMap<NodeId, PeriodFacts> {
 pub(super) fn encode(var: &Bool, id: &NodeId, facts: &PeriodFacts) -> (Bool, Bool) {
     let to = Int::new_const(format!("{id}::제소일"));
     let last = Int::new_const(format!("{id}::말일"));
-    let definition = var.iff(to.le(&last));
+    let within = to.le(&last);
+    let definition = if facts.elapsed {
+        var.iff(within.not())
+    } else {
+        var.iff(within)
+    };
     let mut known = vec![to.eq(Int::from_i64(facts.to)), last.ge(Int::from_i64(facts.lo))];
     if let Some(hi) = facts.hi {
         known.push(last.le(Int::from_i64(hi)));

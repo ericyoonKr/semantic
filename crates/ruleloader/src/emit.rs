@@ -131,7 +131,7 @@ edges:
         assert_eq!(head["counts"]["edges"], 2);
         assert_eq!(head["counts"]["leaves"], 2);
         let rels = head["contract"]["relations"].as_object().map(|m| m.len());
-        assert_eq!(rels, Some(3));
+        assert_eq!(rels, Some(4));
         assert_eq!(lines[1]["node"]["kind"], "rule");
         assert_eq!(lines[1]["node"]["burden"], "pending");
         assert_eq!(lines[3]["node"]["needs_split"], true);

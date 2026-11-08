@@ -15,10 +15,12 @@ use crate::graph::ClaimGraph;
 use crate::leaf::ask::Caller;
 use crate::leaf::settle::from_failure;
 use crate::period::{HolidayNote, PeriodReport};
-use crate::schema::{ArithSpec, FailureReason, LeafResult, NodeId};
+use crate::schema::{ArithSpec, FailureReason, LeafResult, NodeId, PeriodRule};
 use crate::slices::{NO_FACTS, Prepared};
 use compute::{Dates, finish};
 use extract::{DateAnswer, Found, resolve, resolve_start};
+
+pub const RESTRICTIVE_OPEN: &str = "행정기본법 제6조 제2항의 기간(권익을 제한하거나 의무를 부과하는 기간)은 계산 기준을 아직 넣지 않아 판정하지 않음";
 
 pub type PeriodResults = (HashMap<NodeId, LeafResult>, Vec<PeriodReport>);
 
@@ -61,8 +63,9 @@ where
         note: note_of(&deps.settings.holidays),
     };
     let jobs = prepared.into_iter().filter_map(|p| {
-        let spec = subtree.node(p.node_id())?.arithmetic.clone()?;
-        Some(one(p, spec, &ctx))
+        let node = subtree.node(p.node_id())?;
+        let spec = node.arithmetic.clone()?;
+        Some(one(p, spec, node.period_rule, &ctx))
     });
     let mut results = HashMap::new();
     let mut reports = Vec::new();
@@ -77,10 +80,15 @@ where
 async fn one<F: FactProvider>(
     prepared: Prepared,
     spec: ArithSpec,
+    rule: Option<PeriodRule>,
     ctx: &Ctx<'_, F>,
 ) -> (NodeId, LeafResult, PeriodReport) {
     let id = prepared.node_id().clone();
     let report = PeriodReport::blank(id.clone(), &spec, ctx.note.clone());
+    if rule == Some(PeriodRule::AdministrativeRestrictive) {
+        let failure = FailureReason::NoEvidence(RESTRICTIVE_OPEN.to_string());
+        return (id, LeafResult::Unknown { failure }, report);
+    }
     let req = match prepared {
         Prepared::Ready(req) => req,
         Prepared::NoEvidence { .. } => {

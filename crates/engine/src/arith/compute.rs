@@ -97,7 +97,7 @@ pub fn finish(mut report: PeriodReport, dates: Dates, holidays: &Holidays) -> (L
     report.cases = cases(&b);
     report.lo = Some(b.lo);
     report.hi = b.hi;
-    report.value = b.within(to);
+    report.value = b.within(to).map(|within| within != report.elapsed);
     let result = match report.value {
         Some(value) => LeafResult::Judged {
             value,

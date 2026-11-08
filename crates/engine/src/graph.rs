@@ -124,6 +124,11 @@ impl ClaimGraph {
         self.neighbors(id, Direction::Incoming)
     }
 
+    pub fn is_reduction(&self, id: &NodeId) -> bool {
+        let parents = self.parents(id);
+        !parents.is_empty() && parents.iter().all(|(r, _)| *r == Relation::Reduction)
+    }
+
     pub fn roots(&self) -> Vec<NodeId> {
         self.g
             .node_indices()

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::arith::judge_periods;
-use crate::compile::{PeriodFacts, RawVerdict, SolverResult, check_with_periods, period_facts};
+use crate::compile::{Checked, PeriodFacts, RawVerdict, SolverResult, check_both, period_facts};
 use crate::deps::{AuthoritySearch, EngineDeps, FactProvider, LeafCache, UserFact};
 use crate::error::EngineError;
 use crate::graph::ClaimGraph;
@@ -14,7 +14,7 @@ use crate::leaf::{CANCELLED, judge_all};
 use crate::prompt::prompt_version;
 use crate::schema::{FailureReason, LeafResult, NodeId};
 use crate::slices::{Prepared, SlicePlan, build_leaf_requests};
-use crate::verdict::{Verdict, from_raw};
+use crate::verdict::{Verdict, from_checked};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JudgeRequest {
@@ -75,15 +75,15 @@ where
         None => (cancelled_all(&subtree), Vec::new()),
     };
     let periods = period_facts(&reports);
-    let (raw, subtree, leaves, assumptions) =
+    let (checked, subtree, leaves, assumptions) =
         solve(subtree, leaves, periods, req.assumptions, &req.root, deps).await?;
-    let mut verdict = from_raw(raw, graph, &subtree, &leaves, &assumptions)?;
+    let mut verdict = from_checked(checked, graph, &subtree, &leaves, &assumptions)?;
     verdict.periods = reports;
     Ok(verdict)
 }
 
 type Solved = (
-    RawVerdict,
+    Checked,
     ClaimGraph,
     HashMap<NodeId, LeafResult>,
     HashMap<NodeId, bool>,
@@ -106,19 +106,24 @@ where
     let shared = Arc::new((subtree, leaves, assumptions));
     let input = shared.clone();
     let joined = tokio::task::spawn_blocking(move || {
-        check_with_periods(&input.0, &input.1, &periods, &input.2, timeout)
+        check_both(&input.0, &input.1, &periods, &input.2, timeout)
     })
     .await;
-    let raw = match joined {
+    let checked = match joined {
         Ok(result) => result?,
         Err(error) => {
             tracing::error!(%error, "engine.judge.solver");
-            RawVerdict {
+            let open = RawVerdict {
                 scope: root.clone(),
                 holds: SolverResult::Unknown,
                 fails: SolverResult::Unknown,
                 core: Vec::new(),
                 model: None,
+            };
+            Checked {
+                facts: open.clone(),
+                burden: open,
+                fixed: Vec::new(),
             }
         }
     };
@@ -126,7 +131,7 @@ where
         Ok(owned) => owned,
         Err(still_shared) => (*still_shared).clone(),
     };
-    Ok((raw, subtree, leaves, assumptions))
+    Ok((checked, subtree, leaves, assumptions))
 }
 
 fn cancelled_all(subtree: &ClaimGraph) -> HashMap<NodeId, LeafResult> {

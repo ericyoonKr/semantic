@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::compile::{RawVerdict, SolverResult};
+use crate::compile::{Checked, RawVerdict, SolverResult};
 use crate::error::EngineError;
 use crate::graph::ClaimGraph;
 use crate::period::PeriodReport;
-use crate::schema::{FailureReason, GateType, LeafResult, NodeId};
+use crate::schema::{Burden, FailureReason, GateType, LeafResult, NodeId, Trit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outcome {
@@ -27,6 +27,24 @@ pub struct Verdict {
     pub path: Vec<Vec<(NodeId, String, GateType)>>,
     #[serde(default)]
     pub periods: Vec<PeriodReport>,
+    #[serde(default)]
+    pub burden: Option<BurdenVerdict>,
+    #[serde(default)]
+    pub reductions: Vec<ReductionNote>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BurdenVerdict {
+    pub outcome: Outcome,
+    pub unsat_core: Vec<(NodeId, String)>,
+    pub fixed: Vec<(NodeId, Burden)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReductionNote {
+    pub node_id: NodeId,
+    pub value: Trit,
+    pub failure: Option<FailureReason>,
 }
 
 pub fn outcome_of(holds: SolverResult, fails: SolverResult) -> Outcome {
@@ -49,9 +67,17 @@ pub fn from_raw(
     let unsat_core = raw.core.iter().map(|id| (id.clone(), label(id))).collect();
     let mut unknown_leaves = Vec::new();
     let mut needed_facts = Vec::new();
+    let mut reductions = Vec::new();
     for leaf in subtree.leaves() {
-        if let Some(LeafResult::Unknown { failure }) = leaves.get(&leaf.id) {
-            unknown_leaves.push((leaf.id.clone(), failure.clone()));
+        let reduction = subtree.is_reduction(&leaf.id);
+        let result = leaves.get(&leaf.id);
+        if reduction {
+            reductions.push(reduction_note(&leaf.id, result));
+        }
+        if let Some(LeafResult::Unknown { failure }) = result {
+            if !reduction {
+                unknown_leaves.push((leaf.id.clone(), failure.clone()));
+            }
             if let Some(ask) = &leaf.ask {
                 needed_facts.push((leaf.id.clone(), ask.clone()));
             }
@@ -87,5 +113,43 @@ pub fn from_raw(
         needed_facts,
         path,
         periods: Vec::new(),
+        burden: None,
+        reductions,
     })
+}
+
+fn reduction_note(id: &NodeId, result: Option<&LeafResult>) -> ReductionNote {
+    let (value, failure) = match result {
+        Some(LeafResult::Judged { value: true, .. }) => (Trit::True, None),
+        Some(LeafResult::Judged { value: false, .. }) => (Trit::False, None),
+        Some(LeafResult::Unknown { failure }) => (Trit::Unknown, Some(failure.clone())),
+        None => (Trit::Unknown, None),
+    };
+    ReductionNote {
+        node_id: id.clone(),
+        value,
+        failure,
+    }
+}
+
+pub fn from_checked(
+    checked: Checked,
+    graph: &ClaimGraph,
+    subtree: &ClaimGraph,
+    leaves: &HashMap<NodeId, LeafResult>,
+    assumptions: &HashMap<NodeId, bool>,
+) -> Result<Verdict, EngineError> {
+    let Checked {
+        facts,
+        burden,
+        fixed,
+    } = checked;
+    let mut verdict = from_raw(facts, graph, subtree, leaves, assumptions)?;
+    let label = |id: &NodeId| subtree.node(id).map(|n| n.label.clone()).unwrap_or_default();
+    verdict.burden = Some(BurdenVerdict {
+        outcome: outcome_of(burden.holds, burden.fails),
+        unsat_core: burden.core.iter().map(|id| (id.clone(), label(id))).collect(),
+        fixed,
+    });
+    Ok(verdict)
 }

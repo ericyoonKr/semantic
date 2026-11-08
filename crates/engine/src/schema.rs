@@ -42,16 +42,23 @@ pub enum Relation {
     Element,
     Defense,
     Rebuttal,
+    Reduction,
 }
 
 impl Relation {
-    pub const ALL: [Relation; 3] = [Relation::Element, Relation::Defense, Relation::Rebuttal];
+    pub const ALL: [Relation; 4] = [
+        Relation::Element,
+        Relation::Defense,
+        Relation::Rebuttal,
+        Relation::Reduction,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Relation::Element => "element",
             Relation::Defense => "defense",
             Relation::Rebuttal => "rebuttal",
+            Relation::Reduction => "reduction",
         }
     }
 }
@@ -60,6 +67,15 @@ impl Relation {
 #[serde(rename_all = "lowercase")]
 pub enum Burden {
     Pending,
+    Plaintiff,
+    Defendant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PeriodRule {
+    Administrative,
+    AdministrativeRestrictive,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +83,8 @@ pub enum Burden {
 pub struct Evidence {
     pub law: String,
     pub unit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +92,13 @@ pub struct Evidence {
 pub enum ArithSpec {
     WithinDays { from: String, to: String, days: u32 },
     WithinYears { from: String, to: String, years: u32 },
+    ElapsedYears { from: String, to: String, years: u32 },
+}
+
+impl ArithSpec {
+    pub fn elapsed(&self) -> bool {
+        matches!(self, ArithSpec::ElapsedYears { .. })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +112,8 @@ pub struct ClaimNode {
     pub ask: Option<String>,
     pub negation_of: Option<NodeId>,
     pub arithmetic: Option<ArithSpec>,
+    #[serde(default)]
+    pub period_rule: Option<PeriodRule>,
     pub evidence: Vec<Evidence>,
 }
 

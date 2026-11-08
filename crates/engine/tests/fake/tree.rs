@@ -29,6 +29,7 @@ pub fn node(name: &str, gate: GateType) -> ClaimNode {
         ask: leaf.then(|| format!("ask-{name}")),
         negation_of: None,
         arithmetic: None,
+        period_rule: None,
         evidence: Vec::new(),
     }
 }
@@ -116,6 +117,17 @@ pub fn judge(
     let sub = graph.subtree(&id(root))?;
     let raw = engine::check(&sub, leaves, assumptions, TIMEOUT)?;
     engine::from_raw(raw, graph, &sub, leaves, assumptions)
+}
+
+pub fn judge_both(
+    graph: &ClaimGraph,
+    root: &str,
+    leaves: &HashMap<NodeId, LeafResult>,
+    assumptions: &HashMap<NodeId, bool>,
+) -> Result<Verdict, EngineError> {
+    let sub = graph.subtree(&id(root))?;
+    let checked = engine::check_both(&sub, leaves, &HashMap::new(), assumptions, TIMEOUT)?;
+    engine::from_checked(checked, graph, &sub, leaves, assumptions)
 }
 
 pub fn ids_of<T>(pairs: &[(NodeId, T)]) -> Vec<&str> {

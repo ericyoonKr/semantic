@@ -69,7 +69,7 @@ pub fn render(file: &RuleFile, report: &Report) -> String {
         reasons.push("입증책임 값 없음");
     }
     if !report.burden_pending.is_empty() {
-        reasons.push("입증책임 미정(설계서 9.5 결정 1 전)");
+        reasons.push("입증책임 미정");
     }
     if reasons.is_empty() {
         let _ = writeln!(out, "결과: build 가능");

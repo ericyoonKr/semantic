@@ -3,7 +3,7 @@ use petgraph::visit::EdgeFiltered;
 
 use super::ClaimGraph;
 use crate::error::{CountKind, GraphIssue};
-use crate::schema::{ExpectedCounts, GateType, Relation};
+use crate::schema::{ClaimNode, ExpectedCounts, GateType, Relation};
 
 pub(super) fn structure(graph: &ClaimGraph) -> Vec<GraphIssue> {
     let mut issues = cycles(graph);
@@ -32,8 +32,21 @@ pub(super) fn structure(graph: &ClaimGraph) -> Vec<GraphIssue> {
         {
             issues.push(GraphIssue::NegationTargetMissing(node.id.clone()));
         }
+        if node.period_rule.is_some() && node.arithmetic.is_none() {
+            issues.push(GraphIssue::PeriodRuleWithoutArithmetic(node.id.clone()));
+        }
+        if misplaced_reduction(graph, node) {
+            issues.push(GraphIssue::ReductionMisplaced(node.id.clone()));
+        }
     }
     issues
+}
+
+fn misplaced_reduction(graph: &ClaimGraph, node: &ClaimNode) -> bool {
+    let parents = graph.parents(&node.id);
+    let reduced = parents.iter().any(|(r, _)| *r == Relation::Reduction);
+    let other = parents.iter().any(|(r, _)| *r != Relation::Reduction);
+    reduced && (other || node.gate != GateType::Leaf)
 }
 
 pub(super) fn counts(graph: &ClaimGraph, expected: &ExpectedCounts) -> Vec<GraphIssue> {

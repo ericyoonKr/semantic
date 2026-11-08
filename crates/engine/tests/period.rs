@@ -11,9 +11,11 @@ use std::sync::Arc;
 use checks::holidays::HolidayData;
 use checks::periods::Holidays;
 use chrono::NaiveDate;
+use engine::arith::RESTRICTIVE_OPEN;
 use engine::{
-    ArithSpec, ClaimGraph, DateSource, EngineError, ExpectedCounts, FailureReason, GateType,
-    JudgeRequest, NodeId, Outcome, Relation, StartRule, UserFact, Verdict, judge,
+    ArithSpec, Burden, ClaimGraph, DateSource, EngineError, ExpectedCounts, FailureReason,
+    GateType, JudgeRequest, NodeId, Outcome, PeriodRule, Relation, StartRule, UserFact, Verdict,
+    judge,
 };
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -155,5 +157,54 @@ async fn stated_start_time_decides_the_first_day_rule() -> TestResult {
     assert_eq!(open.periods[0].value, None);
     let wrong = run(doc, reply("True"), &[2026], &[], Vec::new()).await?;
     assert_eq!(wrong.periods[0].start, StartRule::BothChecked);
+    Ok(())
+}
+
+fn graph_with(spec: ArithSpec, rule: Option<PeriodRule>) -> Result<ClaimGraph, EngineError> {
+    let mut s1 = node("S1", GateType::Leaf);
+    s1.arithmetic = Some(spec);
+    s1.period_rule = rule;
+    s1.burden = Burden::Defendant;
+    ClaimGraph::from_rows(
+        vec![node("S", GateType::And), s1],
+        vec![edge("S", "S1", Relation::Element)],
+        &ExpectedCounts { nodes: 2, edges: 1, leaves: 1 },
+    )
+}
+
+#[tokio::test]
+async fn restrictive_period_leaf_stays_unknown_without_asking_the_model() -> TestResult {
+    let spec = ArithSpec::WithinDays { from: "처분이_있음을_안_날".into(), to: "제소일".into(), days: 90 };
+    let g = graph_with(spec, Some(PeriodRule::AdministrativeRestrictive))?;
+    let reply = answer(("2026-03-02", KNEW, "doc"), ("2026-06-01", FILED, "doc"));
+    let fake = serve(HashMap::from([(proposition("S1"), Script::says(&[reply]))])).await?;
+    let d = with_holidays(deps(&fake.url, DOC)?, &[2026], &[]);
+    let v = judge(&g, request(Vec::new()), &d, &CancellationToken::new()).await?;
+    assert_eq!(fake.total(), 0);
+    assert_eq!(v.outcome, Outcome::Reserved);
+    assert_eq!(v.unknown_leaves, vec![(NodeId::new("S1"), FailureReason::NoEvidence(RESTRICTIVE_OPEN.to_string()))]);
+    assert_eq!(v.periods.len(), 1);
+    assert_eq!(v.periods[0].value, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn elapsed_years_leaf_is_true_after_the_last_day() -> TestResult {
+    let doc = "--- p1 ---
+원고는 2022. 3. 2. 손해와 가해자를 알았다.
+원고는 2026. 6. 1. 이 소를 제기하였다.
+";
+    let knew = "원고는 2022. 3. 2. 손해와 가해자를 알았다.";
+    let spec = ArithSpec::ElapsedYears { from: "처분이_있음을_안_날".into(), to: "제소일".into(), years: 3 };
+    let g = graph_with(spec, None)?;
+    let reply = answer(("2022-03-02", knew, "doc"), ("2026-06-01", FILED, "doc"));
+    let fake = serve(HashMap::from([(proposition("S1"), Script::says(&[reply]))])).await?;
+    let set = with_holidays(deps(&fake.url, doc)?, &[2022, 2023, 2024, 2025, 2026], &[]);
+    let v = judge(&g, request(Vec::new()), &set, &CancellationToken::new()).await?;
+    let p = &v.periods[0];
+    assert!(p.elapsed);
+    assert_eq!(p.value, Some(true), "{v:?}");
+    assert_eq!(p.lo, Some(d(2025, 3, 3)));
+    assert_eq!(v.outcome, Outcome::Established, "{v:?}");
     Ok(())
 }

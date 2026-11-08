@@ -3,11 +3,13 @@ use std::fmt::Write;
 
 use engine::{ClaimGraph, FailureReason, NodeId, Outcome, Verdict};
 
+use crate::judge::burden_text::{self, burden_of, burden_word};
+
 pub fn label_of(tree: &ClaimGraph, id: &NodeId) -> String {
     tree.node(id).map(|n| n.label.clone()).unwrap_or_default()
 }
 
-fn named(tree: &ClaimGraph, id: &NodeId) -> String {
+pub fn named(tree: &ClaimGraph, id: &NodeId) -> String {
     let label = label_of(tree, id);
     if label.is_empty() {
         id.to_string()
@@ -27,7 +29,7 @@ pub fn reason(f: &FailureReason) -> String {
     }
 }
 
-fn outcome_word(o: Outcome) -> &'static str {
+pub fn outcome_word(o: Outcome) -> &'static str {
     match o {
         Outcome::Established => "성립",
         Outcome::NotEstablished => "불성립",
@@ -72,7 +74,13 @@ fn unknown(out: &mut String, v: &Verdict, tree: &ClaimGraph) {
         v.unknown_leaves.len()
     );
     for (id, f) in &v.unknown_leaves {
-        let _ = writeln!(out, "- {}: {} — 판정 불가", named(tree, id), reason(f));
+        let _ = writeln!(
+            out,
+            "- {}: {} — 판정 불가 ({})",
+            named(tree, id),
+            reason(f),
+            burden_word(burden_of(tree, id))
+        );
     }
 }
 
@@ -141,14 +149,17 @@ pub fn render(
         named(tree, &v.scope),
         outcome_word(v.outcome)
     );
+    burden_text::conclusion(&mut out, v, tree);
     let _ = writeln!(
         out,
         "이 판정은 {} 서브트리에 한정되며, 그 밖의 요건은 판정하지 않았음.",
         v.scope
     );
     core(&mut out, v, tree);
+    burden_text::details(&mut out, v, tree);
     crate::judge::period_text::periods(&mut out, v, tree);
     unknown(&mut out, v, tree);
+    burden_text::reductions(&mut out, v, tree);
     assumed(&mut out, v, tree, said);
     hint(&mut out, v, tree);
     paths(&mut out, v);
@@ -173,6 +184,7 @@ mod tests {
             ask: leaf.then(|| "a".to_string()),
             negation_of: None,
             arithmetic: None,
+            period_rule: None,
             evidence: Vec::new(),
         }
     }
@@ -207,6 +219,8 @@ mod tests {
             needed_facts: vec![(NodeId::new("B"), "a".into())],
             path: vec![vec![(NodeId::new("R"), "R-label".into(), GateType::And)]],
             periods: Vec::new(),
+            burden: None,
+            reductions: Vec::new(),
         };
         let said = HashMap::from([(NodeId::new("A"), "그렇다 치고".to_string())]);
         let text = render(&v, &t, &said, Some("문서 수정판 도착"));

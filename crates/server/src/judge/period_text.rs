@@ -3,7 +3,7 @@ use std::fmt::Write;
 use chrono::{Datelike, NaiveDate, Weekday};
 use engine::{
     ClaimGraph, DateSource, DateUse, HolidayNote, PeriodCase, PeriodLength, PeriodReport,
-    StartRule, Verdict,
+    PeriodRule, StartRule, Verdict,
 };
 
 use crate::verdict_text::label_of;
@@ -33,11 +33,28 @@ fn closed_kind(d: NaiveDate) -> &'static str {
     }
 }
 
+pub const ADMIN_BASIS: &str = "행정기본법 제6조 제1항(특별한 규정이 없으면 민법 준용)";
+pub const RESTRICTIVE_BASIS: &str = "행정기본법 제6조 제2항(권익을 제한하거나 의무를 부과하는 기간) — 계산 기준을 아직 넣지 않아 판정하지 않음";
+
 fn length(p: &PeriodReport) -> String {
-    match p.length {
+    let span = match p.length {
         PeriodLength::Days(n) => format!("{}부터 {n}일", spoken(&p.from.name)),
         PeriodLength::Years(n) => format!("{}부터 {n}년(역에 따라 계산, 민법 제160조)", spoken(&p.from.name)),
+    };
+    if p.elapsed {
+        format!("{span}이 지났는지")
+    } else {
+        span
     }
+}
+
+fn basis_line(out: &mut String, rule: Option<PeriodRule>) {
+    let basis = match rule {
+        Some(PeriodRule::Administrative) => ADMIN_BASIS,
+        Some(PeriodRule::AdministrativeRestrictive) => RESTRICTIVE_BASIS,
+        None => return,
+    };
+    let _ = writeln!(out, "- 기간 계산의 근거: {basis}");
 }
 
 fn where_from(source: &Option<DateSource>) -> String {
@@ -123,9 +140,16 @@ fn holiday_line(out: &mut String, p: &PeriodReport) {
 
 fn result_line(out: &mut String, p: &PeriodReport) {
     let to = p.to.date.map(day).unwrap_or_default();
-    let _ = match (p.value, p.lo) {
-        (Some(true), Some(lo)) => writeln!(out, "- 결과: {to}이 말일 {} 이내임 — 참", day(lo)),
-        (Some(false), _) => writeln!(out, "- 결과: {to}이 말일 {}을 지남 — 거짓", p.hi.map(day).unwrap_or_default()),
+    let truth = |v: bool| if v { "참" } else { "거짓" };
+    let within = p.value.map(|v| v != p.elapsed);
+    let _ = match (within, p.value, p.lo) {
+        (Some(true), Some(v), Some(lo)) => writeln!(out, "- 결과: {to}이 말일 {} 이내임 — {}", day(lo), truth(v)),
+        (Some(false), Some(v), _) => writeln!(
+            out,
+            "- 결과: {to}이 말일 {}을 지남 — {}",
+            p.hi.map(day).unwrap_or_default(),
+            truth(v)
+        ),
         _ => writeln!(out, "- 결과: 판정 불가"),
     };
 }
@@ -134,6 +158,7 @@ pub fn periods(out: &mut String, v: &Verdict, tree: &ClaimGraph) {
     for p in &v.periods {
         let label = label_of(tree, &p.node_id);
         let _ = writeln!(out, "기간 계산 ({} {label}): {}", p.node_id, length(p));
+        basis_line(out, tree.node(&p.node_id).and_then(|n| n.period_rule));
         date_line(out, "기산일", &p.from);
         date_line(out, "비교할 날", &p.to);
         if p.cases.is_empty() {
@@ -147,5 +172,94 @@ pub fn periods(out: &mut String, v: &Verdict, tree: &ClaimGraph) {
         }
         holiday_line(out, p);
         result_line(out, p);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use engine::{
+        ArithSpec, Burden, ClaimEdge, ClaimNode, ClaimType, ExpectedCounts, GateType, NodeId,
+        Outcome, Relation,
+    };
+
+    use super::*;
+
+    fn tree(rule: Option<PeriodRule>, spec: &ArithSpec) -> Result<ClaimGraph, engine::EngineError> {
+        let node = |id: &str, gate: GateType| ClaimNode {
+            id: NodeId::new(id),
+            claim_type: ClaimType("T".into()),
+            label: format!("{id}-label"),
+            gate,
+            burden: Burden::Plaintiff,
+            proposition: Some("p".into()),
+            ask: Some("a".into()),
+            negation_of: None,
+            arithmetic: (gate == GateType::Leaf).then(|| spec.clone()),
+            period_rule: if gate == GateType::Leaf { rule } else { None },
+            evidence: Vec::new(),
+        };
+        let edge = ClaimEdge { parent: NodeId::new("S"), child: NodeId::new("S1"), relation: Relation::Element };
+        ClaimGraph::from_rows(
+            vec![node("S", GateType::And), node("S1", GateType::Leaf)],
+            vec![edge],
+            &ExpectedCounts { nodes: 2, edges: 1, leaves: 1 },
+        )
+    }
+
+    fn text_with(
+        rule: Option<PeriodRule>,
+        spec: ArithSpec,
+        set: impl FnOnce(&mut PeriodReport),
+    ) -> Result<String, engine::EngineError> {
+        let t = tree(rule, &spec)?;
+        let mut report = PeriodReport::blank(NodeId::new("S1"), &spec, HolidayNote::Applied);
+        set(&mut report);
+        let v = Verdict {
+            outcome: Outcome::Reserved,
+            scope: NodeId::new("S"),
+            unsat_core: Vec::new(),
+            unknown_leaves: Vec::new(),
+            assumed: Vec::new(),
+            model_hint: None,
+            needed_facts: Vec::new(),
+            path: Vec::new(),
+            periods: vec![report],
+            burden: None,
+            reductions: Vec::new(),
+        };
+        let mut out = String::new();
+        periods(&mut out, &v, &t);
+        Ok(out)
+    }
+
+    fn text(rule: Option<PeriodRule>, spec: ArithSpec) -> Result<String, engine::EngineError> {
+        text_with(rule, spec, |_| {})
+    }
+
+    #[test]
+    fn administrative_basis_restrictive_note_and_elapsed_wording() -> Result<(), engine::EngineError> {
+        let days = ArithSpec::WithinDays { from: "안_날".into(), to: "제소일".into(), days: 90 };
+        let admin = text(Some(PeriodRule::Administrative), days.clone())?;
+        assert!(admin.contains("- 기간 계산의 근거: 행정기본법 제6조 제1항(특별한 규정이 없으면 민법 준용)\n"), "{admin}");
+        let restrictive = text(Some(PeriodRule::AdministrativeRestrictive), days.clone())?;
+        assert!(restrictive.contains("행정기본법 제6조 제2항") && restrictive.contains("- 결과: 판정 불가"), "{restrictive}");
+        let plain = text(None, days)?;
+        assert!(!plain.contains("행정기본법"), "{plain}");
+        let years = ArithSpec::ElapsedYears { from: "안_날".into(), to: "제소일".into(), years: 3 };
+        let elapsed = text(None, years.clone())?;
+        assert!(elapsed.contains("안 날부터 3년(역에 따라 계산, 민법 제160조)이 지났는지"), "{elapsed}");
+        let last = NaiveDate::from_ymd_opt(2025, 3, 3);
+        let filed = NaiveDate::from_ymd_opt(2026, 6, 1);
+        let passed = text_with(None, years.clone(), |r| {
+            r.to.date = filed;
+            (r.lo, r.hi, r.value) = (last, last, Some(true));
+        })?;
+        assert!(passed.contains("- 결과: 2026-06-01(월)이 말일 2025-03-03(월)을 지남 — 참"), "{passed}");
+        let inside = text_with(None, years, |r| {
+            r.to.date = NaiveDate::from_ymd_opt(2025, 3, 3);
+            (r.lo, r.hi, r.value) = (last, last, Some(false));
+        })?;
+        assert!(inside.contains("- 결과: 2025-03-03(월)이 말일 2025-03-03(월) 이내임 — 거짓"), "{inside}");
+        Ok(())
     }
 }

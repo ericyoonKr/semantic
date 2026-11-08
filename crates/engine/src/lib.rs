@@ -12,7 +12,10 @@ pub mod settings;
 pub mod slices;
 pub mod verdict;
 
-pub use compile::{PeriodFacts, RawVerdict, SolverResult, check, check_with_periods, period_facts};
+pub use compile::{
+    Checked, PeriodFacts, RawVerdict, SolverResult, burden_fixes, check, check_both,
+    check_with_periods, period_facts,
+};
 pub use deps::{
     AuthorityHit, AuthoritySearch, AuthoritySnapshot, DepError, EngineDeps, FactProvider,
     LeafCache, Passage, UserFact,
@@ -27,11 +30,13 @@ pub use period::{
 pub use prompt::prompt_version;
 pub use schema::{
     ArithSpec, Burden, ClaimEdge, ClaimNode, ClaimType, Evidence, ExpectedCounts, FailureReason,
-    GateType, LeafResult, NodeId, Relation, Trit, cache_key,
+    GateType, LeafResult, NodeId, PeriodRule, Relation, Trit, cache_key,
 };
 pub use settings::EngineSettings;
 pub use slices::{
     FactDocument, FactSlice, LeafRequest, Prepared, SlicePlan, build_leaf_requests,
     estimate_tokens,
 };
-pub use verdict::{Outcome, Verdict, from_raw, outcome_of};
+pub use verdict::{
+    BurdenVerdict, Outcome, ReductionNote, Verdict, from_checked, from_raw, outcome_of,
+};

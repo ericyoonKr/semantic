@@ -60,6 +60,8 @@ pub struct PeriodReport {
     pub hi: Option<NaiveDate>,
     pub holidays: HolidayNote,
     pub value: Option<bool>,
+    #[serde(default)]
+    pub elapsed: bool,
 }
 
 impl DateUse {
@@ -77,7 +79,9 @@ impl PeriodReport {
     pub fn blank(node_id: NodeId, spec: &ArithSpec, holidays: HolidayNote) -> Self {
         let (from, to, length) = match spec {
             ArithSpec::WithinDays { from, to, days } => (from, to, PeriodLength::Days(*days)),
-            ArithSpec::WithinYears { from, to, years } => (from, to, PeriodLength::Years(*years)),
+            ArithSpec::WithinYears { from, to, years } | ArithSpec::ElapsedYears { from, to, years } => {
+                (from, to, PeriodLength::Years(*years))
+            }
         };
         Self {
             node_id,
@@ -91,6 +95,7 @@ impl PeriodReport {
             hi: None,
             holidays,
             value: None,
+            elapsed: spec.elapsed(),
         }
     }
 }

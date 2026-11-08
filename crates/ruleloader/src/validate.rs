@@ -118,6 +118,61 @@ edges:
         Ok(())
     }
 
+    const DECIDED: &str = "claim_type: T2
+expected: { nodes: 6, edges: 5, leaves: 4 }
+nodes:
+  - { id: ROOT, gate: AND, label: root, burden: plaintiff }
+  - { id: L1, gate: LEAF, label: one, proposition: p1, ask: a1, burden: plaintiff }
+  - { id: D, gate: AND, label: d, burden: defendant }
+  - id: D1
+    gate: LEAF
+    label: d1
+    proposition: p2
+    ask: a2
+    burden: defendant
+    arithmetic: !elapsed_years { from: 안_날, to: 제소일, years: 3 }
+  - { id: D2, gate: LEAF, label: d2, proposition: p3, ask: a3, burden: defendant }
+  - id: C
+    gate: LEAF
+    label: c
+    proposition: p4
+    ask: a4
+    burden: defendant
+edges:
+  - { parent: ROOT, child: L1, relation: element }
+  - { parent: ROOT, child: D, relation: defense }
+  - { parent: D, child: D1, relation: element }
+  - { parent: D, child: D2, relation: element }
+  - { parent: ROOT, child: C, relation: reduction }
+";
+
+    #[test]
+    fn decided_burdens_reduction_and_elapsed_period_pass_build() -> Result<(), serde_yaml::Error> {
+        let report = validate(&parse(DECIDED)?);
+        assert!(report.build_ok(), "{report:?}");
+        assert_eq!((report.actual.nodes, report.actual.edges, report.actual.leaves), (6, 5, 4));
+        let rule = DECIDED.replace("burden: defendant
+edges", "burden: defendant
+    period_rule: administrative
+edges");
+        let report = validate(&parse(&rule)?);
+        assert!(!report.check_ok());
+        assert_eq!(report.structure.len(), 1, "{report:?}");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "RULES_YAML에 저장소 밖 요건 트리 파일 경로를 넣고 돌린다"]
+    fn tree_named_by_rules_yaml_passes_build() -> Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::var("RULES_YAML")?;
+        let file = crate::source::read(std::path::Path::new(&path))?;
+        let report = validate(&file);
+        assert!(report.build_ok(), "{report:?}");
+        assert_eq!(report.actual, report.expected);
+        println!("nodes {} edges {} leaves {}", report.actual.nodes, report.actual.edges, report.actual.leaves);
+        Ok(())
+    }
+
     #[test]
     fn unknown_yaml_field_is_refused() {
         assert!(parse(&TREE.replace("ask: a1", "aks: a1")).is_err());

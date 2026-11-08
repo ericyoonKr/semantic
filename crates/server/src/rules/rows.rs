@@ -1,6 +1,6 @@
 use engine::{
     ArithSpec, Burden, ClaimEdge, ClaimNode, ClaimType, Evidence, ExpectedCounts, GateType,
-    NodeId, Relation,
+    NodeId, PeriodRule, Relation,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -36,6 +36,7 @@ struct NodeRow {
     ask: Option<String>,
     negation_of: Option<NodeId>,
     arithmetic: Option<ArithSpec>,
+    period_rule: Option<PeriodRule>,
     #[serde(default)]
     evidence: Vec<Evidence>,
 }
@@ -94,6 +95,7 @@ pub fn parse(text: &str) -> Result<TreeRows, usize> {
                     ask: row.ask,
                     negation_of: row.negation_of,
                     arithmetic: row.arithmetic,
+                    period_rule: row.period_rule,
                     evidence: row.evidence,
                 });
             }
