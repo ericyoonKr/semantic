@@ -101,6 +101,9 @@ def _cut(buf: str) -> int | None:
     return None
 
 
+MATERIAL_MARK = re.compile(r' ?</?자료(?:\s+출처="[^"\n]*")?\s*>')
+
+
 def _trailing_space(text: str) -> str:
     stripped = text.rstrip()
     return text[len(stripped):]
@@ -115,6 +118,7 @@ class SentenceGate:
     drops: list[tuple[str, ...]] = field(default_factory=list)
 
     def _emit(self, piece: str) -> list[str]:
+        piece = MATERIAL_MARK.sub("", piece)
         if not piece.strip():
             return [piece]
         checked = check_sentence(piece, self.ledger)

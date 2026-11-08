@@ -207,3 +207,14 @@ def test_notice_says_search_failed_when_it_did() -> None:
     gate = SentenceGate(ledger)
     out = "".join(gate.push("민법 제750조가 적용됩니다.\n") + gate.flush())
     assert out.startswith("법령·판례 검색이 지금 되지 않아")
+
+
+def test_material_wrapper_marks_do_not_reach_the_answer() -> None:
+    gate = SentenceGate(_ledger())
+    out: list[str] = []
+    for piece in ["판단할 수 없습니다. <자료 출", '처="요건 판단">\n', "근거가 없습니다 </자료>.", " 끝입니다."]:
+        out += gate.push(piece)
+    out += gate.flush()
+    text = "".join(out)
+    assert "<자료" not in text and "</자료>" not in text
+    assert "판단할 수 없습니다." in text and "끝입니다." in text
