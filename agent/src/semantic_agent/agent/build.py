@@ -21,6 +21,7 @@ from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import ContextMiddleware
 from semantic_agent.agent.delegation import SubagentGate
 from semantic_agent.agent.guards import ScopeGuard, ToolGuard
+from semantic_agent.agent.judge_route import JudgeRoute
 from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
 from semantic_agent.agent.repeat import RepeatCut
@@ -137,6 +138,7 @@ def build_agent(
             QuestionBudget(),
             ScopeGuard(),
             ContextMiddleware(catalogs.judge, catalogs.kg),
+            JudgeRoute(catalogs.routes.keys()),
             ProgressMiddleware(catalogs.kg_hashes),
             TodoListMiddleware(system_prompt=PLAN_PROMPT),
             ToolGuard(),
