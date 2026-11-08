@@ -13,6 +13,7 @@ members = [
     "crates/kg",
     "crates/gateway",
     "crates/searcheval",
+    "crates/lawtime",
 ]
 
 [workspace.package]
