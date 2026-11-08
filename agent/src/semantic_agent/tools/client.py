@@ -38,6 +38,19 @@ def unwrap_material(text: str) -> str:
     return text[start:end].strip("\n") if end > start else text
 
 
+SHOWN_STATUSES = frozenset({400, 404, 409, 413, 422, 503})
+REASON_CHARS = 200
+
+
+def server_reason(response: httpx.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    reason = body.get("error") if isinstance(body, dict) else None
+    return str(reason)[:REASON_CHARS] if reason else None
+
+
 class ToolClient(Protocol):
     async def fetch(
         self,
@@ -94,8 +107,10 @@ class RustClient:
             log.warning("tool call timed out request_id=%s path_kind=%s", request_id, kind)
             return None, f"{fail}: 시간 초과 (요청 ID {request_id})"
         except httpx.HTTPStatusError as exc:
-            log.warning("tool call status=%s request_id=%s", exc.response.status_code, request_id)
-            return None, f"{fail}: 지금 처리할 수 없음 (요청 ID {request_id})"
+            status = exc.response.status_code
+            log.warning("tool call status=%s request_id=%s", status, request_id)
+            reason = server_reason(exc.response) if status in SHOWN_STATUSES else None
+            return None, f"{fail}: {reason or '지금 처리할 수 없음'} (요청 ID {request_id})"
         except httpx.HTTPError as exc:
             log.warning("tool call failed type=%s request_id=%s", type(exc).__name__, request_id)
             return None, f"{fail}: 지금 연결되지 않음 (요청 ID {request_id})"

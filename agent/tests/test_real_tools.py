@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from semantic_agent.api.sse import to_sse
 from semantic_agent.config import Settings
-from semantic_agent.tools.client import RustClient
+from semantic_agent.tools.client import RustClient, server_reason
 from semantic_agent.tools.search import make_search_tools
 
 KEY = "test-internal-key"
@@ -103,3 +103,10 @@ def test_http_500_and_timeout_become_failure_strings() -> None:
     [verdict] = tool_messages(asyncio.run(judged()))
     assert verdict.content.startswith("판정 불가: 지금 처리할 수 없음")
     assert rust.find("/judge").url.path.startswith("/sessions/")
+
+
+def test_refusal_reason_from_server_reaches_the_tool_result() -> None:
+    gone = httpx.Response(503, json={"error": "검색 실패: 판례 자료가 아직 법령·판례 DB에 들어 있지 않습니다", "request_id": "r"})
+    assert server_reason(gone) == "검색 실패: 판례 자료가 아직 법령·판례 DB에 들어 있지 않습니다"
+    assert server_reason(httpx.Response(503, text="<html>")) is None
+    assert server_reason(httpx.Response(400, json=["x"])) is None

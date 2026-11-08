@@ -70,6 +70,31 @@ pub(crate) fn corpus(state: &AppState) -> Result<&Corpus, ApiError> {
     })
 }
 
+const UNDEFINED_TABLE: &str = "42P01";
+
+const CASE_TABLES: [&str; 11] = [
+    "decision",
+    "decision_section",
+    "decision_chunk",
+    "decision_citation",
+    "court",
+    "section_role",
+    "extract_run",
+    "chunk_embedding",
+    "embedding_model",
+    "law_unit",
+    "law_unit_lineage",
+];
+
+fn missing_table_reason(message: &str) -> &'static str {
+    let table = message.split('"').nth(1).unwrap_or_default();
+    if CASE_TABLES.contains(&table) {
+        "검색 실패: 판례 자료가 아직 법령·판례 DB에 들어 있지 않습니다"
+    } else {
+        "검색 실패: 이 검색에 쓰는 자료가 아직 법령·판례 DB에 들어 있지 않습니다"
+    }
+}
+
 pub(crate) fn api_error(e: RetrievalError) -> ApiError {
     match e {
         RetrievalError::Argument(what) => ApiError::bad_request(format!("인자 오류: {what}")),
@@ -78,6 +103,10 @@ pub(crate) fn api_error(e: RetrievalError) -> ApiError {
         RetrievalError::NotFound("annex") => ApiError::bad_request("그 기준일에 그 별표를 찾지 못했습니다"),
         RetrievalError::NotFound("annex row") => ApiError::bad_request("그 별표 행을 찾지 못했습니다"),
         RetrievalError::NotFound(_) => ApiError::bad_request("찾지 못했습니다"),
+        RetrievalError::Db(sqlx::Error::Database(db)) if db.code().as_deref() == Some(UNDEFINED_TABLE) => {
+            tracing::warn!(error = %db, "corpus table is missing");
+            ApiError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, missing_table_reason(db.message()))
+        }
         other => {
             tracing::error!(error = %other, "corpus query failed");
             ApiError::new(
@@ -206,4 +235,16 @@ pub async fn citations(
     };
     let c = corpus(&state)?;
     run(&state, retrieval::citations(c.pool(), &by, state.cfg.corpus.citations_max)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::missing_table_reason;
+
+    #[test]
+    fn case_side_tables_name_the_case_data() {
+        assert!(missing_table_reason("\"decision_section\" 이름의 릴레이션(relation)이 없습니다").contains("판례 자료"));
+        assert!(missing_table_reason("relation \"extract_run\" does not exist").contains("판례 자료"));
+        assert!(!missing_table_reason("\"annex_node\" 이름의 릴레이션(relation)이 없습니다").contains("판례 자료"));
+    }
 }
