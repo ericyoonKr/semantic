@@ -7,11 +7,17 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from semantic_agent.agent.context import append_system
 from semantic_agent.turn import current_turn
 
 log = logging.getLogger(__name__)
 
 JUDGE = "judge"
+AFTER_VERDICT_BLOCKED = frozenset({"task"})
+AFTER_VERDICT_NOTE = (
+    "## 이번 질문의 처리\n요건 판단 결과가 나왔다. 판정 문장과 필요한 사실 목록만으로 답한다. "
+    "판정에서 판단하지 못한 요건을 「가능성이 있다」처럼 추측해 덧붙이지 않는다. 더 조사하지 않는다."
+)
 CLAIM_PREFIX = "CLAIM_"
 _ASK = re.compile(
     r"(성립|해당하|해당되|해당할|해당합|충족|인정되|인정될|인정돼|지났|도과|청구할 수 있|받을 수 있|이길 수 있"
@@ -55,12 +61,15 @@ class JudgeRoute(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         question, after = _this_turn(list(request.messages))
-        if any(isinstance(m, ToolMessage) and m.name == JUDGE for m in after):
+        claim = route_claim(question, self._claims)
+        judged = any(isinstance(m, ToolMessage) and m.name == JUDGE for m in after)
+        if judged and claim is not None:
+            tools = [t for t in request.tools or [] if getattr(t, "name", None) not in AFTER_VERDICT_BLOCKED]
+            system = append_system(request.system_message, AFTER_VERDICT_NOTE)
+            return await handler(request.override(tools=tools, system_message=system))
+        if judged or claim is None:
             return await handler(request)
         if not any(getattr(t, "name", None) == JUDGE for t in request.tools or []):
-            return await handler(request)
-        claim = route_claim(question, self._claims)
-        if claim is None:
             return await handler(request)
         log.info("judge routed claim=%s", claim)
         current_turn().audit("judge_route", {"claim": claim})

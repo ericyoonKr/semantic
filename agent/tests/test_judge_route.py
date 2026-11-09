@@ -61,3 +61,31 @@ def test_judgment_question_gets_a_judge_call_from_code_until_judge_answers() -> 
     assert len(got) == 1 and out.result[0].content == "모델이 쓴 결론"
     got, _ = _route([HumanMessage(content="국가배상법 제2조 읽어 줘")])
     assert len(got) == 1
+
+
+@tool("task", description="조사")
+def task(description: str, subagent_type: str) -> str:
+    return "조사"
+
+
+def test_after_verdict_no_more_research_and_a_note_to_answer_from_the_verdict() -> None:
+    asked = [
+        HumanMessage(content="이 사고에 국가배상책임이 성립하나?"),
+        AIMessage(content="", tool_calls=[{"name": "judge", "args": {}, "id": "j1"}]),
+        ToolMessage(content="판정", tool_call_id="j1", name="judge"),
+    ]
+    model = GenericFakeChatModel(messages=iter([AIMessage(content="끝")]))
+    request = ModelRequest(model=model, messages=asked, system_message=SystemMessage(content="규칙"), tools=[judge, task])
+    got: list[ModelRequest] = []
+
+    async def handler(r: ModelRequest) -> ModelResponse:
+        got.append(r)
+        return ModelResponse(result=[AIMessage(content="끝")])
+
+    token = TURN.set(Turn())
+    try:
+        asyncio.run(JudgeRoute(CLAIMS.keys()).awrap_model_call(request, handler))
+    finally:
+        TURN.reset(token)
+    assert [t.name for t in got[0].tools] == ["judge"]
+    assert "더 조사하지 않는다" in str(got[0].system_message.content_blocks)

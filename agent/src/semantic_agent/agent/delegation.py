@@ -74,10 +74,17 @@ def parse_findings(text: str) -> Findings | None:
     return Findings(kept, misses, dropped, limit, reverse)
 
 
+def _query_key(text: str) -> str:
+    return "".join(ch for ch in text if ch.isalnum())
+
+
 def reverse_ok(findings: Findings, queries: Sequence[str]) -> bool:
     if any(item.stance == "adverse" for item in findings.found):
         return True
-    return findings.reverse_query is not None and findings.reverse_query in queries
+    if findings.reverse_query is None:
+        return False
+    wanted = _query_key(findings.reverse_query)
+    return bool(wanted) and any(_query_key(q) == wanted for q in queries)
 
 
 def render_findings(name: str, findings: Findings) -> str:
@@ -245,7 +252,13 @@ class SubagentGate(AgentMiddleware):
                     findings = check_research(findings, ledger)
                     if brief.purpose == JUDGE_PURPOSE and not reverse_ok(findings, ledger.queries[start:]):
                         adverse += 1
-                        log.info("subagent reverse query unverified name=%s round=%d", name, adverse)
+                        log.info(
+                            "subagent reverse query unverified name=%s round=%d reverse=%r called=%r",
+                            name,
+                            adverse,
+                            findings.reverse_query,
+                            ledger.queries[start:][-6:],
+                        )
                         if adverse <= ADVERSE_RETRIES:
                             note = ADVERSE_NOTE
                         else:
