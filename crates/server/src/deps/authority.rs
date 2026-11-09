@@ -1,5 +1,5 @@
-use engine::{AuthorityHit, AuthoritySearch, AuthoritySnapshot, DepError};
-use retrieval::{CaseQuery, Corpus, LawQuery, search_cases, search_laws};
+use engine::{AuthorityHit, AuthoritySearch, AuthoritySnapshot, DepError, Evidence};
+use retrieval::{CaseQuery, Corpus, LawQuery, read_law_unit, search_cases, search_laws};
 use sha2::{Digest, Sha256};
 
 pub const SEARCH_NOT_CONNECTED: &str = "법령·판례 검색이 아직 연결되지 않음";
@@ -16,6 +16,21 @@ impl CorpusAuthority {
     }
 }
 
+pub fn article_of(unit: &str) -> Option<String> {
+    let flat: String = unit.chars().filter(|c| !c.is_whitespace()).collect();
+    let rest = flat.strip_prefix('제')?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let after = rest[digits.len()..].strip_prefix('조')?;
+    if digits.is_empty() {
+        return None;
+    }
+    let branch = after.strip_prefix('의').map(|r| r.chars().take_while(char::is_ascii_digit).collect::<String>());
+    Some(match branch {
+        Some(b) if !b.is_empty() => format!("제{digits}조의{b}"),
+        _ => format!("제{digits}조"),
+    })
+}
+
 fn snapshot_hash(hits: &[AuthorityHit]) -> String {
     let mut h = Sha256::new();
     for hit in hits {
@@ -29,6 +44,40 @@ fn snapshot_hash(hits: &[AuthorityHit]) -> String {
 }
 
 impl AuthoritySearch for CorpusAuthority {
+    async fn cited(&self, evidence: &[Evidence]) -> Result<AuthoritySnapshot, DepError> {
+        let Some(corpus) = self.corpus.as_ref() else {
+            return Err(DepError::Unavailable(SEARCH_NOT_CONNECTED.to_string()));
+        };
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for e in evidence {
+            if let Some(article) = article_of(&e.unit) {
+                let key = (e.law.trim().to_string(), article);
+                if !seen.contains(&key) {
+                    seen.push(key);
+                }
+            }
+        }
+        let mut hits = Vec::new();
+        let mut degraded = false;
+        for (law, article) in &seen {
+            match read_law_unit(corpus.pool(), law, article, None).await {
+                Ok(unit) => {
+                    let date = unit.version.valid_from.map(|d| format!("(시행 {d})")).unwrap_or_default();
+                    hits.push(AuthorityHit {
+                        source: "law".into(),
+                        citation: format!("{} {}{date}", unit.law_name, unit.unit_key),
+                        text: unit.body,
+                    });
+                }
+                Err(e) => {
+                    degraded = true;
+                    tracing::warn!(law = %law, unit = %article, error = %e, "cited unit could not be read");
+                }
+            }
+        }
+        Ok(AuthoritySnapshot { snapshot_hash: snapshot_hash(&hits), hits, degraded })
+    }
+
     async fn search(&self, query: &str, k: usize) -> Result<AuthoritySnapshot, DepError> {
         let Some(corpus) = self.corpus.as_ref() else {
             return Err(DepError::Unavailable(SEARCH_NOT_CONNECTED.to_string()));
@@ -72,5 +121,19 @@ impl AuthoritySearch for CorpusAuthority {
         }
         hits.truncate(k.max(1));
         Ok(AuthoritySnapshot { snapshot_hash: snapshot_hash(&hits), hits, degraded })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::article_of;
+
+    #[test]
+    fn cited_units_are_read_at_article_level() {
+        assert_eq!(article_of("제2조제1항").as_deref(), Some("제2조"));
+        assert_eq!(article_of(" 제 5 조 제1항 ").as_deref(), Some("제5조"));
+        assert_eq!(article_of("제12조의2제3항").as_deref(), Some("제12조의2"));
+        assert_eq!(article_of("별표 1"), None);
+        assert_eq!(article_of("제조"), None);
     }
 }

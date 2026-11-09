@@ -6,7 +6,7 @@ use llm::{LlmClient, LlmLimiter};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::schema::LeafResult;
+use crate::schema::{Evidence, LeafResult};
 use crate::settings::EngineSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -80,6 +80,11 @@ pub trait AuthoritySearch: Send + Sync {
         query: &str,
         k: usize,
     ) -> impl Future<Output = Result<AuthoritySnapshot, DepError>> + Send;
+
+    fn cited(&self, evidence: &[Evidence]) -> impl Future<Output = Result<AuthoritySnapshot, DepError>> + Send {
+        let _ = evidence;
+        async { Ok(AuthoritySnapshot::default()) }
+    }
 }
 
 pub trait LeafCache: Send + Sync {

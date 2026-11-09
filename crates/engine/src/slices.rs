@@ -150,12 +150,17 @@ async fn prepare<F: FactProvider, A: AuthoritySearch>(
     };
     let search = async {
         if leaf.arithmetic.is_some() {
-            Ok(AuthoritySnapshot::default())
+            return Ok(AuthoritySnapshot::default());
+        }
+        let cited = if leaf.evidence.is_empty() {
+            AuthoritySnapshot::default()
         } else {
-            shared
-                .authority
-                .search(&proposition, shared.plan.authority_k)
-                .await
+            shared.authority.cited(&leaf.evidence).await?
+        };
+        if cited.hits.is_empty() {
+            shared.authority.search(&proposition, shared.plan.authority_k).await
+        } else {
+            Ok(cited)
         }
     };
     let (document, snapshot) = tokio::join!(document, search);
