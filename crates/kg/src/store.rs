@@ -10,6 +10,7 @@ CREATE TABLE nodes (id TEXT PRIMARY KEY, kind TEXT, name TEXT, data TEXT);
 CREATE TABLE edges (src TEXT, dst TEXT, type TEXT, data TEXT);
 CREATE TABLE refs (article_id TEXT, node_id TEXT);
 CREATE TABLE states (node_id TEXT, data TEXT);
+CREATE TABLE names (node_id TEXT, name TEXT);
 CREATE VIRTUAL TABLE nodes_fts USING fts5(name, tokenize='trigram');
 ";
 
@@ -18,6 +19,7 @@ CREATE INDEX edges_src_type ON edges (src, type);
 CREATE INDEX edges_dst_type ON edges (dst, type);
 CREATE INDEX refs_article ON refs (article_id);
 CREATE INDEX states_node ON states (node_id);
+CREATE INDEX names_node ON names (node_id);
 ";
 
 pub(crate) fn create(path: &Path) -> Result<Connection, KgError> {
@@ -82,13 +84,23 @@ pub(crate) fn insert_node(
     id: &str,
     kind: &str,
     name: &str,
+    aliases: &[&str],
     data: &str,
 ) -> Result<(), KgError> {
     conn.prepare_cached("INSERT INTO nodes (id, kind, name, data) VALUES (?1, ?2, ?3, ?4)")?
         .execute(params![id, kind, name, data])?;
     let rowid = conn.last_insert_rowid();
+    let search = std::iter::once(name)
+        .chain(aliases.iter().copied())
+        .collect::<Vec<_>>()
+        .join("
+");
     conn.prepare_cached("INSERT INTO nodes_fts (rowid, name) VALUES (?1, ?2)")?
-        .execute(params![rowid, name])?;
+        .execute(params![rowid, search])?;
+    for alias in aliases {
+        conn.prepare_cached("INSERT INTO names (node_id, name) VALUES (?1, ?2)")?
+            .execute(params![id, alias])?;
+    }
     Ok(())
 }
 

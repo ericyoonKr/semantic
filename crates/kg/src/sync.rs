@@ -17,17 +17,17 @@ use crate::verify::{HashingReader, SignatureStatus, file_sha256, same_hash};
 
 const MANIFEST: &str = "manifest.json";
 const SIGNATURE: &str = "manifest.json.sig";
-const LOADER: &str = "2";
+pub(crate) const LOADER: &str = "3";
 
 pub fn sync_all(kg_dir: &Path, cfg: &KgConfig) -> Result<KgSet, KgError> {
     let mut set = KgSet::default();
     let entries = match fs::read_dir(kg_dir.join("consumer")) {
-        Ok(e) => e,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(set),
+        Ok(e) => Some(e),
+        Err(e) if e.kind() == ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),
     };
     let mut bundles: Vec<(String, PathBuf)> = Vec::new();
-    for entry in entries {
+    for entry in entries.into_iter().flatten() {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
@@ -55,6 +55,7 @@ pub fn sync_all(kg_dir: &Path, cfg: &KgConfig) -> Result<KgSet, KgError> {
             }),
         }
     }
+    crate::source::sync_sources(kg_dir, cfg, &mut set)?;
     Ok(set)
 }
 

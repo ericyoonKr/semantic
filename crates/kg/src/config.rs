@@ -10,6 +10,7 @@ pub const DEFAULT_CACHE_KIB: i64 = 8 * 1024;
 pub struct KgConfig {
     pub consumer_schema: String,
     pub manifest_schema: String,
+    pub source_schema: Option<String>,
     pub mmap_bytes: i64,
     pub cache_kib: i64,
     pub signature: Arc<dyn SignatureVerifier>,
@@ -20,10 +21,16 @@ impl KgConfig {
         Self {
             consumer_schema: consumer_schema.into(),
             manifest_schema: manifest_schema.into(),
+            source_schema: None,
             mmap_bytes: DEFAULT_MMAP_BYTES,
             cache_kib: DEFAULT_CACHE_KIB,
             signature: Arc::new(UncheckedSignature),
         }
+    }
+
+    pub fn with_source_schema(mut self, schema: Option<String>) -> Self {
+        self.source_schema = schema.filter(|s| !s.trim().is_empty());
+        self
     }
 }
 
@@ -32,6 +39,7 @@ impl fmt::Debug for KgConfig {
         f.debug_struct("KgConfig")
             .field("consumer_schema", &self.consumer_schema)
             .field("manifest_schema", &self.manifest_schema)
+            .field("source_schema", &self.source_schema)
             .field("mmap_bytes", &self.mmap_bytes)
             .field("cache_kib", &self.cache_kib)
             .finish_non_exhaustive()

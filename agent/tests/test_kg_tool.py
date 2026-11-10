@@ -156,3 +156,36 @@ def test_state_rows_stay_in_this_conversation_checkpoint_only() -> None:
     assert PROGRESS_HEAD in _system_text(seen[3])
     assert PROGRESS_HEAD not in _system_text(seen[4])
     assert out["stored"] == []
+
+
+def test_tree_tool_sends_written_states_of_that_graph_and_formats_blocks() -> None:
+    from semantic_agent.tools.kg_state import format_tree, written_states
+
+    rows = [
+        {"graph": "g", "node": "L1", "value": "충족", "status": "proposed"},
+        {"graph": "g", "node": "L1", "value": "불충족", "status": "confirmed"},
+        {"graph": "other", "node": "L2", "value": "충족", "status": "proposed"},
+    ]
+    assert written_states(rows, "g") == {"L1": "불충족"}
+    text = format_tree(
+        {
+            "root": "L9",
+            "value": "불충족",
+            "nodes": [{"node": "L9", "name": "처분의 효력", "value": "불충족", "blocked_by": ["L3"]}],
+            "open_leaves": [{"node": "L4", "name": "취소·철회 또는 소멸 전"}],
+            "ignored_states": ["L7"],
+        }
+    )
+    assert text.splitlines()[0] == "뿌리 L9: 불충족"
+    assert "항변 L3 때문에 막힘" in text
+    assert "아직 정하지 않은 잎: L4 취소·철회 또는 소멸 전" in text
+    assert "쓰지 않은 상태" in text
+
+
+def test_no_basis_lists_upload_names_the_model_can_use() -> None:
+    from semantic_agent.tools.kg_state import NO_BASIS, no_basis
+
+    assert no_basis({"uploads": []}) == NO_BASIS
+    text = no_basis({"uploads": [{"filename": "처분서.docx", "path": "/uploads/f1.md"}]})
+    assert text.startswith(NO_BASIS)
+    assert "처분서.docx, /uploads/f1.md" in text

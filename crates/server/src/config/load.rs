@@ -13,6 +13,7 @@ pub struct Config {
     pub kg_dir: PathBuf,
     pub kg_consumer_schema: String,
     pub kg_manifest_schema: String,
+    pub kg_source_schema: Option<String>,
     pub internal_key: Secret,
     pub bind: SocketAddr,
     pub limits: Limits,
@@ -41,6 +42,7 @@ impl Config {
         };
         let kg_consumer_schema = r.required("KG_CONSUMER_SCHEMA");
         let kg_manifest_schema = r.required("KG_MANIFEST_SCHEMA");
+        let kg_source_schema = r.text("KG_SOURCE_SCHEMA");
         let internal_key = Secret::new(r.required("INTERNAL_KEY"));
         let Some(data_dir) = data_dir else {
             r.missing.push("DATA_DIR");
@@ -77,6 +79,7 @@ impl Config {
             kg_dir,
             kg_consumer_schema,
             kg_manifest_schema,
+            kg_source_schema,
             internal_key,
             bind,
             limits,

@@ -83,7 +83,8 @@ impl AppState {
 
 async fn load_kg(cfg: &Config, cpu: &rayon::ThreadPool) -> KgSet {
     let dir = cfg.kg_dir.clone();
-    let kg_cfg = KgConfig::new(&cfg.kg_consumer_schema, &cfg.kg_manifest_schema);
+    let kg_cfg = KgConfig::new(&cfg.kg_consumer_schema, &cfg.kg_manifest_schema)
+        .with_source_schema(cfg.kg_source_schema.clone());
     match tasks::cpu(cpu, move || kg::sync_all(&dir, &kg_cfg)).await {
         Ok(Ok(set)) => {
             for d in set.disabled() {

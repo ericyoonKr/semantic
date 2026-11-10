@@ -211,7 +211,8 @@ fn text_hits(
     if text.chars().count() <= LIKE_MAX_CHARS {
         select_nodes(
             conn,
-            "SELECT id, kind, name, data FROM nodes WHERE name LIKE ?1 ESCAPE '\\' \
+            "SELECT id, kind, name, data FROM nodes WHERE (name LIKE ?1 ESCAPE '\\' \
+             OR id IN (SELECT node_id FROM names WHERE name LIKE ?1 ESCAPE '\\')) \
              AND (?2 IS NULL OR kind = ?2) ORDER BY length(name), id LIMIT ?3",
             &escape_like(text),
             q,

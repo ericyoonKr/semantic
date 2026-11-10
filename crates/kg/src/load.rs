@@ -105,7 +105,7 @@ pub(crate) fn load(
     })
 }
 
-fn dated(body: &Value, fields: &Fields) -> bool {
+pub(crate) fn dated(body: &Value, fields: &Fields) -> bool {
     fields::at(body, fields.period)
         .and_then(|p| p.get("state"))
         .and_then(Value::as_str)
@@ -175,7 +175,7 @@ fn check_count(kind: &'static str, expected: u64, actual: u64) -> Result<(), KgE
     }
 }
 
-fn put_node(conn: &Connection, body: &Value, line_no: u64) -> Result<bool, KgError> {
+pub(crate) fn put_node(conn: &Connection, body: &Value, line_no: u64) -> Result<bool, KgError> {
     let field = |k: &'static str| {
         body.get(k)
             .and_then(Value::as_str)
@@ -184,7 +184,8 @@ fn put_node(conn: &Connection, body: &Value, line_no: u64) -> Result<bool, KgErr
     let id = field("id")?;
     let kind = field("kind")?;
     let name = field("label")?;
-    store::insert_node(conn, id, kind, name, &body.to_string())?;
+    let aliases = aliases_of(body);
+    store::insert_node(conn, id, kind, name, &aliases, &body.to_string())?;
     match body.get("item_state") {
         None | Some(Value::Null) => Ok(false),
         Some(state) => {
@@ -192,6 +193,17 @@ fn put_node(conn: &Connection, body: &Value, line_no: u64) -> Result<bool, KgErr
             Ok(true)
         }
     }
+}
+
+fn aliases_of(body: &Value) -> Vec<&str> {
+    ["aliases", "record.aliases"]
+        .iter()
+        .filter_map(|p| fields::at(body, p).and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 fn endpoint(body: &Value, key: &'static str, line_no: u64) -> Result<String, KgError> {
@@ -206,7 +218,7 @@ fn endpoint(body: &Value, key: &'static str, line_no: u64) -> Result<String, KgE
     }
 }
 
-fn put_edge(
+pub(crate) fn put_edge(
     conn: &Connection,
     body: &Value,
     contract: &Contract,

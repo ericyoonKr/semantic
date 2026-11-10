@@ -64,7 +64,7 @@ async fn with_deadline<T>(
         .unwrap_or_else(|_| Err(ApiError::timeout()))
 }
 
-async fn record<T: Send + 'static>(
+pub(crate) async fn record<T: Send + 'static>(
     state: &AppState,
     sid: &SessionId,
     build: impl FnOnce(&mut ShortIds) -> T + Send + 'static,
