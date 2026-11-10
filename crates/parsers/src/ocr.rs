@@ -1,4 +1,5 @@
 mod boxes;
+mod check;
 mod components;
 mod ctc;
 mod det;
@@ -28,6 +29,7 @@ const REC_FILE: &str = "rec.onnx";
 const DICT_FILE: &str = "dict.txt";
 const MIN_LINE_SCORE: f32 = 0.5;
 const MIN_SUPERSCRIPT_DIGITS: usize = 2;
+const REREAD_STRETCHES: [f32; 3] = [1.25, 1.7, 0.85];
 pub const OCR_RENDER_DPI: f32 = 300.0;
 const POINTS_PER_INCH: f32 = 72.0;
 
@@ -59,11 +61,12 @@ pub struct TraceLine {
 pub struct OcrOptions {
     pub split_superscripts: bool,
     pub fix_text: bool,
+    pub reread_suspicious: bool,
 }
 
 impl Default for OcrOptions {
     fn default() -> Self {
-        Self { split_superscripts: true, fix_text: true }
+        Self { split_superscripts: true, fix_text: true, reread_suspicious: true }
     }
 }
 
@@ -84,6 +87,10 @@ fn session(env: &Environment, stage: Stage, path: &Path, threads: usize) -> Resu
 
 fn plausible_superscript(part: &TracePart) -> bool {
     part.text.chars().filter(char::is_ascii_digit).count() >= MIN_SUPERSCRIPT_DIGITS
+}
+
+fn joined(parts: &[TracePart]) -> String {
+    parts.iter().map(|p| p.text.as_str()).collect()
 }
 
 fn corners(b: &boxes::PixelBox) -> [u32; 4] {
@@ -140,35 +147,60 @@ impl Ocr {
         let raster = Raster::render(page, page.width().value * scale, page.height().value * scale)?;
         let mut out = Vec::new();
         for line in self.det.boxes(&raster)? {
-            out.push(TraceLine { area: corners(&line), parts: self.read_parts(&raster, &line)? });
+            out.push(TraceLine { area: corners(&line), parts: self.read_parts(&raster, &line, 1.0)? });
         }
         Ok(out)
     }
 
-    fn read_segments(&self, raster: &Raster, segments: &[split::Segment]) -> Result<Vec<TracePart>, OcrError> {
+    fn read_segments(
+        &self,
+        raster: &Raster,
+        segments: &[split::Segment],
+        stretch: f32,
+    ) -> Result<Vec<TracePart>, OcrError> {
         let mut out = Vec::with_capacity(segments.len());
         for seg in segments {
-            let Some((text, score)) = self.rec.read(raster, &seg.crop, seg.kind.stretch())? else { continue };
+            let Some((text, score)) = self.rec.read(raster, &seg.crop, seg.kind.stretch() * stretch)? else { continue };
             out.push(TracePart { area: corners(&seg.crop.area), superscript: seg.kind == Kind::Superscript, text, score });
         }
         Ok(out)
     }
 
-    fn read_parts(&self, raster: &Raster, line: &boxes::PixelBox) -> Result<Vec<TracePart>, OcrError> {
+    fn read_parts(&self, raster: &Raster, line: &boxes::PixelBox, stretch: f32) -> Result<Vec<TracePart>, OcrError> {
         let whole = [split::Segment::whole(line)];
         if !self.options.split_superscripts {
-            return self.read_segments(raster, &whole);
+            return self.read_segments(raster, &whole, stretch);
         }
-        let parts = self.read_segments(raster, &segments(raster, line))?;
+        let parts = self.read_segments(raster, &segments(raster, line), stretch)?;
         if parts.iter().filter(|p| p.superscript).all(plausible_superscript) {
             Ok(parts)
         } else {
-            self.read_segments(raster, &whole)
+            self.read_segments(raster, &whole, stretch)
         }
     }
 
+    fn best_parts(&self, raster: &Raster, line: &boxes::PixelBox) -> Result<Vec<TracePart>, OcrError> {
+        let mut best = self.read_parts(raster, line, 1.0)?;
+        let mut doubts = check::suspicious(&joined(&best));
+        if !self.options.reread_suspicious {
+            return Ok(best);
+        }
+        for stretch in REREAD_STRETCHES {
+            if doubts == 0 {
+                break;
+            }
+            let again = self.read_parts(raster, line, stretch)?;
+            let again_doubts = check::suspicious(&joined(&again));
+            if again_doubts < doubts {
+                best = again;
+                doubts = again_doubts;
+            }
+        }
+        Ok(best)
+    }
+
     fn read_line(&self, raster: &Raster, line: &boxes::PixelBox) -> Result<Option<(String, f32)>, OcrError> {
-        let parts = self.read_parts(raster, line)?;
+        let parts = self.best_parts(raster, line)?;
         let chars: usize = parts.iter().map(|p| p.text.chars().count()).sum();
         if chars == 0 {
             return Ok(None);

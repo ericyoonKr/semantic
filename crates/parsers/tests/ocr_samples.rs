@@ -52,6 +52,7 @@ fn ocr_from_env(models: &std::path::Path) -> Result<Ocr, parsers::OcrError> {
         .with_options(OcrOptions {
             split_superscripts: env_num("OCR_SPLIT_SUP", 1u8) == 1,
             fix_text: env_num("OCR_FIX_TEXT", 1u8) == 1,
+            reread_suspicious: env_num("OCR_REREAD", 1u8) == 1,
         }))
 }
 
