@@ -2182,10 +2182,12 @@ dependencies = [
  "ort",
  "pdfium-render",
  "quick-xml",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror",
+ "tracing",
  "zip 2.4.2",
 ]
 

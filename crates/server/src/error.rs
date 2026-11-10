@@ -131,6 +131,7 @@ impl From<ParseError> for ApiError {
             | ParseError::Encrypted
             | ParseError::EmptyText
             | ParseError::Timeout => StatusCode::BAD_REQUEST,
+            ParseError::Ocr(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self::new(status, format!("추출 불가: {e}"))
     }

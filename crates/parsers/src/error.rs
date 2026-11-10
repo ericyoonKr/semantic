@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::ocr::error::OcrError;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ParseError {
     #[error("지원하지 않는 형식입니다: {0}")]
@@ -16,4 +18,6 @@ pub enum ParseError {
     ZipBomb,
     #[error("파싱 시간 제한을 넘었습니다")]
     Timeout,
+    #[error("글자 인식 오류: {0}")]
+    Ocr(#[from] OcrError),
 }

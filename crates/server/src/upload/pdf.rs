@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use docmodel::Document;
-use parsers::{GuardLimits, Ocr, PDF_PENDING, ParseError, PdfReader, check_document, check_size};
+use parsers::{GuardLimits, Ocr, PDF_PENDING, ParseError, PdfReader, check_document, check_size, log_load_failure};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::ApiError;
@@ -74,8 +74,8 @@ fn with_ocr(reader: PdfReader, ocr_dir: Option<&Path>, threads: usize) -> PdfRea
             tracing::info!("text recognition ready");
             reader.with_ocr(ocr)
         }
-        Err(_) => {
-            tracing::warn!("text recognition models could not be loaded; pages without text stay unextracted");
+        Err(e) => {
+            log_load_failure(&e, dir);
             reader
         }
     }

@@ -10,6 +10,7 @@ use docmodel::{Block, Document, ExtractWarning, FactSource, FileId, Rect};
 use pdfium_render::prelude::*;
 
 use crate::error::ParseError;
+use crate::ocr::error::{log_page_failure, log_page_unread};
 use crate::ocr::{Ocr, OcrLine};
 use crate::pdf_table::{Segment, TableSettings};
 use layout::{PageInput, lay_out};
@@ -142,14 +143,19 @@ impl PdfReader {
             let mut output = lay_out(input, &fact, &self.settings);
             if !output.has_text
                 && let Some(ocr) = &self.ocr
-                && let Ok(lines) = ocr.read_page(&page)
-                && !lines.is_empty()
             {
-                let input = PageInput { number, chars: line_chars(&lines), segments: page_segments(&page) };
-                let again = lay_out(input, &fact, &self.settings);
-                if again.has_text {
-                    output = again;
-                    recognized.push(number);
+                match ocr.read_page(&page) {
+                    Ok(lines) => {
+                        let input = PageInput { number, chars: line_chars(&lines), segments: page_segments(&page) };
+                        let again = lay_out(input, &fact, &self.settings);
+                        if again.has_text {
+                            output = again;
+                            recognized.push(number);
+                        } else {
+                            log_page_unread(number, lines.len());
+                        }
+                    }
+                    Err(e) => log_page_failure(&e, number),
                 }
             }
             if !output.has_text {

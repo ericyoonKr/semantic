@@ -1,3 +1,5 @@
+use super::components::components;
+
 const BIN_THRESH: f32 = 0.3;
 const BOX_THRESH: f32 = 0.6;
 const UNCLIP_RATIO: f32 = 1.5;
@@ -11,58 +13,34 @@ pub struct PixelBox {
     pub y1: u32,
 }
 
+impl PixelBox {
+    pub fn width(&self) -> u32 {
+        self.x1 - self.x0
+    }
+
+    pub fn height(&self) -> u32 {
+        self.y1 - self.y0
+    }
+}
+
 pub fn find_boxes(prob: &[f32], width: u32, height: u32) -> Vec<PixelBox> {
-    let (w, h) = (width as usize, height as usize);
-    if prob.len() < w * h {
+    if prob.len() < (width * height) as usize {
         return Vec::new();
     }
-    let mut seen = vec![false; w * h];
-    let mut out = Vec::new();
-    let mut stack = Vec::new();
-    for start in 0..w * h {
-        if seen[start] || prob[start] <= BIN_THRESH {
-            continue;
-        }
-        seen[start] = true;
-        stack.push(start);
-        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0usize, 0usize);
-        let (mut sum, mut count) = (0f32, 0u32);
-        while let Some(i) = stack.pop() {
-            let (x, y) = (i % w, i / w);
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x);
-            y1 = y1.max(y);
-            sum += prob[i];
-            count += 1;
-            let neighbours = [
-                (x > 0).then(|| i - 1),
-                (x + 1 < w).then(|| i + 1),
-                (y > 0).then(|| i - w),
-                (y + 1 < h).then(|| i + w),
-            ];
-            for n in neighbours.into_iter().flatten() {
-                if !seen[n] && prob[n] > BIN_THRESH {
-                    seen[n] = true;
-                    stack.push(n);
-                }
+    components(width, height, |i| prob.get(i).copied().filter(|p| *p > BIN_THRESH))
+        .into_iter()
+        .filter(|c| c.width().min(c.height()) >= MIN_SIDE && c.mean_weight() >= BOX_THRESH)
+        .map(|c| {
+            let (bw, bh) = (c.width() as f32, c.height() as f32);
+            let d = bw * bh * UNCLIP_RATIO / (2.0 * (bw + bh));
+            PixelBox {
+                x0: (c.x0 as f32 - d).max(0.0) as u32,
+                y0: (c.y0 as f32 - d).max(0.0) as u32,
+                x1: (c.x1 as f32 + d).min(width as f32) as u32,
+                y1: (c.y1 as f32 + d).min(height as f32) as u32,
             }
-        }
-        let bw = (x1 - x0 + 1) as f32;
-        let bh = (y1 - y0 + 1) as f32;
-        if (bw as u32).min(bh as u32) < MIN_SIDE || sum / (count as f32) < BOX_THRESH {
-            continue;
-        }
-        let d = bw * bh * UNCLIP_RATIO / (2.0 * (bw + bh));
-        let grow = |v: usize, by: f32| (v as f32 - by).max(0.0) as u32;
-        out.push(PixelBox {
-            x0: grow(x0, d),
-            y0: grow(y0, d),
-            x1: ((x1 + 1) as f32 + d).min(width as f32) as u32,
-            y1: ((y1 + 1) as f32 + d).min(height as f32) as u32,
-        });
-    }
-    out
+        })
+        .collect()
 }
 
 #[cfg(test)]
