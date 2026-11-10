@@ -12,6 +12,10 @@ use crate::query::fusion::CANDIDATES;
 use crate::query::terms::{Terms, compact};
 use crate::query::weights::LawWeights;
 
+pub const FIRST_STEP_TIMEOUT_MS: u64 = 8000;
+pub const RELAX_STEP_TIMEOUT_MS: u64 = 4000;
+const QUERY_CANCELED: &str = "57014";
+
 pub const DAY: &str = "COALESCE($1::date, current_date)";
 const LAW_TYPE: &str = "($2::text[] IS NULL OR l.law_type = ANY($2::text[]))";
 const OPEN_ARTICLE: &str = "upper_inf(av.sys_period)";
@@ -61,7 +65,7 @@ pub async fn text_candidates(
 ) -> Result<Vec<UnitRef>, RetrievalError> {
     let patterns = terms.like_patterns();
     let mut rows = Vec::new();
-    for m in terms.relaxations() {
+    for (step, m) in terms.relaxations().into_iter().enumerate() {
         let Some(sql) = text_sql(terms, m, weights) else { break };
         let mut query = sqlx::query(AssertSqlSafe(sql))
             .bind(q.as_of)
@@ -70,7 +74,19 @@ pub async fn text_candidates(
         for p in &patterns {
             query = query.bind(p.clone());
         }
-        rows = query.fetch_all(pool).await?;
+        let limit = if step == 0 { FIRST_STEP_TIMEOUT_MS } else { RELAX_STEP_TIMEOUT_MS };
+        let mut tx = pool.begin().await?;
+        sqlx::query(AssertSqlSafe(format!("SET LOCAL statement_timeout = {limit}")))
+            .execute(&mut *tx)
+            .await?;
+        match query.fetch_all(&mut *tx).await {
+            Ok(found) => rows = found,
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some(QUERY_CANCELED) => {
+                tracing::info!(step, kept = rows.len(), "text candidate step cut by its time limit");
+                break;
+            }
+            Err(e) => return Err(e.into()),
+        }
         if rows.len() as i64 >= CANDIDATES {
             break;
         }
