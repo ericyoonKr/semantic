@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use retrieval::{Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, NoEmbedder};
+use retrieval::{Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
 
 use super::Reader;
 use crate::error::ConfigError;
@@ -16,6 +16,9 @@ pub struct CorpusConfig {
     pub search_deadline: Duration,
     pub citations_max: i64,
     pub vector_search: bool,
+    pub law_weights: LawWeights,
+    pub law_weights_annex: bool,
+    pub term_stem: bool,
 }
 
 pub(super) fn read<F: Fn(&str) -> Option<String>>(
@@ -39,6 +42,20 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
         pool_size: r.positive("CORPUS_POOL_SIZE", 8)?,
         search_deadline,
         citations_max: r.positive("CITATIONS_MAX", 50)?,
+        law_weights: match r.text("CORPUS_LAW_WEIGHTS") {
+            None => LawWeights::default(),
+            Some(v) => LawWeights::parse(&v).ok_or(ConfigError::Invalid("CORPUS_LAW_WEIGHTS"))?,
+        },
+        law_weights_annex: match r.text("CORPUS_LAW_WEIGHTS_ANNEX").as_deref() {
+            None | Some("on") => true,
+            Some("off") => false,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_WEIGHTS_ANNEX")),
+        },
+        term_stem: match r.text("CORPUS_TERM_STEM").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_TERM_STEM")),
+        },
         vector_search: match r.text("CORPUS_VECTOR_SEARCH").as_deref() {
             None | Some("on") => true,
             Some("off") => false,
@@ -106,7 +123,11 @@ impl CorpusConfig {
                 Arc::new(NoEmbedder)
             }
         };
-        let corpus = Corpus::new(pool, embedder);
+        let weights = if self.law_weights_annex { self.law_weights } else { self.law_weights.articles_only() };
+        let corpus = Corpus::new(pool, embedder).with_weights(weights).with_stemming(self.term_stem);
+        if !self.law_weights.is_flat() {
+            tracing::info!(weights = ?self.law_weights, "law kind weights on");
+        }
         if self.vector_search {
             Some(corpus)
         } else {

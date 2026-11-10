@@ -10,6 +10,7 @@ use crate::query::annex::{AnnexName, annex_label};
 use crate::query::direct::{Direct, Target};
 use crate::query::fusion::CANDIDATES;
 use crate::query::terms::{Terms, compact};
+use crate::query::weights::LawWeights;
 
 pub const DAY: &str = "COALESCE($1::date, current_date)";
 const LAW_TYPE: &str = "($2::text[] IS NULL OR l.law_type = ANY($2::text[]))";
@@ -31,14 +32,16 @@ pub const VALID_A: &str = "(NOT isempty(a.valid_period) \
      AND (lower_inf(a.valid_period) OR lower(a.valid_period) <= COALESCE($1::date, current_date)) \
      AND (upper_inf(a.valid_period) OR upper(a.valid_period) > COALESCE($1::date, current_date)))";
 
-fn text_sql(terms: &Terms, m: usize) -> Option<String> {
+fn text_sql(terms: &Terms, m: usize, weights: &LawWeights) -> Option<String> {
+    let w = weights.sql("l.kind", "l.law_type");
+    let wx = weights.annex_sql("l.kind", "l.law_type");
     Some(format!(
-        "(SELECT 'a' AS src, av.row_id AS id, {sa} AS s, length(av.body) AS len FROM article_version av \
+        "(SELECT 'a' AS src, av.row_id AS id, {sa} * {w} AS s, length(av.body) AS len FROM article_version av \
            JOIN law l ON l.law_id = av.law_id \
            WHERE {ma} AND {OPEN_ARTICLE} AND {VALID_AV} AND {LAW_TYPE} \
            ORDER BY s DESC, len, av.row_id LIMIT $3) \
          UNION ALL \
-         (SELECT 'x' AS src, a.row_id AS id, {sx} AS s, length(a.raw_text) AS len FROM annex a \
+         (SELECT 'x' AS src, a.row_id AS id, {sx} * {wx} AS s, length(a.raw_text) AS len FROM annex a \
            JOIN law l ON l.law_id = a.law_id \
            WHERE {mx} AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} \
            ORDER BY s DESC, len, a.row_id LIMIT $3) \
@@ -54,11 +57,12 @@ pub async fn text_candidates(
     pool: &PgPool,
     q: &LawQuery,
     terms: &Terms,
+    weights: &LawWeights,
 ) -> Result<Vec<UnitRef>, RetrievalError> {
     let patterns = terms.like_patterns();
     let mut rows = Vec::new();
     for m in terms.relaxations() {
-        let Some(sql) = text_sql(terms, m) else { break };
+        let Some(sql) = text_sql(terms, m, weights) else { break };
         let mut query = sqlx::query(AssertSqlSafe(sql))
             .bind(q.as_of)
             .bind(q.law_type.clone())

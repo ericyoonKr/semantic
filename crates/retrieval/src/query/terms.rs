@@ -4,10 +4,34 @@ const MIN_TERM_CHARS: usize = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Terms(Vec<String>);
 
+const EDGE_MARKS: &[char] = &[',', '.', '·', '‘', '’', '\'', '"', '“', '”', '(', ')', '「', '」', '『', '』', '[', ']', '?', '!', ':', ';'];
+const ENDINGS: &[&str] = &[
+    "에서는", "으로서", "으로써", "에게서", "이라는", "하는지", "인지를", "에서", "으로", "에게", "하는", "하여", "하고", "이나",
+    "라는", "인지", "는지", "부터", "까지", "의", "가", "이", "을", "를", "은", "는", "에", "로", "와", "과", "도", "만",
+];
+
+pub fn stem(word: &str) -> String {
+    let bare = word.trim_matches(|c: char| EDGE_MARKS.contains(&c));
+    for end in ENDINGS {
+        if let Some(head) = bare.strip_suffix(end)
+            && head.chars().count() >= MIN_TERM_CHARS
+        {
+            return head.to_string();
+        }
+    }
+    bare.to_string()
+}
+
 impl Terms {
     pub fn split(query: &str) -> Option<Self> {
+        Self::split_with(query, false)
+    }
+
+    pub fn split_with(query: &str, stemmed: bool) -> Option<Self> {
         let mut out: Vec<String> = Vec::new();
-        for word in query.split_whitespace() {
+        for raw in query.split_whitespace() {
+            let owned = if stemmed { stem(raw) } else { raw.to_string() };
+            let word = owned.as_str();
             if word.chars().count() < MIN_TERM_CHARS || out.iter().any(|w| w == word) {
                 continue;
             }
@@ -134,6 +158,21 @@ pub fn compact(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn endings_are_cut_only_when_two_or_more_characters_remain() {
+        use super::stem;
+        assert_eq!(stem("행정청의"), "행정청");
+        assert_eq!(stem("항고소송의"), "항고소송");
+        assert_eq!(stem("대상이"), "대상");
+        assert_eq!(stem("결정하는"), "결정");
+        assert_eq!(stem("제1항,"), "제1항");
+        assert_eq!(stem("‘분양대상자별"), "분양대상자별");
+        assert_eq!(stem("대가"), "대가");
+        assert_eq!(stem("방법"), "방법");
+        let t = Terms::split_with("행정청의 행위가 항고소송의 대상이", true).expect("terms");
+        assert_eq!(t.words(), ["행정청", "행위", "항고소송", "대상"]);
+    }
+
     use super::*;
 
     #[test]

@@ -8,6 +8,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::embedder::Embedder;
 use crate::error::RetrievalError;
+use crate::query::weights::LawWeights;
 
 #[derive(Clone)]
 pub struct CorpusDb(PgConnectOptions);
@@ -43,6 +44,8 @@ pub struct Corpus {
     pool: PgPool,
     embedder: Arc<dyn Embedder>,
     vector_off: bool,
+    weights: LawWeights,
+    stemmed: bool,
 }
 
 impl fmt::Debug for Corpus {
@@ -53,7 +56,25 @@ impl fmt::Debug for Corpus {
 
 impl Corpus {
     pub fn new(pool: PgPool, embedder: Arc<dyn Embedder>) -> Self {
-        Self { pool, embedder, vector_off: false }
+        Self { pool, embedder, vector_off: false, weights: LawWeights::default(), stemmed: false }
+    }
+
+    pub fn with_weights(mut self, weights: LawWeights) -> Self {
+        self.weights = weights;
+        self
+    }
+
+    pub fn with_stemming(mut self, on: bool) -> Self {
+        self.stemmed = on;
+        self
+    }
+
+    pub fn stemmed(&self) -> bool {
+        self.stemmed
+    }
+
+    pub fn weights(&self) -> &LawWeights {
+        &self.weights
     }
 
     pub fn without_vectors(mut self) -> Self {

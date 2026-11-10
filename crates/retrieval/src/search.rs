@@ -7,6 +7,7 @@ use crate::model::{CaseHit, CaseQuery, LawHit, LawQuery, SearchResult};
 use crate::query::cases::{self, Pick};
 use crate::query::direct;
 use crate::query::fusion::{CANDIDATES, RRF_K, rrf};
+use crate::query::weights;
 use crate::query::laws::{self, UnitRef};
 use crate::query::terms::{Terms, compact};
 
@@ -15,11 +16,11 @@ pub const EMBED_FAILED: &str = "질의 임베딩을 만들지 못해 글자 검�
 pub const VECTOR_FAILED: &str = "벡터 질의가 실패해 글자 검색만 함";
 pub const VECTOR_OFF: &str = "벡터 검색을 설정으로 꺼 두어 글자 검색만 함";
 
-fn prepare(text: &str, k: usize) -> Result<(Terms, usize), RetrievalError> {
+fn prepare(text: &str, k: usize, stemmed: bool) -> Result<(Terms, usize), RetrievalError> {
     if k == 0 {
         return Err(RetrievalError::Argument("k"));
     }
-    let terms = Terms::split(text).ok_or(RetrievalError::Argument("query"))?;
+    let terms = Terms::split_with(text, stemmed).ok_or(RetrievalError::Argument("query"))?;
     let cap = usize::try_from(CANDIDATES).unwrap_or(usize::MAX);
     Ok((terms, k.min(cap)))
 }
@@ -66,7 +67,7 @@ pub async fn search_laws(
         Some(_) => direct::without_numbers(&q.text),
         None => q.text.clone(),
     };
-    let (terms, k) = prepare(&words, q.k)?;
+    let (terms, k) = prepare(&words, q.k, corpus.stemmed())?;
     let pool = corpus.pool();
     let registry = corpus.embedder().registry_name();
     let vector_side = async {
@@ -90,7 +91,7 @@ pub async fn search_laws(
         let text = if lookup_only && !direct.is_empty() {
             Vec::new()
         } else {
-            laws::text_candidates(pool, q, &terms).await?
+            laws::text_candidates(pool, q, &terms, corpus.weights()).await?
         };
         Ok::<_, RetrievalError>((direct, text))
     };
@@ -101,7 +102,16 @@ pub async fn search_laws(
         .iter()
         .map(|u| (u.clone(), 1.0, "direct".to_string()))
         .collect();
-    for (unit, score) in rrf(&[&text, &vector], RRF_K) {
+    let mut fused = rrf(&[&text, &vector], RRF_K);
+    if !corpus.weights().is_flat() {
+        let units: Vec<UnitRef> = fused.iter().map(|(u, _)| u.clone()).collect();
+        let w = weights::unit_weights(pool, &units, corpus.weights()).await?;
+        for (u, s) in fused.iter_mut() {
+            *s *= w.get(u).copied().unwrap_or(1.0);
+        }
+        fused.sort_by(|a, b| b.1.total_cmp(&a.1));
+    }
+    for (unit, score) in fused {
         if ranked.len() >= k {
             break;
         }
@@ -124,7 +134,7 @@ pub async fn search_cases(
     corpus: &Corpus,
     q: &CaseQuery,
 ) -> Result<SearchResult<CaseHit>, RetrievalError> {
-    let (terms, k) = prepare(&q.text, q.k)?;
+    let (terms, k) = prepare(&q.text, q.k, corpus.stemmed())?;
     let pool = corpus.pool();
     let vector_side = async {
         let lit = query_vector(corpus, &q.text).await?;

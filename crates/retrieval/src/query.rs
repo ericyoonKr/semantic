@@ -5,3 +5,4 @@ pub mod direct;
 pub mod fusion;
 pub mod laws;
 pub mod terms;
+pub mod weights;
