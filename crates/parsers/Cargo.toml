@@ -10,9 +10,11 @@ docmodel = { workspace = true }
 zip = { workspace = true }
 quick-xml = { workspace = true }
 pdfium-render = { workspace = true }
+ort = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }

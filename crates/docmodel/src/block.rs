@@ -36,6 +36,7 @@ pub struct Document {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ExtractWarning {
     PagesUnextracted {from : u32, to : u32},
+    PagesRecognized {from : u32, to : u32},
     TableDegraded {anchor : Anchor},
     LowConfidenceTable {anchor: Anchor},
 }

@@ -57,6 +57,7 @@ z3 = { version = "0.21", features = ["gh-release"] }
 petgraph = "0.8"
 
 pdfium-render = "0.8"
+ort = "=2.0.0-rc.15"
 
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"

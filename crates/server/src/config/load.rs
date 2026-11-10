@@ -21,6 +21,8 @@ pub struct Config {
     pub judge: crate::judge::JudgeConfig,
     pub corpus: CorpusConfig,
     pub pdfium_dir: Option<PathBuf>,
+    pub ocr_dir: Option<PathBuf>,
+    pub ocr_threads: usize,
     pub lawtime_principles: Option<PathBuf>,
     pub law_aliases: Option<PathBuf>,
 }
@@ -72,6 +74,8 @@ impl Config {
         let judge = crate::judge::config::read(&r.get)?;
         let corpus = corpus::read(&r)?;
         let pdfium_dir = r.text("PDFIUM_DIR").map(PathBuf::from);
+        let ocr_dir = r.text("OCR_DIR").map(PathBuf::from);
+        let ocr_threads = r.positive("OCR_THREADS", 8)?;
         let lawtime_principles = r.text("LAWTIME_PRINCIPLES").map(PathBuf::from);
         let law_aliases = r.text("LAW_ALIASES").map(PathBuf::from);
         Ok(Self {
@@ -87,6 +91,8 @@ impl Config {
             judge,
             corpus,
             pdfium_dir,
+            ocr_dir,
+            ocr_threads,
             lawtime_principles,
             law_aliases,
         })

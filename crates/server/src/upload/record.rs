@@ -61,6 +61,9 @@ pub fn describe_warning(w: &ExtractWarning) -> String {
         ExtractWarning::PagesUnextracted { from, to } => {
             format!("추출 불가: p{from}–p{to}")
         }
+        ExtractWarning::PagesRecognized { from, to } => {
+            format!("글자 인식으로 읽음: p{from}–p{to} — 인쇄된 글자와 다를 수 있음")
+        }
         ExtractWarning::TableDegraded { anchor } => {
             format!("{} 표를 평문으로 낮춤 — 산술 검증 제외", page_label(anchor))
         }

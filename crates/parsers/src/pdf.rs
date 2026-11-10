@@ -10,6 +10,7 @@ use docmodel::{Block, Document, ExtractWarning, FactSource, FileId, Rect};
 use pdfium_render::prelude::*;
 
 use crate::error::ParseError;
+use crate::ocr::{Ocr, OcrLine};
 use crate::pdf_table::{Segment, TableSettings};
 use layout::{PageInput, lay_out};
 use words::CharBox;
@@ -19,6 +20,7 @@ pub const PDF_LIBRARY_MISSING: &str = "PDF 읽기 모듈을 찾지 못했습니�
 pub struct PdfReader {
     pdfium: Pdfium,
     settings: TableSettings,
+    ocr: Option<Ocr>,
 }
 
 fn rect(r: &PdfRect) -> Rect {
@@ -115,7 +117,12 @@ impl PdfReader {
     pub fn load(library_dir: &Path) -> Result<Self, ParseError> {
         let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(library_dir))
             .map_err(|_| ParseError::Unsupported(PDF_LIBRARY_MISSING.to_string()))?;
-        Ok(Self { pdfium: Pdfium::new(bindings), settings: TableSettings::default() })
+        Ok(Self { pdfium: Pdfium::new(bindings), settings: TableSettings::default(), ocr: None })
+    }
+
+    pub fn with_ocr(mut self, ocr: Ocr) -> Self {
+        self.ocr = Some(ocr);
+        self
     }
 
     pub fn read(&self, bytes: &[u8], source: FileId) -> Result<Document, ParseError> {
@@ -127,11 +134,24 @@ impl PdfReader {
         let mut blocks: Vec<Block> = Vec::new();
         let mut warnings: Vec<ExtractWarning> = Vec::new();
         let mut empty: Vec<u32> = Vec::new();
+        let mut recognized: Vec<u32> = Vec::new();
         let total = doc.pages().len();
         for (index, page) in doc.pages().iter().enumerate() {
             let number = u32::try_from(index).map_err(|_| ParseError::TooLarge)? + 1;
             let input = PageInput { number, chars: page_chars(&page)?, segments: page_segments(&page) };
-            let output = lay_out(input, &fact, &self.settings);
+            let mut output = lay_out(input, &fact, &self.settings);
+            if !output.has_text
+                && let Some(ocr) = &self.ocr
+                && let Ok(lines) = ocr.read_page(&page)
+                && !lines.is_empty()
+            {
+                let input = PageInput { number, chars: line_chars(&lines), segments: page_segments(&page) };
+                let again = lay_out(input, &fact, &self.settings);
+                if again.has_text {
+                    output = again;
+                    recognized.push(number);
+                }
+            }
             if !output.has_text {
                 empty.push(number);
             }
@@ -142,8 +162,22 @@ impl PdfReader {
             return Err(ParseError::EmptyText);
         }
         warnings.extend(ranges(&empty).into_iter().map(|(from, to)| ExtractWarning::PagesUnextracted { from, to }));
+        warnings.extend(ranges(&recognized).into_iter().map(|(from, to)| ExtractWarning::PagesRecognized { from, to }));
         Ok(Document { blocks, source, warnings })
     }
+}
+
+fn line_chars(lines: &[OcrLine]) -> Vec<CharBox> {
+    let mut out = Vec::new();
+    for line in lines {
+        let count = line.text.chars().count().max(1) as f32;
+        let step = (line.x1 - line.x0) / count;
+        for (i, ch) in line.text.chars().enumerate() {
+            let x0 = line.x0 + step * i as f32;
+            out.push(CharBox { ch, rect: Rect { x0, y0: line.y0, x1: x0 + step, y1: line.y1 } });
+        }
+    }
+    out
 }
 
 pub(crate) fn ranges(pages: &[u32]) -> Vec<(u32, u32)> {

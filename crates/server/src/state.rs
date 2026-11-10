@@ -68,7 +68,7 @@ impl AppState {
             lawtime,
             z3: Semaphore::new(cfg.judge.z3_concurrency),
             uploads: Semaphore::new(cfg.limits.upload_concurrency),
-            pdf: PdfWorker::start(cfg.pdfium_dir.as_deref(), cfg.limits.upload_concurrency),
+            pdf: PdfWorker::start(cfg.pdfium_dir.as_deref(), cfg.ocr_dir.as_deref(), cfg.ocr_threads, cfg.limits.upload_concurrency),
             cfg,
             db,
             kg,
