@@ -89,3 +89,4 @@ def test_after_verdict_no_more_research_and_a_note_to_answer_from_the_verdict() 
         TURN.reset(token)
     assert [t.name for t in got[0].tools] == ["judge"]
     assert "더 조사하지 않는다" in str(got[0].system_message.content_blocks)
+    assert "입증책임을 적용한 결론:" in str(got[0].system_message.content_blocks)

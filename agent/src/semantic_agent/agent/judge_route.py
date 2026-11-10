@@ -16,6 +16,7 @@ JUDGE = "judge"
 AFTER_VERDICT_BLOCKED = frozenset({"task"})
 AFTER_VERDICT_NOTE = (
     "## 이번 질문의 처리\n요건 판단 결과가 나왔다. 판정 문장과 필요한 사실 목록만으로 답한다. "
+    "판정의 「결론:」 줄과 「입증책임을 적용한 결론:」 줄이 있으면 둘 다 글자 그대로 옮긴다. "
     "판정에서 판단하지 못한 요건을 「가능성이 있다」처럼 추측해 덧붙이지 않는다. 더 조사하지 않는다."
 )
 CLAIM_PREFIX = "CLAIM_"
