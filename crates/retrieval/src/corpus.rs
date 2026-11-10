@@ -10,6 +10,9 @@ use crate::embedder::Embedder;
 use crate::error::RetrievalError;
 use crate::query::weights::LawWeights;
 
+pub const HNSW_ITERATIVE_SCAN: &str = "strict_order";
+pub const HNSW_EF_SEARCH: &str = "200";
+
 #[derive(Clone)]
 pub struct CorpusDb(PgConnectOptions);
 
@@ -31,6 +34,8 @@ impl CorpusDb {
         let options = self.0.clone().options([
             ("default_transaction_read_only", "on"),
             ("statement_timeout", millis.as_str()),
+            ("hnsw.iterative_scan", HNSW_ITERATIVE_SCAN),
+            ("hnsw.ef_search", HNSW_EF_SEARCH),
         ]);
         PgPoolOptions::new()
             .max_connections(max_connections.max(1))
