@@ -82,8 +82,18 @@ fn unknown_leaf_that_cannot_swing_root_stays_established() -> TestResult {
     let g = graph()?;
     let v = judge(&g, "ROOT", &base(&[("L3", unknown())]), &HashMap::new())?;
     assert_eq!(v.outcome, Outcome::Established);
-    assert_eq!(v.needed_facts, vec![(id("L3"), "ask-L3".to_string())]);
+    assert!(v.needed_facts.is_empty());
     assert_eq!(v.model_hint, None);
+    Ok(())
+}
+
+#[test]
+fn reserved_asks_only_leaves_that_can_change_the_outcome() -> TestResult {
+    let g = graph()?;
+    let v = judge(&g, "ROOT", &base(&[("L1", unknown()), ("L3", unknown())]), &HashMap::new())?;
+    assert_eq!(v.outcome, Outcome::Reserved);
+    assert_eq!(ids_of(&v.unknown_leaves), vec!["L1", "L3"]);
+    assert_eq!(v.needed_facts, vec![(id("L1"), "ask-L1".to_string())]);
     Ok(())
 }
 

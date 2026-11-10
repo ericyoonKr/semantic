@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use z3::ast::Bool;
+use z3::ast::{Ast, Bool};
 use z3::{Config, SatResult, Solver, with_z3_config};
 
 use crate::error::EngineError;
@@ -29,6 +29,7 @@ pub struct RawVerdict {
     pub fails: SolverResult,
     pub core: Vec<NodeId>,
     pub model: Option<Vec<(NodeId, bool)>>,
+    pub relevant: Option<Vec<NodeId>>,
 }
 
 struct Plan {
@@ -43,6 +44,7 @@ struct Solved {
     fails: SolverResult,
     core: Vec<NodeId>,
     model: Option<Vec<(NodeId, bool)>>,
+    relevant: Option<Vec<NodeId>>,
 }
 
 pub fn check(
@@ -75,6 +77,7 @@ pub fn check_with_periods(
         fails: solved.fails,
         core: solved.core,
         model: solved.model,
+        relevant: solved.relevant,
     })
 }
 
@@ -154,6 +157,7 @@ fn solve(
             fails: SolverResult::Unknown,
             core: Vec::new(),
             model: None,
+            relevant: None,
         };
     };
     let core_of = |solver: &Solver| -> Vec<NodeId> {
@@ -177,6 +181,7 @@ fn solve(
                 fails: other,
                 core,
                 model: None,
+                relevant: None,
             };
         }
     }
@@ -206,12 +211,39 @@ fn solve(
     solver.assert(goal.not());
     let can_fail = convert(solver.check());
     solver.pop(1);
+    let relevant = match (can_hold, can_fail) {
+        (SolverResult::Sat, SolverResult::Sat) => relevant_free(&solver, goal, &vars, &plan.free),
+        (SolverResult::Unknown, _) | (_, SolverResult::Unknown) => None,
+        _ => Some(Vec::new()),
+    };
     Solved {
         holds: can_hold,
         fails: can_fail,
         core,
         model,
+        relevant,
     }
+}
+
+fn relevant_free(solver: &Solver, goal: &Bool, vars: &HashMap<NodeId, Bool>, free: &[NodeId]) -> Option<Vec<NodeId>> {
+    let on = Bool::from_bool(true);
+    let off = Bool::from_bool(false);
+    let mut out = Vec::new();
+    for id in free {
+        let Some(v) = vars.get(id) else { continue };
+        let when_true = goal.substitute(&[(v, &on)]);
+        let when_false = goal.substitute(&[(v, &off)]);
+        solver.push();
+        solver.assert(when_true.xor(&when_false));
+        let r = convert(solver.check());
+        solver.pop(1);
+        match r {
+            SolverResult::Sat => out.push(id.clone()),
+            SolverResult::Unsat => {}
+            SolverResult::Unknown => return None,
+        }
+    }
+    Some(out)
 }
 
 fn build(graph: &ClaimGraph, order: &[NodeId]) -> (HashMap<NodeId, Bool>, HashMap<NodeId, Bool>) {

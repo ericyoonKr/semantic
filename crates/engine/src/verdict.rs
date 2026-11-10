@@ -78,7 +78,10 @@ pub fn from_raw(
             if !reduction {
                 unknown_leaves.push((leaf.id.clone(), failure.clone()));
             }
-            if let Some(ask) = &leaf.ask {
+            let matters = reduction || raw.relevant.as_ref().is_none_or(|r| r.contains(&leaf.id));
+            if let Some(ask) = &leaf.ask
+                && matters
+            {
                 needed_facts.push((leaf.id.clone(), ask.clone()));
             }
         }

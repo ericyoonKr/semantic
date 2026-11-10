@@ -119,6 +119,7 @@ where
                 fails: SolverResult::Unknown,
                 core: Vec::new(),
                 model: None,
+                relevant: None,
             };
             Checked {
                 facts: open.clone(),
