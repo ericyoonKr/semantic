@@ -51,7 +51,7 @@ fn ocr_from_env(models: &std::path::Path) -> Result<Ocr, parsers::OcrError> {
         .with_rec_width_scale(env_num("OCR_REC_WIDTH", REC_WIDTH_SCALE))
         .with_options(OcrOptions {
             split_superscripts: env_num("OCR_SPLIT_SUP", 1u8) == 1,
-            fix_amounts: env_num("OCR_FIX_AMOUNTS", 1u8) == 1,
+            fix_text: env_num("OCR_FIX_TEXT", 1u8) == 1,
         }))
 }
 

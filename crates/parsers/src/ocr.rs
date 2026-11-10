@@ -58,12 +58,12 @@ pub struct TraceLine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OcrOptions {
     pub split_superscripts: bool,
-    pub fix_amounts: bool,
+    pub fix_text: bool,
 }
 
 impl Default for OcrOptions {
     fn default() -> Self {
-        Self { split_superscripts: true, fix_amounts: true }
+        Self { split_superscripts: true, fix_text: true }
     }
 }
 
@@ -175,8 +175,8 @@ impl Ocr {
         }
         let weighted: f32 = parts.iter().map(|p| p.score * p.text.chars().count() as f32).sum();
         let mut text: String = parts.into_iter().map(|p| p.text).collect();
-        if self.options.fix_amounts {
-            text = fix::amount_separators(&text);
+        if self.options.fix_text {
+            text = fix::correct(&text);
         }
         Ok(Some((text, weighted / chars as f32)))
     }
@@ -194,3 +194,4 @@ impl Ocr {
         Ok(out)
     }
 }
+

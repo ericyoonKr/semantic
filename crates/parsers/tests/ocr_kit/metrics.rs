@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 static NUMBERS: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(r"\d{4}[가-힣]{1,2}\d+|\d{4}\.\d{1,2}\.\d{1,2}\.|\d+\.\d+원|[\d,]*\d원|제\d+조(?:의\d+)?(?:제\d+항)?(?:제\d+호)?").ok()
+    Regex::new(r"\d{4}[가-힣]{1,2}\d+|\d{4}\.\d{1,2}\.\d{1,2}\.|\d+\.\d+원|[\d,]*\d원|제\d+조(?:의\d+)?(?:제\d+항)?(?:제\d+호)?|\(\d\)|\d{1,2}\)|「[^」\s]{1,60}」").ok()
 });
 
 #[derive(Debug, Default, Clone, Copy)]

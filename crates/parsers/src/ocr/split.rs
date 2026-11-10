@@ -313,10 +313,11 @@ mod tests {
     }
 
     #[test]
-    fn a_narrow_raised_run_one_glyph_wide_is_not_a_superscript() {
+    fn a_narrow_raised_run_is_not_cut_because_digit_tops_look_the_same() {
         let mut marks = body_glyphs(6);
         marks.extend((0..3).map(|i| (80 + i * 4, 10, 83 + i * 4, 16)));
-        assert_eq!(kinds(&page(100, 40, &marks), 100, 40), vec![Kind::Body]);
+        marks.extend((0..2).map(|i| (100 + i * 12, 10, 110 + i * 12, 30)));
+        assert_eq!(kinds(&page(130, 40, &marks), 130, 40), vec![Kind::Body]);
     }
 
     #[test]

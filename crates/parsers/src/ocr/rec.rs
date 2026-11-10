@@ -9,7 +9,7 @@ use super::ctc::decode;
 use super::error::{self, OcrError, Stage};
 use super::raster::{Crop, Norm, Raster};
 
-pub const REC_WIDTH_SCALE: f32 = 1.0;
+pub const REC_WIDTH_SCALE: f32 = 1.2;
 const HEIGHT: u32 = 48;
 const MIN_WIDTH: u32 = 8;
 const MAX_WIDTH: u32 = 4800;
