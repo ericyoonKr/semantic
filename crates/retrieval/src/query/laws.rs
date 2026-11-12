@@ -150,7 +150,8 @@ pub async fn vector_ready(pool: &PgPool, registry: &str) -> Result<bool, Retriev
     let ready: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM law_text_embedding e JOIN embedding_model m ON m.model_id = e.model_id \
            WHERE m.name = $1) \
-         OR EXISTS (SELECT 1 FROM annex_node WHERE embedding IS NOT NULL)",
+         OR EXISTS (SELECT 1 FROM annex_node n JOIN embedding_model m ON m.model_id = n.embed_model_id \
+           WHERE m.name = $1 AND n.embedding IS NOT NULL)",
     )
     .bind(registry)
     .fetch_one(pool)
@@ -174,9 +175,10 @@ pub async fn vector_candidates(
            ORDER BY d LIMIT $3) \
          UNION ALL \
          (SELECT 'n' AS src, n.node_id AS id, n.embedding <=> CAST($5::text AS halfvec) AS d \
-           FROM annex_node n JOIN annex a ON a.row_id = n.annex_row_id \
+           FROM annex_node n JOIN embedding_model nm ON nm.model_id = n.embed_model_id \
+           JOIN annex a ON a.row_id = n.annex_row_id \
            JOIN law l ON l.law_id = a.law_id \
-           WHERE n.embedding IS NOT NULL AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} AND {VECTOR_LAW_IDS} \
+           WHERE nm.name = $4 AND n.embedding IS NOT NULL AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} AND {VECTOR_LAW_IDS} \
            ORDER BY d LIMIT $3) \
          ORDER BY d LIMIT $3"
     );
