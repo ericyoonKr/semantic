@@ -7,7 +7,7 @@ use std::path::Path;
 use chrono::{Datelike, NaiveDate};
 
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, RangeQuery, TermQuery};
+use tantivy::query::{BooleanQuery, BoostQuery, ConstScoreQuery, Occur, Query, RangeQuery, TermQuery};
 use tantivy::schema::{
     FAST, Field, FieldType, INDEXED, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions, Value,
 };
@@ -20,6 +20,7 @@ use error::KeywordError;
 pub const TOKENIZER: &str = "bigram-v1";
 pub const KIND_UNIT: &str = "unit";
 pub const KIND_NODE: &str = "node";
+pub const KIND_SECTION: &str = "section";
 const HEAD_BOOST: f32 = 2.0;
 pub const OPEN_FROM: i64 = i64::MIN;
 pub const OPEN_TO: i64 = i64::MAX;
@@ -163,9 +164,21 @@ impl KeywordIndex {
         let Some(words) = self.words(text)? else {
             return Ok(Vec::new());
         };
+        self.top(&*self.query(words, law_ids, on), limit)
+    }
+
+    pub fn search_sections(&self, text: &str, limit: usize) -> Result<Vec<KeywordHit>, KeywordError> {
+        let Some(words) = self.words(text)? else {
+            return Ok(Vec::new());
+        };
+        let kind = TermQuery::new(Term::from_field_text(self.fields.kind, KIND_SECTION), IndexRecordOption::Basic);
+        let query = BooleanQuery::new(vec![(Occur::Must, words), (Occur::Must, Box::new(ConstScoreQuery::new(Box::new(kind), 0.0)))]);
+        self.top(&query, limit)
+    }
+
+    fn top(&self, query: &dyn Query, limit: usize) -> Result<Vec<KeywordHit>, KeywordError> {
         let searcher = self.reader.searcher();
-        let query = self.query(words, law_ids, on);
-        let top = searcher.search(&query, &TopDocs::with_limit(limit.max(1)).order_by_score()).map_err(error::search)?;
+        let top = searcher.search(query, &TopDocs::with_limit(limit.max(1)).order_by_score()).map_err(error::search)?;
         top.into_iter()
             .map(|(score, address)| {
                 let doc: TantivyDocument = searcher.doc(address).map_err(error::read)?;
@@ -183,7 +196,7 @@ impl KeywordIndex {
 
 #[cfg(test)]
 mod tests {
-    use super::{KIND_UNIT, KeywordIndex, OPEN_TO, TOKENIZER, day_number, register, schema};
+    use super::{KIND_SECTION, KIND_UNIT, KeywordIndex, OPEN_FROM, OPEN_TO, TOKENIZER, day_number, register, schema};
     use chrono::NaiveDate;
     use tantivy::{Index, doc};
 
@@ -225,6 +238,31 @@ mod tests {
         assert_eq!(past.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["3"]);
         let only_b = index.search("처분 통지 손해", &["B".to_string()], today, 5)?;
         assert!(only_b.iter().all(|h| h.law_id == "B"), "{only_b:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn section_search_reads_only_case_sections() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let (schema, f) = schema();
+        let index = tantivy::Index::create_in_dir(dir.path(), schema)?;
+        register(&index);
+        let mut writer = index.writer(50_000_000)?;
+        writer.add_document(doc!(f.kind => KIND_SECTION, f.id => "501", f.row => 50i64, f.law_id => "",
+            f.head => "부당해고구제재심판정취소", f.text => "근로자에 대한 해고가 정당한 이유 없이 이루어진 경우 부당해고에 해당한다.",
+            f.valid_from => OPEN_FROM, f.valid_to => OPEN_TO))?;
+        writer.add_document(doc!(f.kind => KIND_SECTION, f.id => "502", f.row => 51i64, f.law_id => "",
+            f.head => "손해배상", f.text => "공무원의 직무상 과실로 인한 국가배상 책임을 인정한 사례.",
+            f.valid_from => OPEN_FROM, f.valid_to => OPEN_TO))?;
+        writer.add_document(doc!(f.kind => KIND_UNIT, f.id => "9", f.row => 90i64, f.law_id => "A",
+            f.head => "근로기준법 제23조 해고 등의 제한", f.text => "사용자는 근로자에게 정당한 이유 없이 해고를 하지 못한다.",
+            f.valid_from => OPEN_FROM, f.valid_to => OPEN_TO))?;
+        writer.commit()?;
+        let index = KeywordIndex::open(dir.path())?;
+        let hits = index.search_sections("정당한 이유 없는 해고는 부당해고", 5)?;
+        assert_eq!(hits.iter().map(|h| (h.id.as_str(), h.row)).collect::<Vec<_>>(), [("501", 50)]);
+        assert!(hits.iter().all(|h| h.kind == KIND_SECTION), "{hits:?}");
+        assert!(index.search_sections("", 5)?.is_empty());
         Ok(())
     }
 }

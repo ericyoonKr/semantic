@@ -6,7 +6,7 @@ pub enum RetrievalError {
     EmbedHttp(u16),
     #[error("embedding response could not be read")]
     EmbedMalformed,
-    #[error("embedding has {0} dimensions, expected 1024")]
+    #[error("embedding has {0} dimensions, expected {dim}", dim = crate::embedder::DIM)]
     Dimension(usize),
     #[error("no embeddings are loaded")]
     VectorEmpty,

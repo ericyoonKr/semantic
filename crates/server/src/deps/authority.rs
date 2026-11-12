@@ -92,6 +92,8 @@ impl AuthoritySearch for CorpusAuthority {
             court_level: None,
             decided_from: None,
             decided_to: None,
+            include_minority: false,
+            article_keys: None,
         };
         let (laws, cases) = tokio::join!(search_laws(corpus, &laws), search_cases(corpus, &cases));
         if let (Err(a), Err(b)) = (&laws, &cases) {

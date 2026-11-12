@@ -44,6 +44,16 @@ pub struct CaseHit {
     pub section_role: String,
     pub text: String,
     pub score: f64,
+    pub en_banc: bool,
+    pub disposition: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opinion: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub overruled_by: Vec<String>,
+    pub lower_court_view: bool,
+    pub matched: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -63,6 +73,8 @@ pub struct CaseQuery {
     pub court_level: Option<Vec<String>>,
     pub decided_from: Option<NaiveDate>,
     pub decided_to: Option<NaiveDate>,
+    pub include_minority: bool,
+    pub article_keys: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -98,6 +110,12 @@ pub struct CaseSection {
     pub role: String,
     pub heading: String,
     pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opinion: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub lower_court_view: Vec<[i32; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -106,6 +124,10 @@ pub struct CaseDoc {
     pub case_no: String,
     pub decided_on: NaiveDate,
     pub field: String,
+    pub en_banc: bool,
+    pub disposition: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub overruled_by: Vec<String>,
     pub sections: Vec<CaseSection>,
 }
 
@@ -120,13 +142,15 @@ pub struct CitedUnit {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub law_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub law_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub article_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub article_version_id: Option<String>,
     pub relation: String,
     pub raw: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lsi_seq: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -137,6 +161,8 @@ pub struct CitingCase {
     pub decided_on: NaiveDate,
     pub unit_key: String,
     pub relation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub article_version_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

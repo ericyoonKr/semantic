@@ -3,107 +3,86 @@ use sqlx::PgPool;
 
 use crate::error::RetrievalError;
 use crate::model::{CitationItem, Citations, CitationsBy, CitedUnit, CitingCase};
+use crate::query::cases::cited::article_keys_of;
+use crate::query::direct::article_of;
+use crate::query::laws::resolve_law;
 use crate::query::terms::{compact, like_prefix};
 
 const ACTIVE_RUN: &str =
     "SELECT run_id, version FROM extract_run WHERE extractor = 'citation' AND is_active ORDER BY run_id DESC LIMIT 1";
 
-const CITED: &str = "SELECT l.name, li.unit_path, dc.relation, dc.raw, u.kind, u.lsi_seq \
+const CITED: &str = "SELECT l.name, dc.law_id, dc.unit_path, dc.article_key, dc.article_version_id, dc.relation, dc.raw \
      FROM decision_citation dc \
-     LEFT JOIN law_unit_lineage li ON li.lineage_key = dc.lineage_key \
-     LEFT JOIN law l ON l.law_id = li.law_id \
-     LEFT JOIN law_unit u ON u.unit_id = dc.unit_id \
+     LEFT JOIN law l ON l.law_id = dc.law_id \
      WHERE dc.run_id = $1 AND dc.decision_id = $2 \
      ORDER BY dc.section_id, dc.char_start, dc.citation_id LIMIT $3";
 
-const CITING: &str = "SELECT d.decision_id, c.name, d.case_no_display, d.decided_on, li.unit_path, dc.relation \
-     FROM law l \
-     JOIN law_unit_lineage li ON li.law_id = l.law_id \
-     JOIN decision_citation dc ON dc.lineage_key = li.lineage_key AND dc.run_id = $1 \
+const CITING: &str = "SELECT d.decision_id, c.name, d.case_no_display, d.decided_on, \
+       COALESCE(dc.unit_path, ''), dc.relation, dc.article_version_id \
+     FROM decision_citation dc \
      JOIN decision d ON d.decision_id = dc.decision_id \
      JOIN court c ON c.court_id = d.court_id \
-     WHERE (l.law_id = $2 OR regexp_replace(l.name, '\\s', '', 'g') = $3) \
-       AND (regexp_replace(li.unit_path, '\\s', '', 'g') = $4 \
-            OR regexp_replace(li.unit_path, '\\s', '', 'g') LIKE $5) \
-     ORDER BY d.decided_on DESC, d.decision_id, dc.citation_id LIMIT $6";
+     WHERE dc.run_id = $1 AND dc.law_id = $2 AND dc.article_key = ANY($3::text[]) \
+       AND ($4 = '' OR dc.unit_path = $5 OR dc.unit_path LIKE $6 OR dc.unit_path LIKE $7) \
+     ORDER BY d.decided_on DESC, d.decision_id, dc.citation_id LIMIT $8";
 
-type CitedRow = (
-    Option<String>,
-    Option<String>,
-    String,
-    String,
-    Option<String>,
-    Option<i64>,
-);
+type CitedRow = (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, String);
 
-type CitingRow = (i64, String, String, NaiveDate, String, String);
+type CitingRow = (i64, String, String, NaiveDate, String, String, Option<String>);
 
-pub async fn citations(
-    pool: &PgPool,
-    by: &CitationsBy,
-    limit: i64,
-) -> Result<Citations, RetrievalError> {
+async fn cited(pool: &PgPool, run_id: i32, decision_id: i64, limit: i64) -> Result<Vec<CitationItem>, RetrievalError> {
+    let rows: Vec<CitedRow> = sqlx::query_as(CITED).bind(run_id).bind(decision_id).bind(limit).fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(law_name, law_id, unit_key, article_key, article_version_id, relation, raw)| {
+            CitationItem::Cited(CitedUnit { law_name, law_id, unit_key, article_key, article_version_id, relation, raw })
+        })
+        .collect())
+}
+
+async fn citing(pool: &PgPool, run_id: i32, law: &str, unit: &str, limit: i64) -> Result<Vec<CitationItem>, RetrievalError> {
+    let unit = compact(unit);
+    if law.trim().is_empty() || unit.is_empty() {
+        return Err(RetrievalError::Argument("law and unit"));
+    }
+    let article = article_of(&unit).ok_or(RetrievalError::Argument("unit"))?;
+    let rest = unit.strip_prefix(article.as_str()).unwrap_or_default();
+    let Some((law_id, _, _)) = resolve_law(pool, law).await? else {
+        return Ok(Vec::new());
+    };
+    let keys = article_keys_of(pool, &law_id, &article).await?;
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let prefix = like_prefix(&unit);
+    let rows: Vec<CitingRow> = sqlx::query_as(CITING)
+        .bind(run_id)
+        .bind(&law_id)
+        .bind(&keys)
+        .bind(rest)
+        .bind(&unit)
+        .bind(format!("{prefix}제%"))
+        .bind(format!("{prefix}_목%"))
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(decision_id, court, case_no, decided_on, unit_key, relation, article_version_id)| {
+            CitationItem::Citing(CitingCase { decision_id, court, case_no, decided_on, unit_key, relation, article_version_id })
+        })
+        .collect())
+}
+
+pub async fn citations(pool: &PgPool, by: &CitationsBy, limit: i64) -> Result<Citations, RetrievalError> {
     let run: Option<(i32, String)> = sqlx::query_as(ACTIVE_RUN).fetch_optional(pool).await?;
     let Some((run_id, version)) = run else {
-        return Ok(Citations {
-            items: Vec::new(),
-            extract_run: None,
-        });
+        tracing::warn!("no active citation extract run; citations are empty");
+        return Ok(Citations { items: Vec::new(), extract_run: None });
     };
     let items = match by {
-        CitationsBy::Decision(id) => {
-            let rows: Vec<CitedRow> = sqlx::query_as(CITED)
-                .bind(run_id)
-                .bind(*id)
-                .bind(limit)
-                .fetch_all(pool)
-                .await?;
-            rows.into_iter()
-                .map(|(law_name, unit_key, relation, raw, kind, lsi_seq)| {
-                    CitationItem::Cited(CitedUnit {
-                        law_name,
-                        unit_key,
-                        relation,
-                        raw,
-                        kind,
-                        lsi_seq,
-                    })
-                })
-                .collect()
-        }
-        CitationsBy::LawUnit { law, unit } => {
-            let unit = compact(unit);
-            if law.trim().is_empty() || unit.is_empty() {
-                return Err(RetrievalError::Argument("law and unit"));
-            }
-            let children = format!("{}제%", like_prefix(&unit));
-            let rows: Vec<CitingRow> = sqlx::query_as(CITING)
-                .bind(run_id)
-                .bind(law.trim())
-                .bind(compact(law))
-                .bind(&unit)
-                .bind(children)
-                .bind(limit)
-                .fetch_all(pool)
-                .await?;
-            rows.into_iter()
-                .map(
-                    |(decision_id, court, case_no, decided_on, unit_key, relation)| {
-                        CitationItem::Citing(CitingCase {
-                            decision_id,
-                            court,
-                            case_no,
-                            decided_on,
-                            unit_key,
-                            relation,
-                        })
-                    },
-                )
-                .collect()
-        }
+        CitationsBy::Decision(id) => cited(pool, run_id, *id, limit).await?,
+        CitationsBy::LawUnit { law, unit } => citing(pool, run_id, law, unit, limit).await?,
     };
-    Ok(Citations {
-        items,
-        extract_run: Some(format!("{run_id}:{version}")),
-    })
+    Ok(Citations { items, extract_run: Some(format!("{run_id}:{version}")) })
 }

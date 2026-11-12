@@ -77,9 +77,10 @@ fn positive<T: FromStr + PartialOrd + Default>(
 }
 
 fn read_engine(get: &impl Fn(&str) -> Option<String>) -> Result<Option<EngineConfig>, ConfigError> {
-    let vertex = match text(get, "LLM_PROVIDER").as_deref() {
-        None | Some("openai") => false,
-        Some("vertex") => true,
+    let (vertex, gemini) = match text(get, "LLM_PROVIDER").as_deref() {
+        None | Some("openai") => (false, false),
+        Some("vertex") => (true, false),
+        Some("gemini") => (true, true),
         Some(_) => return Err(ConfigError::Invalid("LLM_PROVIDER")),
     };
     let wanted: Vec<&str> = if vertex {
@@ -96,7 +97,11 @@ fn read_engine(get: &impl Fn(&str) -> Option<String>) -> Result<Option<EngineCon
     }
     let solver_ms: u64 = positive(get, "SOLVER_TIMEOUT_MS", None)?;
     let api_key = text(get, "LLM_API_KEY").unwrap_or_default();
-    let endpoint = vertex.then(|| VertexEndpoint::new(api_key.clone(), text(get, "VERTEX_PROJECT"), text(get, "VERTEX_LOCATION"), text(get, "VERTEX_HOST")));
+    let endpoint = match (vertex, gemini) {
+        (true, true) => Some(VertexEndpoint::gemini(api_key.clone(), text(get, "GEMINI_HOST"))),
+        (true, false) => Some(VertexEndpoint::new(api_key.clone(), text(get, "VERTEX_PROJECT"), text(get, "VERTEX_LOCATION"), text(get, "VERTEX_HOST"))),
+        _ => None,
+    };
     let thinking_budget = text(get, "LLM_THINKING_BUDGET")
         .map(|v| v.parse::<i32>().map_err(|_| ConfigError::Invalid("LLM_THINKING_BUDGET")))
         .transpose()?;
@@ -232,6 +237,10 @@ mod tests {
         let cfg = with(&keyed);
         let engine = cfg.as_ref().ok().and_then(|c| c.engine.as_ref());
         assert!(engine.is_some_and(|e| e.vertex.is_some()));
+        let mut gm = keyed.clone();
+        gm[0] = ("LLM_PROVIDER", "gemini");
+        let flavor = with(&gm).ok().and_then(|c| c.engine).and_then(|e| e.vertex).map(|v| v.flavor());
+        assert_eq!(flavor, Some(llm::vertex::endpoint::Flavor::GeminiApi));
         assert!(!format!("{cfg:?}").contains("vk-secret-2"));
     }
 

@@ -3,7 +3,7 @@ use std::pin::Pin;
 
 use crate::error::RetrievalError;
 
-pub const DIM: usize = 1024;
+pub const DIM: usize = 768;
 
 pub type EmbedFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<f32>, RetrievalError>> + Send + 'a>>;
 

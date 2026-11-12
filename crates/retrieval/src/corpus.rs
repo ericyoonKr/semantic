@@ -8,6 +8,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::embedder::Embedder;
 use crate::error::RetrievalError;
+use crate::query::cases::rank::CaseWeights;
 use crate::query::keyword::KeywordIndex;
 use crate::query::weights::LawWeights;
 
@@ -54,6 +55,8 @@ pub struct Corpus {
     stemmed: bool,
     law_scope: bool,
     keyword: Option<Arc<KeywordIndex>>,
+    case_keyword: Option<Arc<KeywordIndex>>,
+    case_weights: CaseWeights,
 }
 
 impl fmt::Debug for Corpus {
@@ -64,7 +67,17 @@ impl fmt::Debug for Corpus {
 
 impl Corpus {
     pub fn new(pool: PgPool, embedder: Arc<dyn Embedder>) -> Self {
-        Self { pool, embedder, vector_off: false, weights: LawWeights::default(), stemmed: false, law_scope: true, keyword: None }
+        Self {
+            pool,
+            embedder,
+            vector_off: false,
+            weights: LawWeights::default(),
+            stemmed: false,
+            law_scope: true,
+            keyword: None,
+            case_keyword: None,
+            case_weights: CaseWeights::default(),
+        }
     }
 
     pub fn with_weights(mut self, weights: LawWeights) -> Self {
@@ -93,6 +106,24 @@ impl Corpus {
 
     pub fn keyword(&self) -> Option<Arc<KeywordIndex>> {
         self.keyword.clone()
+    }
+
+    pub fn with_case_keyword(mut self, index: KeywordIndex) -> Self {
+        self.case_keyword = Some(Arc::new(index));
+        self
+    }
+
+    pub fn case_keyword(&self) -> Option<Arc<KeywordIndex>> {
+        self.case_keyword.clone()
+    }
+
+    pub fn with_case_weights(mut self, weights: CaseWeights) -> Self {
+        self.case_weights = weights;
+        self
+    }
+
+    pub fn case_weights(&self) -> &CaseWeights {
+        &self.case_weights
     }
 
     pub fn stemmed(&self) -> bool {

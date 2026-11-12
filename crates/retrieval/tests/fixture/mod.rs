@@ -26,49 +26,46 @@ pub fn check(ok: bool, what: impl Display) -> Checked {
 
 const TABLES: &[&str] = &[
     "CREATE TABLE law (law_id text PRIMARY KEY, kind text NOT NULL, name text NOT NULL, law_type text NOT NULL)",
-    "CREATE TABLE law_version (kind text NOT NULL, lsi_seq bigint NOT NULL, law_id text NOT NULL REFERENCES law, \
-     enforcement_date date, status text NOT NULL, PRIMARY KEY (kind, lsi_seq))",
-    "CREATE TABLE law_unit_lineage (lineage_key text PRIMARY KEY, law_id text NOT NULL REFERENCES law, unit_path text NOT NULL)",
-    "CREATE TABLE law_unit (unit_id bigint PRIMARY KEY, kind text NOT NULL, lsi_seq bigint NOT NULL, unit_key text NOT NULL, \
-     level text NOT NULL, title text, body text NOT NULL, deleted boolean NOT NULL DEFAULT false, enforcement_date date, \
-     content_status text NOT NULL DEFAULT 'text', source_urls jsonb NOT NULL DEFAULT '[]', \
-     lineage_key text NOT NULL REFERENCES law_unit_lineage, FOREIGN KEY (kind, lsi_seq) REFERENCES law_version)",
+    "CREATE TABLE article_version (row_id bigint PRIMARY KEY, article_version_id text NOT NULL, article_key text NOT NULL, \
+     law_id text NOT NULL REFERENCES law, article_no text NOT NULL, \
+     sys_period tstzrange NOT NULL DEFAULT tstzrange(now(), NULL))",
     "CREATE TABLE court (court_id smallint PRIMARY KEY, court_key text NOT NULL, name text NOT NULL, level text NOT NULL)",
     "CREATE TABLE decision (decision_id bigint PRIMARY KEY, court_id smallint NOT NULL REFERENCES court, case_no text NOT NULL, \
-     case_no_display text NOT NULL, decided_on date NOT NULL, field text NOT NULL, is_bundle boolean NOT NULL DEFAULT false)",
+     case_no_display text NOT NULL, decided_on date NOT NULL, field text NOT NULL, is_bundle boolean NOT NULL DEFAULT false, \
+     en_banc boolean NOT NULL DEFAULT false, disposition text NOT NULL DEFAULT 'other')",
     "CREATE TABLE section_role (role text PRIMARY KEY, label text NOT NULL)",
     "CREATE TABLE decision_section (section_id bigint PRIMARY KEY, decision_id bigint NOT NULL REFERENCES decision, \
-     ord integer NOT NULL, role text NOT NULL REFERENCES section_role, heading text, body text NOT NULL)",
+     ord integer NOT NULL, role text NOT NULL REFERENCES section_role, heading text, body text NOT NULL, \
+     opinion text CHECK (opinion IN ('majority','dissent','separate','concurring')), \
+     direction text CHECK (direction IN ('positive','negative')))",
     "CREATE TABLE decision_chunk (chunk_id bigint PRIMARY KEY, section_id bigint NOT NULL REFERENCES decision_section, \
      ord integer NOT NULL, char_start integer NOT NULL, char_end integer NOT NULL)",
     "CREATE TABLE extract_run (run_id integer PRIMARY KEY, extractor text NOT NULL, version text NOT NULL, is_active boolean NOT NULL)",
     "CREATE TABLE decision_citation (citation_id bigint PRIMARY KEY, run_id integer NOT NULL REFERENCES extract_run, \
      decision_id bigint NOT NULL REFERENCES decision, section_id bigint NOT NULL REFERENCES decision_section, \
-     char_start integer NOT NULL, char_end integer NOT NULL, raw text NOT NULL, \
-     lineage_key text REFERENCES law_unit_lineage, unit_id bigint REFERENCES law_unit, relation text NOT NULL)",
+     char_start integer NOT NULL, char_end integer NOT NULL, raw text NOT NULL, law_id text, article_key text, \
+     unit_path text, article_version_id text, relation text NOT NULL, resolution text NOT NULL)",
+    "CREATE TABLE decision_overrule (overrule_id bigint PRIMARY KEY, run_id integer NOT NULL REFERENCES extract_run, \
+     overruling_decision_id bigint NOT NULL REFERENCES decision, overruled_case_no text NOT NULL, \
+     overruled_decision_id bigint REFERENCES decision, source text NOT NULL, raw text NOT NULL)",
+    "CREATE TABLE section_span (span_id bigint PRIMARY KEY, run_id integer NOT NULL REFERENCES extract_run, \
+     section_id bigint NOT NULL REFERENCES decision_section, char_start integer NOT NULL, char_end integer NOT NULL, \
+     kind text NOT NULL)",
 ];
 
-pub const OLD_SEQ: i64 = 100;
-pub const CURRENT_SEQ: i64 = 200;
-pub const DECREE_SEQ: i64 = 300;
-pub const SCHEDULED_SEQ: i64 = 400;
-
-pub const ART2_OLD: &str = "국가는 공무원이 직무를 집행하면서 고의로 타인에게 손해를 입힌 때에는 그 손해를 배상하여야 한다.";
-pub const ART2_NOW: &str = "국가나 지방자치단체는 공무원이 직무를 집행하면서 고의 또는 과실로 법령을 위반하여 타인에게 손해를 입힌 때에는 그 손해를 배상하여야 한다.";
-pub const ART3_NOW: &str = "배상금은 손해액을 기준으로 정한다.";
-pub const DECREE_ART3: &str = "배상심의회는 공무원의 과실 여부를 심의한다.";
-pub const SCHEDULED_ART2: &str = "장래 시행 조문: 공무원의 과실로 인한 배상 책임을 다시 정한다.";
-
-pub const REASONS_HEAD: &str = "원심은 사실관계를 확정하였다. 증거를 살펴본다. ";
-pub const REASONS_TAIL: &str = "피고 소속 공무원의 과실이 인정되므로 배상 책임이 있다.";
+pub const REASONS_HEAD: &str = "원심은 피고 소속 공무원의 과실을 부정하였다. ";
+pub const REASONS_TAIL: &str = "그러나 피고 소속 공무원의 과실이 인정되므로 배상 책임이 있다.";
 pub const SUMMARY_10: &str = "공무원의 직무상 과실로 인한 국가배상 책임을 인정한 사례.";
+pub const ISSUE_10: &str = "공무원의 과실을 판단하는 기준.";
+pub const DISSENT_10: &str = "반대의견은 공무원 과실을 인정할 수 없다고 본다.";
 pub const SUMMARY_11: &str = "처분의 절차상 하자와 담당 공무원의 과실 여부를 판단하였다.";
+pub const SUMMARY_13: &str = "공무원의 과실 판단에 관한 옛 법리를 밝힌 사례.";
 pub const BUNDLE_BODY: &str = "묶음 행: 공무원 과실 국가배상 사건 여럿.";
 
 pub const VECTOR_MODEL: &str = "registry-model";
 
 fn literal(near: bool) -> String {
-    let parts: Vec<&str> = (0..1024)
+    let parts: Vec<&str> = (0..retrieval::embedder::DIM)
         .map(|i| if near || i % 2 == 0 { "0.01" } else { "-0.01" })
         .collect();
     format!("'[{}]'", parts.join(","))
@@ -77,10 +74,10 @@ fn literal(near: bool) -> String {
 fn vector_rows() -> Vec<String> {
     vec![
         "CREATE TABLE embedding_model (model_id smallint PRIMARY KEY, name text NOT NULL UNIQUE, dim integer NOT NULL)".into(),
-        "CREATE TABLE law_unit_embedding (unit_id bigint NOT NULL REFERENCES law_unit, model_id smallint NOT NULL REFERENCES embedding_model,          embedding halfvec(1024) NOT NULL, PRIMARY KEY (unit_id, model_id))".into(),
-        "CREATE TABLE chunk_embedding (chunk_id bigint NOT NULL REFERENCES decision_chunk, model_id smallint NOT NULL REFERENCES embedding_model,          embedding halfvec(1024) NOT NULL, PRIMARY KEY (chunk_id, model_id))".into(),
-        format!("INSERT INTO embedding_model VALUES (1,'{VECTOR_MODEL}',1024)"),
-        format!("INSERT INTO law_unit_embedding VALUES (4,1,{}), (2,1,{})", literal(true), literal(false)),
+        "CREATE TABLE chunk_embedding (chunk_id bigint NOT NULL REFERENCES decision_chunk, \
+         model_id smallint NOT NULL REFERENCES embedding_model, embedding halfvec(768) NOT NULL, PRIMARY KEY (chunk_id, model_id))"
+            .into(),
+        format!("INSERT INTO embedding_model VALUES (1,'{VECTOR_MODEL}',768)"),
         format!("INSERT INTO chunk_embedding VALUES (1001,1,{}), (1000,1,{})", literal(true), literal(false)),
     ]
 }
@@ -90,48 +87,50 @@ fn rows() -> Vec<String> {
     let total = head + REASONS_TAIL.chars().count();
     vec![
         "INSERT INTO law VALUES ('L1','law','국가배상법','법률'), ('L2','law','국가배상법 시행령','대통령령')".into(),
-        format!(
-            "INSERT INTO law_version VALUES ('law',{OLD_SEQ},'L1','2017-01-01','past'), \
-             ('law',{CURRENT_SEQ},'L1','2023-01-01','current'), ('law',{DECREE_SEQ},'L2','2023-01-01','current'), \
-             ('law',{SCHEDULED_SEQ},'L1','2030-01-01','scheduled')"
-        ),
-        "INSERT INTO law_unit_lineage VALUES ('L1#제2조','L1','제2조'), ('L1#제2조제1항','L1','제2조제1항'), \
-         ('L1#제3조','L1','제3조'), ('L1#제4조','L1','제4조'), ('L1#별표1','L1','별표 1'), ('L2#제3조','L2','제3조')"
+        "INSERT INTO article_version (row_id, article_version_id, article_key, law_id, article_no) VALUES \
+         (1,'L1:0002@2017-01-01','L1:0002','L1','제2조'), (2,'L1:0002@2023-01-01','L1:0002','L1','제2조'), \
+         (3,'L1:0003@2023-01-01','L1:0003','L1','제3조'), (4,'L2:0003@2023-01-01','L2:0003','L2','제3조')"
             .into(),
-        format!(
-            "INSERT INTO law_unit (unit_id, kind, lsi_seq, unit_key, level, title, body, deleted, enforcement_date, \
-             content_status, source_urls, lineage_key) VALUES \
-             (1,'law',{OLD_SEQ},'제2조','article','배상책임','{ART2_OLD}',false,NULL,'text','[]','L1#제2조'), \
-             (2,'law',{CURRENT_SEQ},'제2조','article','배상책임','{ART2_NOW}',false,NULL,'text','[]','L1#제2조'), \
-             (4,'law',{CURRENT_SEQ},'제3조','article',NULL,'{ART3_NOW}',false,'2023-07-01','text','[]','L1#제3조'), \
-             (5,'law',{CURRENT_SEQ},'제4조','article',NULL,'삭제 공무원 과실 배상',true,NULL,'text','[]','L1#제4조'), \
-             (6,'law',{CURRENT_SEQ},'별표 1','annex','배상금 기준표','',false,NULL,'link_only','[\"https://example.invalid/annex-1.pdf\"]','L1#별표1'), \
-             (7,'law',{DECREE_SEQ},'제3조','article','심의','{DECREE_ART3}',false,NULL,'text','[]','L2#제3조'), \
-             (8,'law',{SCHEDULED_SEQ},'제2조','article','배상책임','{SCHEDULED_ART2}',false,NULL,'text','[]','L1#제2조')"
-        ),
         "INSERT INTO court VALUES (1,'supreme','대법원','supreme'), (2,'seoul-high','서울고등법원','high')".into(),
-        "INSERT INTO section_role VALUES ('holding_summary','판결요지'), ('reasons','이유')".into(),
-        "INSERT INTO decision VALUES (10,1,'2020다1111','2020다1111','2021-03-04','civil',false), \
-         (11,2,'2022누2222','2022누2222','2023-05-06','administrative',false), \
-         (12,1,'2021다3333','2021다3333 등','2022-01-01','civil',true)"
+        "INSERT INTO section_role VALUES ('holding_issue','판시사항'), ('holding_summary','판결요지'), ('reasons','이유'), \
+         ('ref_statutes','참조조문')"
+            .into(),
+        "INSERT INTO decision VALUES (10,1,'2020다1111','2020다1111','2021-03-04','civil',false,true,'reverse_remand'), \
+         (11,2,'2022누2222','2022누2222','2023-05-06','administrative',false,false,'reject'), \
+         (12,1,'2021다3333','2021다3333 등','2022-01-01','civil',true,false,'other'), \
+         (13,1,'2019다4444','2019다4444','2019-02-01','civil',false,false,'dismiss_appeal')"
             .into(),
         format!(
             "INSERT INTO decision_section VALUES \
-             (100,10,1,'holding_summary','판결요지','{SUMMARY_10}'), \
-             (101,10,2,'reasons','이유','{REASONS_HEAD}{REASONS_TAIL}'), \
-             (102,11,1,'holding_summary','판결요지','{SUMMARY_11}'), \
-             (103,12,1,'holding_summary',NULL,'{BUNDLE_BODY}')"
+             (105,10,1,'holding_issue','판시사항','{ISSUE_10}','majority','negative'), \
+             (100,10,2,'holding_summary','판결요지','{SUMMARY_10}','majority',NULL), \
+             (101,10,3,'reasons','이유','{REASONS_HEAD}{REASONS_TAIL}','majority',NULL), \
+             (104,10,4,'reasons','반대의견','{DISSENT_10}','dissent',NULL), \
+             (106,10,5,'ref_statutes','참조조문','국가배상법 제2조, 국가배상법 시행령 제3조',NULL,NULL), \
+             (102,11,1,'holding_summary','판결요지','{SUMMARY_11}','majority',NULL), \
+             (103,12,1,'holding_summary',NULL,'{BUNDLE_BODY}','majority',NULL), \
+             (107,13,1,'holding_summary','판결요지','{SUMMARY_13}','majority',NULL)"
         ),
-        format!(
-            "INSERT INTO decision_chunk VALUES (1000,101,1,0,{head}), (1001,101,2,{head},{total})"
-        ),
-        "INSERT INTO extract_run VALUES (1,'citation','v1',false), (2,'citation','v2',true), (3,'overrule','v9',true)".into(),
-        "INSERT INTO decision_citation VALUES \
-         (1,2,10,101,0,5,'국가배상법 제2조','L1#제2조',2,'applies'), \
-         (2,2,11,102,0,5,'같은 법 제2조 제1항','L1#제2조제1항',NULL,'interprets'), \
-         (3,1,11,102,0,5,'옛 추출 결과','L1#제3조',4,'cites'), \
-         (4,2,10,100,0,5,'시행령 제3조','L2#제3조',7,'cites')"
+        format!("INSERT INTO decision_chunk VALUES (1000,101,1,0,{head}), (1001,101,2,{head},{total})"),
+        "INSERT INTO extract_run VALUES (1,'citation','v1',false), (2,'citation','v2',true), \
+         (3,'case_meta','m0',false), (4,'case_meta','m1',true)"
             .into(),
+        "INSERT INTO decision_citation VALUES \
+         (1,2,10,106,0,9,'국가배상법 제2조','L1','L1:0002','제2조','L1:0002@2017-01-01','cites','조문 일치'), \
+         (2,2,11,102,0,5,'같은 법 제2조 제1항','L1','L1:0002','제2조제1항',NULL,'cites','조문 일치, 판본 없음'), \
+         (3,1,11,102,0,5,'옛 추출 결과','L1','L1:0003','제3조','L1:0003@2023-01-01','cites','옛 판'), \
+         (4,2,10,106,11,22,'국가배상법 시행령 제3조','L2','L2:0003','제3조','L2:0003@2023-01-01','cites','조문 일치'), \
+         (5,2,13,107,0,5,'국가배상법 제2조 제11항','L1','L1:0002','제2조제11항',NULL,'cites','조문 일치'), \
+         (6,2,13,107,6,9,'없는법 제9조',NULL,NULL,'제9조',NULL,'cites','법령명 찾지 못함')"
+            .into(),
+        "INSERT INTO decision_overrule VALUES \
+         (1,4,10,'2019다4444',13,'reasons','대법원 2019. 2. 1. 선고 2019다4444 판결'), \
+         (2,4,10,'2019다4444',13,'ref_cases','대법원 2019. 2. 1. 선고 2019다4444 판결(변경)'), \
+         (3,3,10,'2022누2222',11,'reasons','옛 판 결과')"
+            .into(),
+        format!(
+            "INSERT INTO section_span VALUES (1,4,101,0,{head},'lower_court_view'), (2,3,101,{head},{total},'lower_court_view')"
+        ),
     ]
 }
 

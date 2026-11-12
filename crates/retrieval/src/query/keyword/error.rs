@@ -44,3 +44,7 @@ pub fn log_open_failure(error: &KeywordError) {
 pub fn log_search_failure(error: &KeywordError) {
     tracing::warn!(%error, "keyword search failed; results come from the other branches");
 }
+
+pub fn log_case_index_unset() {
+    tracing::warn!("case keyword index is not configured (CORPUS_CASE_KEYWORD_INDEX); case keyword branch is skipped");
+}

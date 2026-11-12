@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use crate::corpus::Corpus;
 use crate::embedder::vector_literal;
 use crate::error::RetrievalError;
-use crate::model::{CaseHit, CaseQuery, LawHit, LawQuery, SearchResult};
-use crate::query::cases::{self, Pick};
+use crate::model::{LawHit, LawQuery, SearchResult};
 use crate::query::direct;
 use crate::query::govern::{self, Scope};
 use crate::query::fusion::{CANDIDATES, RRF_K, rrf};
@@ -12,6 +11,10 @@ use crate::query::keyword::{KIND_NODE, KIND_UNIT, error::log_search_failure};
 use crate::query::weights;
 use crate::query::laws::{self, UnitRef};
 use crate::query::terms::{Terms, compact};
+
+mod cases;
+
+pub use cases::search_cases;
 
 pub const VECTOR_EMPTY: &str = "벡터 칸이 비어 있어 글자 검색만 함";
 pub const EMBED_FAILED: &str = "질의 임베딩을 만들지 못해 글자 검색만 함";
@@ -52,7 +55,7 @@ async fn query_vector(corpus: &Corpus, text: &str) -> Result<String, RetrievalEr
     vector_literal(&v)
 }
 
-fn matched(unit: &UnitRef, sides: &[(&str, &[UnitRef])]) -> String {
+fn matched<K: PartialEq>(unit: &K, sides: &[(&str, &[K])]) -> String {
     let parts: Vec<&str> = sides.iter().filter(|(_, side)| side.contains(unit)).map(|(name, _)| *name).collect();
     if parts.is_empty() { "text".to_string() } else { parts.join("+") }
 }
@@ -241,43 +244,6 @@ pub async fn search_laws(
         degraded: reason.is_some(),
         degraded_reason: reason,
         scope: scope.ids().to_vec(),
-        hits,
-    })
-}
-
-pub async fn search_cases(
-    corpus: &Corpus,
-    q: &CaseQuery,
-) -> Result<SearchResult<CaseHit>, RetrievalError> {
-    let (terms, k) = prepare(&q.text, q.k, corpus.stemmed())?;
-    let pool = corpus.pool();
-    let vector_side = async {
-        let lit = query_vector(corpus, &q.text).await?;
-        cases::vector_candidates(pool, q, corpus.embedder().registry_name(), &lit).await
-    };
-    let (text, vector) = tokio::join!(cases::text_candidates(pool, q, &terms), vector_side);
-    let text = text?;
-    let (vector, reason) = settle(vector);
-    let text_ids: Vec<i64> = text.iter().map(|c| c.section_id).collect();
-    let vector_ids: Vec<i64> = vector.iter().map(|c| c.section_id).collect();
-    let positions: HashMap<i64, i32> = text.iter().map(|c| (c.section_id, c.position)).collect();
-    let chunks: HashMap<i64, i64> = vector.iter().map(|c| (c.section_id, c.chunk_id)).collect();
-    let mut fused = rrf(&[&text_ids, &vector_ids], RRF_K);
-    fused.truncate(k);
-    let picks: Vec<Pick> = fused
-        .into_iter()
-        .map(|(section_id, score)| Pick {
-            section_id,
-            chunk_id: chunks.get(&section_id).copied().unwrap_or(0),
-            position: positions.get(&section_id).copied().unwrap_or(0),
-            score,
-        })
-        .collect();
-    let hits = cases::hits(pool, &picks).await?;
-    Ok(SearchResult {
-        degraded: reason.is_some(),
-        degraded_reason: reason,
-        scope: Vec::new(),
         hits,
     })
 }

@@ -70,6 +70,47 @@ def format_laws(data: dict[str, Any]) -> str:
     return "\n\n".join(lines)
 
 
+DISPOSITIONS = {
+    "dismiss_appeal": "상고기각",
+    "reverse_remand": "파기환송",
+    "reverse_render": "파기자판",
+    "reverse_transfer": "파기이송",
+    "dismiss": "각하",
+    "grant": "인용",
+    "reject": "기각",
+    "partial_grant": "일부인용",
+}
+OPINIONS = {"majority": "다수의견", "dissent": "반대의견", "separate": "별개의견", "concurring": "보충의견"}
+DIRECTIONS = {"positive": "적극", "negative": "소극"}
+
+
+def case_marks(data: dict[str, Any]) -> str:
+    marks = []
+    if data.get("en_banc"):
+        marks.append("[전원합의체]")
+    if data.get("disposition") in DISPOSITIONS:
+        marks.append(f"[주문: {DISPOSITIONS[data['disposition']]}]")
+    if data.get("overruled_by"):
+        marks.append(f"[변경됨: {', '.join(str(c) for c in data['overruled_by'])}]")
+    return " ".join(marks)
+
+
+def section_marks(section: dict[str, Any]) -> str:
+    marks = []
+    opinion = section.get("opinion")
+    if opinion and opinion != "majority":
+        marks.append(f"[{OPINIONS.get(opinion, opinion)}]")
+    if section.get("direction") in DIRECTIONS:
+        marks.append(f"[{DIRECTIONS[section['direction']]}]")
+    if section.get("lower_court_view") is True:
+        marks.append("[원심 판단 부분]")
+    return " ".join(marks)
+
+
+def _marked(head: str, *marks: str) -> str:
+    return " ".join(part for part in (head, *marks) if part)
+
+
 def format_cases(data: dict[str, Any]) -> str:
     lines = _degraded_line(data.get("degraded_reason") or data.get("degraded"))
     for hit in data.get("hits", []):
@@ -77,7 +118,7 @@ def format_cases(data: dict[str, Any]) -> str:
             f"[{hit.get('court', '')} {hit.get('case_no', '')} · {hit.get('decided_on', '')}"
             f" · {hit.get('field', '')} · {hit.get('section_role', '')} · decision_id {hit.get('decision_id', '')}]"
         )
-        lines.append(f"{head}\n{hit.get('text', '')}")
+        lines.append(f"{_marked(head, case_marks(hit), section_marks(hit))}\n{hit.get('text', '')}")
     if not data.get("hits"):
         lines.append("찾은 판례 없음")
     else:
@@ -99,18 +140,50 @@ def format_law_unit(data: dict[str, Any]) -> str:
     return f"{head}\n{body}"
 
 
+def _lower_view_note(section: dict[str, Any]) -> str:
+    spans = section.get("lower_court_view") or []
+    if not isinstance(spans, list) or not spans:
+        return ""
+    ranges = ", ".join(f"{a}–{b}" for a, b in spans)
+    return f"[원심 판단 부분: 글자 {ranges}]"
+
+
 def format_case(data: dict[str, Any]) -> str:
     head = f"[{data.get('court', '')} {data.get('case_no', '')} · {data.get('decided_on', '')} · {data.get('field', '')}]"
-    parts = [head]
+    parts = [_marked(head, case_marks(data))]
     for section in data.get("sections", []):
-        parts.append(f"## {section.get('role', '')} — {section.get('heading', '')}\n{section.get('body', '')}")
+        opinion = OPINIONS.get(section.get("opinion") or "", "")
+        direction = DIRECTIONS.get(section.get("direction") or "", "")
+        tags = " ".join(f"[{t}]" for t in (opinion, direction) if t)
+        title = _marked(f"## {section.get('role', '')} — {section.get('heading', '')}", tags, _lower_view_note(section))
+        parts.append(f"{title}\n{section.get('body', '')}")
     return "\n\n".join(parts)
+
+
+def _cited_line(item: dict[str, Any]) -> str:
+    law = item.get("law_name") or item.get("law_id") or "법령 찾지 못함"
+    unit = item.get("unit_key") or ""
+    version = f" · 판본 {item['article_version_id']}" if item.get("article_version_id") else ""
+    key = f" · 조문 키 {item['article_key']}" if item.get("article_key") else ""
+    return f"- {law} {unit}{version}{key} · 원문 「{item.get('raw', '')}」"
+
+
+def _citing_line(item: dict[str, Any]) -> str:
+    version = f" · 판본 {item['article_version_id']}" if item.get("article_version_id") else ""
+    return (
+        f"- {item.get('court', '')} {item.get('case_no', '')} · {item.get('decided_on', '')}"
+        f" · decision_id {item.get('decision_id', '')} · 인용 {item.get('unit_key', '')}{version}"
+    )
 
 
 def format_citations(data: dict[str, Any]) -> str:
     lines = []
     for item in data.get("items", []):
-        if isinstance(item, dict):
+        if isinstance(item, dict) and "raw" in item:
+            lines.append(_cited_line(item))
+        elif isinstance(item, dict) and "case_no" in item:
+            lines.append(_citing_line(item))
+        elif isinstance(item, dict):
             lines.append("- " + " · ".join(str(value) for value in item.values()))
         else:
             lines.append(f"- {item}")
@@ -152,7 +225,12 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
 
     @tool(
         "search_cases",
-        description=f"판례를 검색한다. 검색어를 {MAX_QUERIES}개까지 한 번에 주면 동시에 찾는다. 항목마다 법원·사건번호·선고일·분야·절이 붙는다.",
+        description=(
+            f"판례를 검색한다. 검색어를 {MAX_QUERIES}개까지 한 번에 주면 동시에 찾는다. 항목마다 법원·사건번호·선고일·분야·절이 붙고,"
+            " 전원합의체·주문·적극/소극·변경 여부·원심 판단 부분 표시가 붙는다. 기본은 다수의견 절만 찾는다."
+            " include_minority가 참이면 반대·별개·보충의견 절도 찾는다."
+            " article_keys에 조문 키(법령 검색 결과 판본 ID의 @ 앞부분)를 주면 그 조문을 인용한 판례도 후보에 넣는다."
+        ),
     )
     async def search_cases(
         queries: Queries,
@@ -161,6 +239,8 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         court_level: list[str] | None = None,
         decided_from: IsoDate | None = None,
         decided_to: IsoDate | None = None,
+        include_minority: bool = False,
+        article_keys: list[str] | None = None,
     ) -> str:
         async def one(query: str) -> str:
             if gone := case_data_gone():
@@ -172,6 +252,8 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
                 "court_level": court_level,
                 "decided_from": decided_from,
                 "decided_to": decided_to,
+                "include_minority": include_minority,
+                "article_keys": article_keys,
             }
             data, err = await client.fetch("POST", "/search/cases", kind="search", fail=SEARCH_FAIL, json=body)
             return case_failed(err) or material("판례 검색", format_cases(data))
@@ -189,11 +271,17 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
             text = f"{ref_line(current_ledger().add_law(data).ref)}\n{text}"
         return material(f"{law} {unit}", text)
 
-    @tool("read_case", description="판례를 절 단위로 읽는다. sections를 주면 그 절만 읽는다.")
-    async def read_case(decision_id: str, sections: list[str] | None = None) -> str:
+    @tool(
+        "read_case",
+        description=(
+            "판례를 절 단위로 읽는다. sections를 주면 그 절만 읽는다. 기본은 다수의견 절만 읽는다."
+            " include_minority가 참이면 반대·별개·보충의견 절도 읽고, 절마다 의견 종류가 붙는다."
+        ),
+    )
+    async def read_case(decision_id: str, sections: list[str] | None = None, include_minority: bool = False) -> str:
         if gone := case_data_gone():
             return gone
-        params = {"sections": ",".join(sections) if sections else None}
+        params = {"sections": ",".join(sections) if sections else None, "include_minority": include_minority}
         data, err = await client.fetch(
             "GET", f"/cases/{decision_id}", kind="search", fail=SEARCH_FAIL, params=params
         )

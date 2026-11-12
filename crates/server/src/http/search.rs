@@ -31,6 +31,8 @@ pub struct CaseSearchRequest {
     pub court_level: Option<Vec<String>>,
     pub decided_from: Option<NaiveDate>,
     pub decided_to: Option<NaiveDate>,
+    pub include_minority: Option<bool>,
+    pub article_keys: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +45,7 @@ pub struct UnitParams {
 #[derive(Debug, Deserialize)]
 pub struct CaseParams {
     pub sections: Option<String>,
+    pub include_minority: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,13 +81,13 @@ const CASE_TABLES: [&str; 11] = [
     "decision_section",
     "decision_chunk",
     "decision_citation",
+    "decision_overrule",
+    "section_span",
     "court",
     "section_role",
     "extract_run",
     "chunk_embedding",
     "embedding_model",
-    "law_unit",
-    "law_unit_lineage",
 ];
 
 fn missing_table_reason(message: &str) -> &'static str {
@@ -186,6 +189,8 @@ pub async fn search_cases(
         court_level: list(req.court_level),
         decided_from: req.decided_from,
         decided_to: req.decided_to,
+        include_minority: req.include_minority.unwrap_or(false),
+        article_keys: list(req.article_keys),
     };
     let c = corpus(&state)?;
     run(&state, retrieval::search_cases(c, &q)).await
@@ -218,7 +223,8 @@ pub async fn case(
             .map(|s| s.split(',').map(str::to_string).collect()),
     );
     let c = corpus(&state)?;
-    run(&state, retrieval::read_case(c.pool(), id, sections.as_deref())).await
+    let minority = p.include_minority.unwrap_or(false);
+    run(&state, retrieval::read_case(c.pool(), id, sections.as_deref(), minority)).await
 }
 
 pub async fn citations(

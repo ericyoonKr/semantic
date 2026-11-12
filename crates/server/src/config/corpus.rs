@@ -2,15 +2,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use retrieval::query::keyword::KeywordIndex;
-use retrieval::query::keyword::error::log_open_failure;
-use retrieval::{Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
+use retrieval::query::keyword::error::{log_case_index_unset, log_open_failure};
+use retrieval::{CaseWeights, Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
 
 use llm::vertex::VertexEndpoint;
 
 use super::Reader;
 use crate::error::ConfigError;
 
-const DEFAULT_REGISTRY_MODEL: &str = "BAAI/bge-m3";
+const DEFAULT_REGISTRY_MODEL: &str = "gemini-embedding-001@768";
 
 #[derive(Debug, Clone)]
 pub struct CorpusConfig {
@@ -25,6 +25,8 @@ pub struct CorpusConfig {
     pub law_weights_annex: bool,
     pub term_stem: bool,
     pub keyword_index: Option<std::path::PathBuf>,
+    pub case_keyword_index: Option<std::path::PathBuf>,
+    pub case_weights: CaseWeights,
 }
 
 pub(super) fn read<F: Fn(&str) -> Option<String>>(
@@ -58,6 +60,11 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
             Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_WEIGHTS_ANNEX")),
         },
         keyword_index: r.text("CORPUS_KEYWORD_INDEX").map(std::path::PathBuf::from),
+        case_keyword_index: r.text("CORPUS_CASE_KEYWORD_INDEX").map(std::path::PathBuf::from),
+        case_weights: match r.text("CORPUS_CASE_WEIGHTS") {
+            None => CaseWeights::default(),
+            Some(v) => CaseWeights::parse(&v).ok_or(ConfigError::Invalid("CORPUS_CASE_WEIGHTS"))?,
+        },
         term_stem: match r.text("CORPUS_TERM_STEM").as_deref() {
             None | Some("off") => false,
             Some("on") => true,
@@ -84,9 +91,10 @@ fn read_embed<F: Fn(&str) -> Option<String>>(
     r: &Reader<F>,
     deadline: Duration,
 ) -> Result<Option<EmbedSettings>, ConfigError> {
-    let vertex = match r.text("EMBED_PROVIDER").as_deref() {
-        None | Some("openai") => false,
-        Some("vertex") => true,
+    let (vertex, gemini) = match r.text("EMBED_PROVIDER").as_deref() {
+        None | Some("openai") => (false, false),
+        Some("vertex") => (true, false),
+        Some("gemini") => (true, true),
         Some(_) => return Err(ConfigError::Invalid("EMBED_PROVIDER")),
     };
     let names: &[&str] = if vertex { &["EMBED_MODEL", "EMBED_API_KEY"] } else { &["EMBED_BASE_URL", "EMBED_MODEL", "EMBED_API_KEY"] };
@@ -108,7 +116,11 @@ fn read_embed<F: Fn(&str) -> Option<String>>(
     let (Some(model), Some(api_key)) = (it.next(), it.next()) else {
         return Err(ConfigError::Missing(names.join(", ")));
     };
-    let endpoint = vertex.then(|| vertex_endpoint(r, api_key.clone()));
+    let endpoint = match (vertex, gemini) {
+        (true, true) => Some(VertexEndpoint::gemini(api_key.clone(), r.text("GEMINI_HOST"))),
+        (true, false) => Some(vertex_endpoint(r, api_key.clone())),
+        _ => None,
+    };
     let priority = r
         .text("EMBED_PRIORITY")
         .map(|v| v.parse::<i32>().map_err(|_| ConfigError::Invalid("EMBED_PRIORITY")))
@@ -148,7 +160,11 @@ impl CorpusConfig {
             }
         };
         let weights = if self.law_weights_annex { self.law_weights } else { self.law_weights.articles_only() };
-        let mut corpus = Corpus::new(pool, embedder).with_weights(weights).with_stemming(self.term_stem).with_law_scope(self.law_scope);
+        let mut corpus = Corpus::new(pool, embedder)
+            .with_weights(weights)
+            .with_stemming(self.term_stem)
+            .with_law_scope(self.law_scope)
+            .with_case_weights(self.case_weights);
         if let Some(dir) = &self.keyword_index {
             match KeywordIndex::open(dir) {
                 Ok(index) => {
@@ -158,6 +174,17 @@ impl CorpusConfig {
                 Err(e) => log_open_failure(&e),
             }
         }
+        match &self.case_keyword_index {
+            Some(dir) => match KeywordIndex::open(dir) {
+                Ok(index) => {
+                    tracing::info!(dir = %dir.display(), "case keyword index ready");
+                    corpus = corpus.with_case_keyword(index);
+                }
+                Err(e) => log_open_failure(&e),
+            },
+            None => log_case_index_unset(),
+        }
+        tracing::info!(holding = self.case_weights.holding, overruled = self.case_weights.overruled, "case rank weights");
         if !self.law_weights.is_flat() {
             tracing::info!(weights = ?self.law_weights, "law kind weights on");
         }
@@ -196,6 +223,17 @@ mod tests {
         assert_eq!(cfg.search_deadline, Duration::from_secs(20));
         assert_eq!(cfg.citations_max, 50);
         assert!(cfg.vector_search);
+        assert_eq!(cfg.case_weights, CaseWeights::default());
+        assert!(cfg.case_keyword_index.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn case_weights_and_case_index_are_read() -> Result<(), ConfigError> {
+        let cfg = read(&reader(&[("CORPUS_CASE_WEIGHTS", "1.5,0.4"), ("CORPUS_CASE_KEYWORD_INDEX", "/x/cases")]))?;
+        assert_eq!(cfg.case_weights, CaseWeights { holding: 1.5, overruled: 0.4 });
+        assert_eq!(cfg.case_keyword_index, Some(std::path::PathBuf::from("/x/cases")));
+        assert!(matches!(read(&reader(&[("CORPUS_CASE_WEIGHTS", "0.5,0.4")])), Err(ConfigError::Invalid("CORPUS_CASE_WEIGHTS"))));
         Ok(())
     }
 
@@ -258,6 +296,9 @@ mod tests {
         let missing = read(&reader(&[("EMBED_PROVIDER", "vertex"), ("EMBED_MODEL", "m")]));
         assert!(matches!(missing, Err(ConfigError::Missing(ref m)) if m == "EMBED_API_KEY"));
         assert!(matches!(read(&reader(&[("EMBED_PROVIDER", "other")])), Err(ConfigError::Invalid("EMBED_PROVIDER"))));
+        let gm = read(&reader(&[("EMBED_PROVIDER", "gemini"), ("EMBED_MODEL", "gemini-embedding-001"), ("EMBED_API_KEY", "vk-secret-9")]))?;
+        let flavor = gm.embed.and_then(|e| e.vertex).map(|v| v.flavor());
+        assert_eq!(flavor, Some(llm::vertex::endpoint::Flavor::GeminiApi));
         Ok(())
     }
 

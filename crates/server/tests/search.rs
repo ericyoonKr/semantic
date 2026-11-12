@@ -114,6 +114,14 @@ async fn database_checks(router: &Router) -> Checked {
     check(hits[0]["decision_id"] == 11 && hits[0]["court"] == "서울고등법원", format!("{cases}"))?;
     check(hits[0]["decided_on"] == "2023-05-06", format!("{cases}"))?;
     check(hits[0]["section_role"] == "holding_summary", format!("{cases}"))?;
+    check(hits[0]["disposition"] == "reject" && hits[0]["en_banc"] == false, format!("{cases}"))?;
+    let (status, keyed) = post(
+        router,
+        "/search/cases",
+        json!({"query": "전혀없는낱말", "article_keys": ["L2:0003"], "include_minority": false}),
+    )
+    .await?;
+    check(status == StatusCode::OK && keyed["hits"][0]["matched"] == "cited", format!("{status} {keyed}"))?;
 
     let uri = format!("/cases/10?sections={}", encode("이유,holding_summary"));
     let (status, case) = get(router, &uri).await?;
@@ -123,6 +131,10 @@ async fn database_checks(router: &Router) -> Checked {
     let sections = case["sections"].as_array().cloned().unwrap_or_default();
     check(sections.len() == 2, format!("{case}"))?;
     check(sections[1]["role"] == "reasons" && sections[1]["heading"] == "이유", format!("{case}"))?;
+    let (status, all) = get(router, "/cases/10?include_minority=true").await?;
+    check(status == StatusCode::OK, format!("{status} {all}"))?;
+    let opinions: Vec<Value> = all["sections"].as_array().cloned().unwrap_or_default().iter().map(|s| s["opinion"].clone()).collect();
+    check(opinions.iter().any(|o| o == "dissent"), format!("{all}"))?;
     let (status, _) = get(router, "/cases/999").await?;
     check(status == StatusCode::BAD_REQUEST, "missing case is 400")?;
 

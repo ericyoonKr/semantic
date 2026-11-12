@@ -58,6 +58,11 @@ fn article_at(chars: &[char], start: usize) -> Option<String> {
     })
 }
 
+pub fn article_of(unit: &str) -> Option<String> {
+    let chars: Vec<char> = unit.chars().collect();
+    article_at(&chars, 0)
+}
+
 fn annex_at(chars: &[char], start: usize) -> Option<AnnexName> {
     let rest: String = chars[start..].iter().collect();
     if !rest.starts_with("별표") {
@@ -142,6 +147,14 @@ mod tests {
         assert_eq!(without_numbers("도로교통법 시행령 별표6 과태료 제2조의3"), "도로교통법 시행령 과태료");
         assert_eq!(without_numbers("제2조"), "제2조");
         assert_eq!(without_numbers("제2조에 따른 신고"), "따른 신고");
+    }
+
+    #[test]
+    fn article_of_reads_the_article_at_the_start() {
+        assert_eq!(article_of("제2조제1항").as_deref(), Some("제2조"));
+        assert_eq!(article_of("제 25 조의 2 제3항").as_deref(), Some("제25조의2"));
+        assert_eq!(article_of("별표 1"), None);
+        assert_eq!(article_of("2조"), None);
     }
 
     #[test]
