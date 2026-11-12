@@ -11,6 +11,7 @@ use super::Reader;
 use crate::error::ConfigError;
 
 const DEFAULT_REGISTRY_MODEL: &str = "BAAI/bge-m3";
+const DEFAULT_KEYWORD_MAX_DF: f64 = 0.02;
 
 #[derive(Debug, Clone)]
 pub struct CorpusConfig {
@@ -21,6 +22,8 @@ pub struct CorpusConfig {
     pub citations_max: i64,
     pub vector_search: bool,
     pub law_scope: bool,
+    pub unit_vectors: bool,
+    pub case_vectors: bool,
     pub law_weights: LawWeights,
     pub law_weights_annex: bool,
     pub term_stem: bool,
@@ -62,7 +65,7 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
         },
         keyword_index: r.text("CORPUS_KEYWORD_INDEX").map(std::path::PathBuf::from),
         keyword_max_df: match r.text("CORPUS_KEYWORD_MAX_DF") {
-            None => 1.0,
+            None => DEFAULT_KEYWORD_MAX_DF,
             Some(v) => match v.parse::<f64>() {
                 Ok(x) if x > 0.0 && x <= 1.0 => x,
                 _ => return Err(ConfigError::Invalid("CORPUS_KEYWORD_MAX_DF")),
@@ -82,6 +85,16 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
             None | Some("on") => true,
             Some("off") => false,
             Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_SCOPE")),
+        },
+        case_vectors: match r.text("CORPUS_CASE_VECTOR").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_CASE_VECTOR")),
+        },
+        unit_vectors: match r.text("CORPUS_UNIT_VECTOR").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_UNIT_VECTOR")),
         },
         vector_search: match r.text("CORPUS_VECTOR_SEARCH").as_deref() {
             None | Some("on") => true,
@@ -172,6 +185,8 @@ impl CorpusConfig {
             .with_weights(weights)
             .with_stemming(self.term_stem)
             .with_law_scope(self.law_scope)
+            .with_unit_vectors(self.unit_vectors)
+            .with_case_vectors(self.case_vectors)
             .with_case_weights(self.case_weights);
         if let Some(dir) = &self.keyword_index {
             match KeywordIndex::open(dir) {
@@ -233,6 +248,25 @@ mod tests {
         assert!(cfg.vector_search);
         assert_eq!(cfg.case_weights, CaseWeights::default());
         assert!(cfg.case_keyword_index.is_none());
+        assert!(!cfg.unit_vectors);
+        assert!(!cfg.case_vectors);
+        assert_eq!(cfg.keyword_max_df, DEFAULT_KEYWORD_MAX_DF);
+        Ok(())
+    }
+
+    #[test]
+    fn unit_vector_branch_is_read_as_on_or_off_only() -> Result<(), ConfigError> {
+        assert!(read(&reader(&[("CORPUS_UNIT_VECTOR", "on")]))?.unit_vectors);
+        assert!(!read(&reader(&[("CORPUS_UNIT_VECTOR", "off")]))?.unit_vectors);
+        assert!(matches!(read(&reader(&[("CORPUS_UNIT_VECTOR", "yes")])), Err(ConfigError::Invalid("CORPUS_UNIT_VECTOR"))));
+        Ok(())
+    }
+
+    #[test]
+    fn case_vector_branch_is_read_as_on_or_off_only() -> Result<(), ConfigError> {
+        assert!(read(&reader(&[("CORPUS_CASE_VECTOR", "on")]))?.case_vectors);
+        assert!(!read(&reader(&[("CORPUS_CASE_VECTOR", "off")]))?.case_vectors);
+        assert!(matches!(read(&reader(&[("CORPUS_CASE_VECTOR", "1")])), Err(ConfigError::Invalid("CORPUS_CASE_VECTOR"))));
         Ok(())
     }
 

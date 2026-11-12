@@ -54,6 +54,8 @@ pub struct Corpus {
     weights: LawWeights,
     stemmed: bool,
     law_scope: bool,
+    unit_vectors: bool,
+    case_vectors: bool,
     keyword: Option<Arc<KeywordIndex>>,
     case_keyword: Option<Arc<KeywordIndex>>,
     case_weights: CaseWeights,
@@ -74,6 +76,8 @@ impl Corpus {
             weights: LawWeights::default(),
             stemmed: false,
             law_scope: true,
+            unit_vectors: false,
+            case_vectors: true,
             keyword: None,
             case_keyword: None,
             case_weights: CaseWeights::default(),
@@ -97,6 +101,24 @@ impl Corpus {
 
     pub fn law_scope(&self) -> bool {
         self.law_scope
+    }
+
+    pub fn with_unit_vectors(mut self, on: bool) -> Self {
+        self.unit_vectors = on;
+        self
+    }
+
+    pub fn unit_vectors(&self) -> bool {
+        self.unit_vectors
+    }
+
+    pub fn with_case_vectors(mut self, on: bool) -> Self {
+        self.case_vectors = on;
+        self
+    }
+
+    pub fn case_vectors(&self) -> bool {
+        self.case_vectors
     }
 
     pub fn with_keyword(mut self, index: KeywordIndex) -> Self {

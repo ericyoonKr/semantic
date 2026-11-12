@@ -21,7 +21,7 @@ const LAW_TYPE: &str = "($2::text[] IS NULL OR l.law_type = ANY($2::text[]))";
 const TEXT_LAW_IDS: &str = "($4::text[] IS NULL OR l.law_id = ANY($4::text[]))";
 const TEXT_FIRST_PATTERN: usize = 5;
 const VECTOR_LAW_IDS: &str = "($6::text[] IS NULL OR l.law_id = ANY($6::text[]))";
-const OPEN_ARTICLE: &str = "upper_inf(av.sys_period)";
+pub const OPEN_ARTICLE: &str = "upper_inf(av.sys_period)";
 const OPEN_ANNEX: &str = "upper_inf(a.sys_period)";
 const NODE_TYPES: &str = "('row','row_item','rule_para','note','section')";
 

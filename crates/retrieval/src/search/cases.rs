@@ -14,6 +14,9 @@ async fn vector_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, R
     if corpus.vector_off() {
         return Err(RetrievalError::VectorOff);
     }
+    if !corpus.case_vectors() {
+        return Ok(Vec::new());
+    }
     let pool = corpus.pool();
     let registry = corpus.embedder().registry_name();
     if !candidates::vector_ready(pool, registry).await? {
@@ -55,6 +58,13 @@ async fn cited_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, Re
     Ok(found)
 }
 
+async fn timed<T>(stage: &'static str, fut: impl std::future::Future<Output = T>) -> T {
+    let started = std::time::Instant::now();
+    let out = fut.await;
+    tracing::info!(stage, elapsed_ms = started.elapsed().as_millis() as u64, "case search stage");
+    out
+}
+
 fn ids(list: &[Candidate]) -> Vec<i64> {
     list.iter().map(|c| c.section_id).collect()
 }
@@ -63,10 +73,10 @@ pub async fn search_cases(corpus: &Corpus, q: &CaseQuery) -> Result<SearchResult
     let (terms, k) = prepare(&q.text, q.k, corpus.stemmed())?;
     let pool = corpus.pool();
     let (text, vector, keyword, cited) = tokio::join!(
-        candidates::text(pool, q, &terms),
-        vector_side(corpus, q),
-        keyword_side(corpus, q),
-        cited_side(corpus, q)
+        timed("text", candidates::text(pool, q, &terms)),
+        timed("vector", vector_side(corpus, q)),
+        timed("keyword", keyword_side(corpus, q)),
+        timed("cited", cited_side(corpus, q))
     );
     let (text, keyword, cited) = (text?, keyword?, cited?);
     let (vector, reason) = settle(vector);
@@ -83,7 +93,7 @@ pub async fn search_cases(corpus: &Corpus, q: &CaseQuery) -> Result<SearchResult
     let lists: Vec<&[i64]> = sides.iter().map(|(_, l)| *l).collect();
     let mut fused = rrf(&lists, RRF_K);
     let all: Vec<i64> = fused.iter().map(|(id, _)| *id).collect();
-    let facts = rank::facts(pool, &all).await?;
+    let facts = timed("facts", rank::facts(pool, &all)).await?;
     rank::reweigh(&mut fused, &facts, corpus.case_weights());
     fused.truncate(k);
     let positions: HashMap<i64, i32> = text.iter().map(|c| (c.section_id, c.position)).collect();
@@ -98,6 +108,6 @@ pub async fn search_cases(corpus: &Corpus, q: &CaseQuery) -> Result<SearchResult
             matched: matched(&section_id, &sides),
         })
         .collect();
-    let hits = hits::hits(pool, &picks).await?;
+    let hits = timed("hits", hits::hits(pool, &picks)).await?;
     Ok(SearchResult { degraded: reason.is_some(), degraded_reason: reason, scope: Vec::new(), hits })
 }

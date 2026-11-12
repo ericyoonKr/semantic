@@ -11,6 +11,7 @@ use crate::query::keyword::{KIND_NODE, KIND_UNIT, error::log_search_failure};
 use crate::query::weights;
 use crate::query::laws::{self, UnitRef};
 use crate::query::terms::{Terms, compact};
+use crate::query::units;
 
 mod cases;
 
@@ -31,7 +32,7 @@ fn prepare(text: &str, k: usize, stemmed: bool) -> Result<(Terms, usize), Retrie
     Ok((terms, k.min(cap)))
 }
 
-fn settle<T>(side: Result<Vec<T>, RetrievalError>) -> (Vec<T>, Option<String>) {
+fn settle<T: Default>(side: Result<T, RetrievalError>) -> (T, Option<String>) {
     match side {
         Ok(v) => (v, None),
         Err(e) => {
@@ -42,7 +43,7 @@ fn settle<T>(side: Result<Vec<T>, RetrievalError>) -> (Vec<T>, Option<String>) {
                 _ => VECTOR_FAILED,
             };
             tracing::warn!(reason = %e, "vector search off");
-            (Vec::new(), Some(reason.to_string()))
+            (T::default(), Some(reason.to_string()))
         }
     }
 }
@@ -61,12 +62,12 @@ fn matched<K: PartialEq>(unit: &K, sides: &[(&str, &[K])]) -> String {
 }
 
 #[derive(Debug, Default)]
-struct KeywordSide {
+struct UnitSide {
     refs: Vec<UnitRef>,
     units: HashMap<i64, Vec<i64>>,
 }
 
-impl KeywordSide {
+impl UnitSide {
     fn add(&mut self, unit: UnitRef, unit_id: Option<i64>) {
         if let (UnitRef::Article(row), Some(id)) = (&unit, unit_id) {
             let ids = self.units.entry(*row).or_default();
@@ -80,7 +81,7 @@ impl KeywordSide {
     }
 }
 
-async fn matched_paths(pool: &sqlx::PgPool, sides: &[&KeywordSide]) -> Result<HashMap<i64, Vec<String>>, RetrievalError> {
+async fn matched_paths(pool: &sqlx::PgPool, sides: &[&UnitSide]) -> Result<HashMap<i64, Vec<String>>, RetrievalError> {
     let mut by_row: HashMap<i64, Vec<i64>> = HashMap::new();
     for side in sides {
         for (row, ids) in &side.units {
@@ -100,8 +101,8 @@ async fn matched_paths(pool: &sqlx::PgPool, sides: &[&KeywordSide]) -> Result<Ha
         .collect())
 }
 
-async fn keyword_candidates(corpus: &Corpus, q: &LawQuery, law_ids: Option<&[String]>) -> KeywordSide {
-    let mut side = KeywordSide::default();
+async fn keyword_candidates(corpus: &Corpus, q: &LawQuery, law_ids: Option<&[String]>) -> UnitSide {
+    let mut side = UnitSide::default();
     let Some(index) = corpus.keyword() else {
         return side;
     };
@@ -134,6 +135,25 @@ async fn keyword_candidates(corpus: &Corpus, q: &LawQuery, law_ids: Option<&[Str
     side
 }
 
+async fn unit_vector_side(corpus: &Corpus, q: &LawQuery, lit: &str, law_ids: Option<&[String]>) -> UnitSide {
+    let mut side = UnitSide::default();
+    if !corpus.unit_vectors() {
+        return side;
+    }
+    let started = std::time::Instant::now();
+    let found = units::vector_candidates(corpus.pool(), q, corpus.embedder().registry_name(), lit, law_ids).await;
+    tracing::info!(elapsed_ms = started.elapsed().as_millis() as u64, "unit vector branch searched");
+    match found {
+        Ok(hits) => {
+            for h in hits {
+                side.add(UnitRef::Article(h.article_row), Some(h.unit_id));
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "unit vector branch failed"),
+    }
+    side
+}
+
 async fn scope_of(corpus: &Corpus, q: &LawQuery) -> Result<Scope, RetrievalError> {
     if let Some(ids) = &q.law_ids {
         return Ok(Scope::Only(ids.clone()));
@@ -150,9 +170,9 @@ async fn in_law_candidates(
     q: &LawQuery,
     terms: &Terms,
     scope: &Scope,
-) -> Result<(Vec<UnitRef>, KeywordSide), RetrievalError> {
+) -> Result<(Vec<UnitRef>, UnitSide), RetrievalError> {
     let Some(ids) = scope.preferred() else {
-        return Ok((Vec::new(), KeywordSide::default()));
+        return Ok((Vec::new(), UnitSide::default()));
     };
     let (text, keyword) = tokio::join!(
         laws::text_candidates(corpus.pool(), q, terms, corpus.weights(), Some(ids)),
@@ -183,7 +203,11 @@ pub async fn search_laws(
             return Err(RetrievalError::VectorEmpty);
         }
         let lit = query_vector(corpus, &q.text).await?;
-        laws::vector_candidates(pool, q, registry, &lit, only).await
+        let (whole, parts) = tokio::join!(
+            laws::vector_candidates(pool, q, registry, &lit, only),
+            unit_vector_side(corpus, q, &lit, only)
+        );
+        Ok((whole?, parts))
     };
     let lookup_only = parsed
         .as_ref()
@@ -208,17 +232,18 @@ pub async fn search_laws(
     );
     let (direct, text) = found?;
     let (text_in_law, keyword_in_law) = in_law?;
-    let (vector, reason) = settle(vector);
+    let ((vector, unit_vector), reason) = settle(vector);
     let mut ranked: Vec<(UnitRef, f64, String)> = direct
         .iter()
         .map(|u| (u.clone(), 1.0, "direct".to_string()))
         .collect();
-    let sides: [(&str, &[UnitRef]); 5] = [
+    let sides: [(&str, &[UnitRef]); 6] = [
         ("text", &text),
         ("vector", &vector),
         ("keyword", &keyword.refs),
         ("text-in-law", &text_in_law),
         ("keyword-in-law", &keyword_in_law.refs),
+        ("unit-vector", &unit_vector.refs),
     ];
     let lists: Vec<&[UnitRef]> = sides.iter().map(|(_, l)| *l).collect();
     let mut fused = rrf(&lists, RRF_K);
@@ -241,7 +266,7 @@ pub async fn search_laws(
         ranked.push((unit, score, how));
     }
     ranked.truncate(k);
-    let units = matched_paths(pool, &[&keyword, &keyword_in_law]).await?;
+    let units = matched_paths(pool, &[&unit_vector, &keyword, &keyword_in_law]).await?;
     let hits = laws::hits(pool, &ranked, q.as_of, &units).await?;
     Ok(SearchResult {
         degraded: reason.is_some(),
@@ -257,15 +282,15 @@ mod tests {
 
     #[test]
     fn degraded_reason_names_empty_vectors_apart_from_failures() {
-        let (_, r) = settle::<i32>(Err(RetrievalError::VectorEmpty));
+        let (_, r) = settle::<Vec<i32>>(Err(RetrievalError::VectorEmpty));
         assert_eq!(r.as_deref(), Some(VECTOR_EMPTY));
-        let (_, r) = settle::<i32>(Err(RetrievalError::EmbedderDown));
+        let (_, r) = settle::<Vec<i32>>(Err(RetrievalError::EmbedderDown));
         assert_eq!(r.as_deref(), Some(EMBED_FAILED));
-        let (_, r) = settle::<i32>(Err(RetrievalError::Argument("x")));
+        let (_, r) = settle::<Vec<i32>>(Err(RetrievalError::Argument("x")));
         assert_eq!(r.as_deref(), Some(VECTOR_FAILED));
-        let (_, r) = settle::<i32>(Err(RetrievalError::VectorOff));
+        let (_, r) = settle::<Vec<i32>>(Err(RetrievalError::VectorOff));
         assert_eq!(r.as_deref(), Some(VECTOR_OFF));
-        let (v, r) = settle::<i32>(Ok(vec![1]));
+        let (v, r) = settle::<Vec<i32>>(Ok(vec![1]));
         assert_eq!((v, r), (vec![1], None));
     }
 
