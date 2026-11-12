@@ -3,6 +3,7 @@ from typing import Literal
 
 from semantic_agent.agent.prompts import RESEARCHER_PROMPT
 from semantic_agent.agent.prompts_research import RESEARCHER_STEPS_PROMPT
+from semantic_agent.agent.subagents import SUB_DEADLINE_S
 from semantic_agent.config import Settings
 
 ResearchPrompt = Literal["base", "steps"]
@@ -14,10 +15,15 @@ VERSION_TOOLS = ("resolve_version", "resolve_citations")
 class ResearchOptions:
     prompt: ResearchPrompt = "base"
     intent_scope: bool = False
+    deadline_s: float = SUB_DEADLINE_S
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ResearchOptions":
-        return cls(prompt=settings.research_prompt, intent_scope=settings.research_intent_scope)
+        return cls(
+            prompt=settings.research_prompt,
+            intent_scope=settings.research_intent_scope,
+            deadline_s=settings.research_deadline_s,
+        )
 
     @property
     def steps(self) -> bool:

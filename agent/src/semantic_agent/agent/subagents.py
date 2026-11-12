@@ -96,7 +96,10 @@ class SubagentLimit(AgentMiddleware):
 
 
 def make_subagents(
-    backend: BackendProtocol, search_tools: list[BaseTool], prompt: str = RESEARCHER_PROMPT
+    backend: BackendProtocol,
+    search_tools: list[BaseTool],
+    prompt: str = RESEARCHER_PROMPT,
+    deadline_s: float = SUB_DEADLINE_S,
 ) -> list[SubAgent]:
     return [
         {
@@ -109,7 +112,7 @@ def make_subagents(
                 FilesystemMiddleware(backend=backend, tools=["read_file"], _permissions=NO_FILES),
                 ToolAllowlist([t.name for t in search_tools]),
                 ToolGuard(),
-                SubagentLimit(),
+                SubagentLimit(deadline_s=deadline_s),
             ],
             "permissions": NO_FILES,
         }

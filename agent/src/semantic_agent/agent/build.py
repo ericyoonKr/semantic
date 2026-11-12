@@ -117,7 +117,9 @@ def build_agent(
         default=StateBackend(),
         routes={"/prefs/": StoreBackend(namespace=_prefs_namespace)},
     )
-    subagents = make_subagents(backend, researcher_tools(client, research), research.researcher_prompt())
+    subagents = make_subagents(
+        backend, researcher_tools(client, research), research.researcher_prompt(), research.deadline_s
+    )
     return create_deep_agent(
         model=model,
         tools=[
@@ -138,6 +140,7 @@ def build_agent(
             ToolGuard(),
             SubagentGate(
                 SUBAGENT_NAMES,
+                deadline_s=research.deadline_s,
                 routes=catalogs.routes,
                 scope=IntentScope(client) if research.intent_scope else None,
             ),

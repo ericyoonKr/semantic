@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     fake_tools: bool = False
     research_prompt: Literal["base", "steps"] = "base"
     research_intent_scope: bool = False
+    research_deadline_s: float = Field(default=120.0, gt=0)
     data_dir: str = ""
 
     @model_validator(mode="after")

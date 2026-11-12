@@ -2,7 +2,9 @@ import asyncio
 import json
 from typing import Any
 
+import pytest
 from conftest import call, delegate, make_agent, run_config, tool_messages
+from deepagents.backends import StateBackend
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from semantic_agent.agent.build import researcher_tools
@@ -13,6 +15,7 @@ from semantic_agent.agent.issues import Intent, Issue
 from semantic_agent.agent.prompts import RESEARCHER_PROMPT
 from semantic_agent.agent.prompts_research import INTENT_NOTE, RESEARCHER_STEPS_PROMPT
 from semantic_agent.agent.research import ResearchOptions
+from semantic_agent.agent.subagents import SubagentLimit, make_subagents
 from semantic_agent.config import Settings
 from semantic_agent.ledger import LEDGER, Ledger
 from semantic_agent.tools.fake import LAW_UNIT, FakeClient
@@ -47,6 +50,16 @@ def test_switches_are_off_by_default() -> None:
     assert options.researcher_prompt() == RESEARCHER_PROMPT
     on = ResearchOptions.from_settings(Settings(_env_file=None, research_prompt="steps", research_intent_scope=True))
     assert on.steps and on.intent_scope and on.researcher_prompt() == RESEARCHER_STEPS_PROMPT
+
+
+def test_research_deadline_defaults_to_120_seconds_and_reaches_both_limits() -> None:
+    assert ResearchOptions.from_settings(Settings(_env_file=None)).deadline_s == 120.0
+    slow = ResearchOptions.from_settings(Settings(_env_file=None, research_deadline_s=600))
+    assert slow.deadline_s == 600.0
+    agent_limits = [m for s in make_subagents(StateBackend(), [], deadline_s=slow.deadline_s) for m in s["middleware"]]
+    assert [m._deadline_s for m in agent_limits if isinstance(m, SubagentLimit)] == [600.0]
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, research_deadline_s=0)
 
 
 def test_new_fields_are_parsed_and_old_result_still_parses() -> None:
