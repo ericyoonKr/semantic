@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
 from deepagents import (
     FilesystemPermission,
     GeneralPurposeSubagentProfile,
@@ -12,7 +11,6 @@ from deepagents import (
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.language_models import BaseChatModel
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_config
 from langgraph.store.base import BaseStore
@@ -24,9 +22,7 @@ from semantic_agent.agent.guards import ScopeGuard, ToolGuard
 from semantic_agent.agent.judge_route import JudgeRoute
 from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
-from semantic_agent.agent.repeat import RepeatCut
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
-from semantic_agent.config import Settings
 from semantic_agent.memory.store import prefs_namespace
 from semantic_agent.tools.annex import make_annex_tools
 from semantic_agent.tools.client import ToolClient
@@ -77,21 +73,6 @@ async def load_catalogs(client: ToolClient) -> Catalogs:
         kg=kg_err or format_kg_catalog(kg_data),
         routes={} if judge_err else claim_routes(judge_data),
         kg_hashes={} if kg_err else catalog_hashes(kg_data),
-    )
-
-
-def build_model(settings: Settings) -> ChatOpenAI:
-    return ChatOpenAI(
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
-        temperature=0,
-        max_tokens=settings.llm_max_tokens,
-        timeout=httpx.Timeout(settings.llm_read_timeout_s, connect=settings.llm_connect_timeout_s),
-        max_retries=settings.llm_max_retries,
-        stream_usage=True,
-        callbacks=[RepeatCut()],
-        extra_body={"priority": 0},
     )
 
 

@@ -1,4 +1,6 @@
-from pydantic import SecretStr, model_validator
+from typing import Literal
+
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +11,7 @@ class Settings(BaseSettings):
     pg_pool_max: int = 10
     rust_api_url: str = "http://127.0.0.1:8080"
     rust_timeout_s: dict[str, float] = {"search": 30.0, "judge": 180.0}
+    llm_provider: Literal["openai", "vertex"] = "openai"
     llm_base_url: str = ""
     llm_api_key: SecretStr = SecretStr("")
     llm_model: str = ""
@@ -16,6 +19,13 @@ class Settings(BaseSettings):
     llm_connect_timeout_s: float = 5.0
     llm_read_timeout_s: float = 240.0
     llm_max_retries: int = 1
+    vertex_api_key: SecretStr = SecretStr("")
+    vertex_model: str = ""
+    vertex_project: str = ""
+    vertex_location: str = ""
+    vertex_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
+    vertex_thinking_budget: int | None = None
+    vertex_max_concurrency: int = Field(default=4, ge=1)
     recursion_limit: int = 60
     ask_timeout_s: float = 300.0
     internal_key: SecretStr = SecretStr("")
@@ -39,8 +49,12 @@ class Settings(BaseSettings):
         if not self.fake_tools:
             if not self.checkpoint_pg_url.get_secret_value():
                 names.append("checkpoint_pg_url")
-            if not self.llm_base_url:
-                names.append("llm_base_url")
-            if not self.llm_model:
-                names.append("llm_model")
+            names.extend(self._missing_model())
         return names
+
+    def _missing_model(self) -> list[str]:
+        if self.llm_provider == "vertex":
+            needed = {"vertex_api_key": self.vertex_api_key.get_secret_value(), "vertex_model": self.vertex_model}
+        else:
+            needed = {"llm_base_url": self.llm_base_url, "llm_model": self.llm_model}
+        return [name for name, value in needed.items() if not value]

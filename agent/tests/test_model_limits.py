@@ -1,6 +1,6 @@
 from pydantic import SecretStr
 
-from semantic_agent.agent.build import build_model
+from semantic_agent.agent.model import build_model
 from semantic_agent.config import Settings
 
 

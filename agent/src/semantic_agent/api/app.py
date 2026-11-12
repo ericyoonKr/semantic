@@ -16,7 +16,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 
-from semantic_agent.agent.build import build_agent, build_model, load_catalogs
+from semantic_agent.agent.build import build_agent, load_catalogs
+from semantic_agent.agent.model import build_model
 from semantic_agent.api.sessions import SessionRegistry, run_ask, run_upload
 from semantic_agent.api.sse import event, to_sse
 from semantic_agent.config import Settings
