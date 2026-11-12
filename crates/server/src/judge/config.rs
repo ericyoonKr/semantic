@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use engine::settings::LEAF_DEADLINE;
+use llm::vertex::VertexEndpoint;
 
 use crate::error::ConfigError;
 
@@ -17,6 +18,8 @@ pub const ENGINE_SETTINGS: [&str; 6] = [
 ];
 
 pub struct EngineConfig {
+    pub vertex: Option<VertexEndpoint>,
+    pub thinking_budget: Option<i32>,
     pub llm_base_url: String,
     pub llm_model: String,
     pub llm_api_key: String,
@@ -30,6 +33,7 @@ impl fmt::Debug for EngineConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EngineConfig")
             .field("llm_model", &self.llm_model)
+            .field("vertex", &self.vertex)
             .field("fact_budget_tokens", &self.fact_budget_tokens)
             .field("candidate_k", &self.candidate_k)
             .field("authority_k", &self.authority_k)
@@ -73,22 +77,35 @@ fn positive<T: FromStr + PartialOrd + Default>(
 }
 
 fn read_engine(get: &impl Fn(&str) -> Option<String>) -> Result<Option<EngineConfig>, ConfigError> {
-    let missing: Vec<&str> = ENGINE_SETTINGS
-        .iter()
-        .copied()
-        .filter(|n| text(get, n).is_none())
-        .collect();
-    if missing.len() == ENGINE_SETTINGS.len() {
+    let vertex = match text(get, "LLM_PROVIDER").as_deref() {
+        None | Some("openai") => false,
+        Some("vertex") => true,
+        Some(_) => return Err(ConfigError::Invalid("LLM_PROVIDER")),
+    };
+    let wanted: Vec<&str> = if vertex {
+        ENGINE_SETTINGS.iter().copied().filter(|n| *n != "LLM_BASE_URL").chain(["LLM_API_KEY"]).collect()
+    } else {
+        ENGINE_SETTINGS.to_vec()
+    };
+    let missing: Vec<&str> = wanted.iter().copied().filter(|n| text(get, n).is_none()).collect();
+    if missing.len() == wanted.len() {
         return Ok(None);
     }
     if !missing.is_empty() {
         return Err(ConfigError::Missing(missing.join(", ")));
     }
     let solver_ms: u64 = positive(get, "SOLVER_TIMEOUT_MS", None)?;
+    let api_key = text(get, "LLM_API_KEY").unwrap_or_default();
+    let endpoint = vertex.then(|| VertexEndpoint::new(api_key.clone(), text(get, "VERTEX_PROJECT"), text(get, "VERTEX_LOCATION"), text(get, "VERTEX_HOST")));
+    let thinking_budget = text(get, "LLM_THINKING_BUDGET")
+        .map(|v| v.parse::<i32>().map_err(|_| ConfigError::Invalid("LLM_THINKING_BUDGET")))
+        .transpose()?;
     Ok(Some(EngineConfig {
+        vertex: endpoint,
+        thinking_budget,
         llm_base_url: text(get, "LLM_BASE_URL").unwrap_or_default(),
         llm_model: text(get, "LLM_MODEL").unwrap_or_default(),
-        llm_api_key: text(get, "LLM_API_KEY").unwrap_or_default(),
+        llm_api_key: api_key,
         fact_budget_tokens: positive(get, "LEAF_FACT_BUDGET_TOKENS", None)?,
         candidate_k: positive(get, "LEAF_CANDIDATE_K", None)?,
         authority_k: positive(get, "LEAF_AUTHORITY_K", None)?,
@@ -197,4 +214,25 @@ mod tests {
             Err(ConfigError::Invalid("Z3_CONCURRENCY"))
         ));
     }
+
+    #[test]
+    fn vertex_engine_needs_no_base_url_but_needs_key() {
+        let base = [
+            ("LLM_PROVIDER", "vertex"),
+            ("LLM_MODEL", "gemini-x"),
+            ("LEAF_FACT_BUDGET_TOKENS", "100"),
+            ("LEAF_CANDIDATE_K", "3"),
+            ("LEAF_AUTHORITY_K", "3"),
+            ("SOLVER_TIMEOUT_MS", "100"),
+        ];
+        let no_key = with(&base).map(|c| c.engine.is_some());
+        assert!(matches!(no_key, Err(ConfigError::Missing(ref m)) if m == "LLM_API_KEY"), "{no_key:?}");
+        let mut keyed = base.to_vec();
+        keyed.push(("LLM_API_KEY", "vk-secret-2"));
+        let cfg = with(&keyed);
+        let engine = cfg.as_ref().ok().and_then(|c| c.engine.as_ref());
+        assert!(engine.is_some_and(|e| e.vertex.is_some()));
+        assert!(!format!("{cfg:?}").contains("vk-secret-2"));
+    }
+
 }

@@ -62,8 +62,11 @@ pub(crate) fn from_failure(failure: AskFailure) -> Settled {
         AskFailure::Llm(LlmError::Cancelled) | AskFailure::Cancelled => {
             Settled::unknown(FailureReason::Cancelled(CANCELLED.to_string()), false)
         }
-        AskFailure::Llm(LlmError::Unavailable | LlmError::RateLimited | LlmError::Http(_)) => {
+        AskFailure::Llm(LlmError::Unavailable | LlmError::RateLimited | LlmError::Http(_) | LlmError::Auth(_)) => {
             Settled::unknown(FailureReason::ModelServerDown, false)
+        }
+        AskFailure::Llm(LlmError::Blocked(_) | LlmError::Truncated) => {
+            Settled::unknown(FailureReason::LlmParseFailed, false)
         }
         AskFailure::Aborted => {
             Settled::unknown(FailureReason::Cancelled(ABORTED.to_string()), false)

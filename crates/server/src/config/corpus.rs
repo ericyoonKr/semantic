@@ -5,6 +5,8 @@ use retrieval::query::keyword::KeywordIndex;
 use retrieval::query::keyword::error::log_open_failure;
 use retrieval::{Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
 
+use llm::vertex::VertexEndpoint;
+
 use super::Reader;
 use crate::error::ConfigError;
 
@@ -74,11 +76,20 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
     })
 }
 
+pub fn vertex_endpoint<F: Fn(&str) -> Option<String>>(r: &Reader<F>, api_key: String) -> VertexEndpoint {
+    VertexEndpoint::new(api_key, r.text("VERTEX_PROJECT"), r.text("VERTEX_LOCATION"), r.text("VERTEX_HOST"))
+}
+
 fn read_embed<F: Fn(&str) -> Option<String>>(
     r: &Reader<F>,
     deadline: Duration,
 ) -> Result<Option<EmbedSettings>, ConfigError> {
-    let names = ["EMBED_BASE_URL", "EMBED_MODEL", "EMBED_API_KEY"];
+    let vertex = match r.text("EMBED_PROVIDER").as_deref() {
+        None | Some("openai") => false,
+        Some("vertex") => true,
+        Some(_) => return Err(ConfigError::Invalid("EMBED_PROVIDER")),
+    };
+    let names: &[&str] = if vertex { &["EMBED_MODEL", "EMBED_API_KEY"] } else { &["EMBED_BASE_URL", "EMBED_MODEL", "EMBED_API_KEY"] };
     let values: Vec<Option<String>> = names.iter().map(|n| r.text(n)).collect();
     let missing: Vec<&str> = names
         .iter()
@@ -93,9 +104,11 @@ fn read_embed<F: Fn(&str) -> Option<String>>(
         return Err(ConfigError::Missing(missing.join(", ")));
     }
     let mut it = values.into_iter().flatten();
-    let (Some(base_url), Some(model), Some(api_key)) = (it.next(), it.next(), it.next()) else {
+    let base_url = if vertex { String::new() } else { it.next().unwrap_or_default() };
+    let (Some(model), Some(api_key)) = (it.next(), it.next()) else {
         return Err(ConfigError::Missing(names.join(", ")));
     };
+    let endpoint = vertex.then(|| vertex_endpoint(r, api_key.clone()));
     let priority = r
         .text("EMBED_PRIORITY")
         .map(|v| v.parse::<i32>().map_err(|_| ConfigError::Invalid("EMBED_PRIORITY")))
@@ -110,6 +123,7 @@ fn read_embed<F: Fn(&str) -> Option<String>>(
         deadline,
         concurrency: r.positive("EMBED_CONCURRENCY", 4)?,
         priority,
+        vertex: endpoint,
     }))
 }
 
@@ -228,6 +242,23 @@ mod tests {
             read(&reader(&[("EMBED_DEADLINE_SECS", "30")])),
             Err(ConfigError::DeadlineOrder(_, _))
         ));
+    }
+
+    #[test]
+    fn vertex_embed_needs_model_and_key_only_and_hides_key() -> Result<(), ConfigError> {
+        let cfg = read(&reader(&[
+            ("EMBED_PROVIDER", "vertex"),
+            ("EMBED_MODEL", "gemini-embedding-001"),
+            ("EMBED_API_KEY", "vk-secret-9"),
+            ("VERTEX_LOCATION", "global"),
+        ]))?;
+        let embed = cfg.embed.ok_or(ConfigError::Invalid("EMBED_MODEL"))?;
+        assert!(embed.vertex.is_some());
+        assert!(!format!("{embed:?}").contains("vk-secret-9"));
+        let missing = read(&reader(&[("EMBED_PROVIDER", "vertex"), ("EMBED_MODEL", "m")]));
+        assert!(matches!(missing, Err(ConfigError::Missing(ref m)) if m == "EMBED_API_KEY"));
+        assert!(matches!(read(&reader(&[("EMBED_PROVIDER", "other")])), Err(ConfigError::Invalid("EMBED_PROVIDER"))));
+        Ok(())
     }
 
 }

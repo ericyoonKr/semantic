@@ -1,5 +1,6 @@
 pub mod corpus;
 pub mod embed_client;
+pub mod embed_vertex;
 pub mod embedder;
 pub mod error;
 pub mod model;

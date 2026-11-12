@@ -2,6 +2,7 @@ use std::fmt;
 use std::time::{Duration, Instant};
 
 use llm::LlmLimiter;
+use llm::vertex::VertexEndpoint;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -17,6 +18,7 @@ pub struct EmbedSettings {
     pub deadline: Duration,
     pub concurrency: usize,
     pub priority: Option<i32>,
+    pub vertex: Option<VertexEndpoint>,
 }
 
 impl fmt::Debug for EmbedSettings {
@@ -27,6 +29,7 @@ impl fmt::Debug for EmbedSettings {
             .field("deadline", &self.deadline)
             .field("concurrency", &self.concurrency)
             .field("priority", &self.priority)
+            .field("vertex", &self.vertex)
             .finish_non_exhaustive()
     }
 }
@@ -42,6 +45,7 @@ pub struct EmbedClient {
     limiter: LlmLimiter,
     priority: Option<i32>,
     dim: usize,
+    vertex: Option<VertexEndpoint>,
 }
 
 impl fmt::Debug for EmbedClient {
@@ -80,6 +84,7 @@ impl EmbedClient {
             limiter: LlmLimiter::new(settings.concurrency.max(1)),
             priority: settings.priority,
             dim: DIM,
+            vertex: settings.vertex,
         })
     }
 
@@ -103,6 +108,9 @@ impl EmbedClient {
     }
 
     async fn send(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, RetrievalError> {
+        if let Some(endpoint) = &self.vertex {
+            return crate::embed_vertex::embed_queries(&self.http, endpoint, &self.model, &self.limiter, texts).await;
+        }
         let _permit = self
             .limiter
             .acquire()

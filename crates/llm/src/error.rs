@@ -12,6 +12,28 @@ pub enum LlmError {
     Cancelled,
     #[error("model server unavailable")]
     Unavailable,
+    #[error("model server rejected the key or permission (status {0})")]
+    Auth(u16),
+    #[error("model output was blocked: {0}")]
+    Blocked(String),
+    #[error("model output stopped at the token limit")]
+    Truncated,
+}
+
+impl From<crate::vertex::VertexError> for LlmError {
+    fn from(e: crate::vertex::VertexError) -> Self {
+        use crate::vertex::VertexError as V;
+        match e {
+            V::Timeout => LlmError::Timeout,
+            V::Connect => LlmError::Unavailable,
+            V::RateLimited { .. } => LlmError::RateLimited,
+            V::Auth { code, .. } => LlmError::Auth(code),
+            V::BadRequest { code, .. } | V::Server { code, .. } => LlmError::Http(code),
+            V::Blocked(reason) => LlmError::Blocked(reason),
+            V::Truncated => LlmError::Truncated,
+            V::Malformed(_) => LlmError::ParseFailed,
+        }
+    }
 }
 
 impl LlmError {

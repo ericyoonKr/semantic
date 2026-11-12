@@ -83,6 +83,7 @@ fn client(addr: SocketAddr, deadline_ms: u64) -> Result<EmbedClient, RetrievalEr
         deadline: Duration::from_millis(deadline_ms),
         concurrency: 4,
         priority: Some(1),
+        vertex: None,
     })
 }
 
@@ -149,7 +150,54 @@ fn debug_output_hides_the_key() -> TestResult {
         deadline: Duration::from_secs(1),
         concurrency: 1,
         priority: None,
+        vertex: None,
     };
     assert!(!format!("{s:?}").contains("embed-key-xyz"));
+    Ok(())
+}
+
+async fn vertex_handler(State(seen): State<Seen>, headers: HeaderMap, uri: axum::http::Uri, body: axum::Json<Value>) -> Response {
+    let key = headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let first = seen.lock().map(|mut s| {
+        s.push((key.clone(), body.0.clone()));
+        s.len() == 1
+    });
+    if key.as_deref() != Some("vk") || !uri.path().ends_with("/models/gemini-embedding-001:predict") {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if first.unwrap_or(false) {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    let mut v = vec![0.0_f32; DIM];
+    v[0] = 2.0;
+    axum::Json(json!({"predictions": [{"embeddings": {"values": v, "statistics": {"token_count": 3.0, "truncated": false}}}]})).into_response()
+}
+
+#[tokio::test]
+async fn vertex_query_embedding_uses_key_header_retries_quota_and_normalizes() -> TestResult {
+    let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+    let app = Router::new().fallback(vertex_handler).with_state(seen.clone());
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+    let addr = listener.local_addr()?;
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let c = EmbedClient::new(EmbedSettings {
+        base_url: String::new(),
+        model: "gemini-embedding-001".into(),
+        api_key: "vk".into(),
+        registry_name: "gemini-embedding-001@1024".into(),
+        deadline: Duration::from_secs(10),
+        concurrency: 2,
+        priority: None,
+        vertex: Some(llm::vertex::VertexEndpoint::new("vk", None, None, Some(format!("http://{addr}")))),
+    })?;
+    let v = c.embed("처분의 사전 통지").await?;
+    assert_eq!(v.len(), DIM);
+    assert!((v[0] - 1.0).abs() < 1e-6);
+    let seen = seen.lock().map(|s| s.clone()).unwrap_or_default();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[1].1["instances"][0]["task_type"], "RETRIEVAL_QUERY");
+    assert_eq!(seen[1].1["parameters"]["outputDimensionality"], DIM);
     Ok(())
 }

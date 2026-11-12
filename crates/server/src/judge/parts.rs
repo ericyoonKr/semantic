@@ -23,11 +23,11 @@ impl EngineParts {
             tracing::warn!("model settings are missing; judging is off");
             return None;
         };
-        let llm = match LlmClient::new(
-            &engine.llm_base_url,
-            &engine.llm_api_key,
-            &engine.llm_model,
-        ) {
+        let built = match &engine.vertex {
+            Some(endpoint) => LlmClient::vertex(endpoint.clone(), &engine.llm_model, engine.thinking_budget),
+            None => LlmClient::new(&engine.llm_base_url, &engine.llm_api_key, &engine.llm_model),
+        };
+        let llm = match built {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!(error = %e, "model client could not be built; judging is off");

@@ -112,3 +112,57 @@ async fn deadline_is_not_retried() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     Ok(())
 }
+
+#[derive(Clone)]
+struct VertexFake {
+    deny: bool,
+    calls: Arc<AtomicUsize>,
+}
+
+async fn vertex_handler(State(fake): State<VertexFake>, headers: axum::http::HeaderMap, uri: axum::http::Uri) -> Response {
+    let n = fake.calls.fetch_add(1, Ordering::SeqCst);
+    let keyed = headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()) == Some("vk");
+    if fake.deny || !keyed || !uri.path().ends_with("/publishers/google/models/m:generateContent") {
+        let body = json!({"error": {"code": 403, "message": "denied", "status": "PERMISSION_DENIED"}});
+        return (StatusCode::FORBIDDEN, axum::Json(body)).into_response();
+    }
+    if n < 2 {
+        let body = json!({"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}});
+        return (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
+    }
+    axum::Json(json!({"candidates": [{"content": {"parts": [{"text": "{\"value\": \"True\"}"}]}, "finishReason": "STOP"}]})).into_response()
+}
+
+async fn serve_vertex(deny: bool) -> Result<(String, Arc<AtomicUsize>), std::io::Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().fallback(vertex_handler).with_state(VertexFake { deny, calls: calls.clone() });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok((format!("http://{addr}"), calls))
+}
+
+#[tokio::test]
+async fn vertex_sends_key_header_and_retries_quota_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let (host, calls) = serve_vertex(false).await?;
+    let endpoint = crate::vertex::VertexEndpoint::new("vk", None, None, Some(host));
+    let client = LlmClient::vertex(endpoint, "m", None)?;
+    let result = client.complete_json::<Answer>("s", "u", &opts(5_000)).await;
+    assert_eq!(result, Ok(Answer { value: "True".into() }));
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    Ok(())
+}
+
+#[tokio::test]
+async fn vertex_permission_error_is_not_retried() -> Result<(), Box<dyn std::error::Error>> {
+    let (host, calls) = serve_vertex(true).await?;
+    let endpoint = crate::vertex::VertexEndpoint::new("vk", None, None, Some(host));
+    let client = LlmClient::vertex(endpoint, "m", None)?;
+    let result = client.complete_json::<Answer>("s", "u", &opts(5_000)).await;
+    assert_eq!(result, Err(LlmError::Auth(403)));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(LlmClient::vertex(crate::vertex::VertexEndpoint::new(" ", None, None, None), "m", None).is_err());
+    Ok(())
+}

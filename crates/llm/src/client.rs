@@ -4,15 +4,33 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::error::LlmError;
+use crate::vertex::{GenerateRequest, RetryPolicy, VertexEndpoint, generate};
 
 const JSON_ONLY: &str = "앞의 지시에 맞는 JSON 하나만 출력하라. 다른 글자는 쓰지 마라.";
 
-#[derive(Clone, Debug)]
+const VERTEX_BACKOFF_CAP: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
+enum Provider {
+    OpenAi { base_url: String, api_key: String },
+    Vertex { endpoint: VertexEndpoint, thinking_budget: Option<i32> },
+}
+
+#[derive(Clone)]
 pub struct LlmClient {
     http: reqwest::Client,
-    base_url: String,
-    api_key: String,
+    provider: Provider,
     model: String,
+}
+
+impl std::fmt::Debug for LlmClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let provider = match &self.provider {
+            Provider::OpenAi { base_url, .. } => format!("openai {base_url}"),
+            Provider::Vertex { endpoint, .. } => format!("vertex {endpoint:?}"),
+        };
+        f.debug_struct("LlmClient").field("provider", &provider).field("model", &self.model).finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -45,10 +63,17 @@ impl LlmClient {
             .map_err(|_| LlmError::Unavailable)?;
         Ok(Self {
             http,
-            base_url: base_url.into().trim_end_matches('/').to_string(),
-            api_key: api_key.into(),
+            provider: Provider::OpenAi { base_url: base_url.into().trim_end_matches('/').to_string(), api_key: api_key.into() },
             model: model.into(),
         })
+    }
+
+    pub fn vertex(endpoint: VertexEndpoint, model: impl Into<String>, thinking_budget: Option<i32>) -> Result<Self, LlmError> {
+        if !endpoint.has_key() {
+            return Err(LlmError::Auth(0));
+        }
+        let http = reqwest::Client::builder().build().map_err(|_| LlmError::Unavailable)?;
+        Ok(Self { http, provider: Provider::Vertex { endpoint, thinking_budget }, model: model.into() })
     }
 
     pub fn model(&self) -> &str {
@@ -82,6 +107,14 @@ impl LlmClient {
     }
 
     async fn chat_with_retry(&self, system: &str, user: &str, opts: &CallOptions) -> Result<String, LlmError> {
+        if let Provider::Vertex { endpoint, thinking_budget } = &self.provider {
+            let policy = RetryPolicy { retries: opts.retries, base: opts.backoff_base, cap: VERTEX_BACKOFF_CAP };
+            let req = GenerateRequest { system, user, max_tokens: opts.max_tokens, json_mode: opts.json_mode, thinking_budget: *thinking_budget };
+            let reply = policy
+                .run(&self.model, "generate", || generate::generate_once(&self.http, endpoint, &self.model, &req))
+                .await?;
+            return Ok(reply.text);
+        }
         let mut attempt: u32 = 0;
         loop {
             match self.chat_once(system, user, opts).await {
@@ -98,6 +131,9 @@ impl LlmClient {
     }
 
     async fn chat_once(&self, system: &str, user: &str, opts: &CallOptions) -> Result<String, LlmError> {
+        let Provider::OpenAi { base_url, api_key } = &self.provider else {
+            return Err(LlmError::Unavailable);
+        };
         let mut body = json!({
             "model": self.model,
             "temperature": 0,
@@ -115,8 +151,8 @@ impl LlmClient {
         }
         let response = self
             .http
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
+            .post(format!("{base_url}/chat/completions"))
+            .bearer_auth(api_key)
             .json(&body)
             .send()
             .await
