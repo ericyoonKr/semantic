@@ -3,6 +3,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+GEMINI_PROVIDERS = frozenset({"gemini", "vertex"})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -11,7 +13,7 @@ class Settings(BaseSettings):
     pg_pool_max: int = 10
     rust_api_url: str = "http://127.0.0.1:8080"
     rust_timeout_s: dict[str, float] = {"search": 30.0, "judge": 180.0}
-    llm_provider: Literal["openai", "vertex"] = "openai"
+    llm_provider: Literal["openai", "gemini", "vertex"] = "openai"
     llm_base_url: str = ""
     llm_api_key: SecretStr = SecretStr("")
     llm_model: str = ""
@@ -21,8 +23,6 @@ class Settings(BaseSettings):
     llm_max_retries: int = 1
     vertex_api_key: SecretStr = SecretStr("")
     vertex_model: str = ""
-    vertex_project: str = ""
-    vertex_location: str = ""
     vertex_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
     vertex_thinking_budget: int | None = None
     vertex_max_concurrency: int = Field(default=4, ge=1)
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
         return names
 
     def _missing_model(self) -> list[str]:
-        if self.llm_provider == "vertex":
+        if self.llm_provider in GEMINI_PROVIDERS:
             needed = {"vertex_api_key": self.vertex_api_key.get_secret_value(), "vertex_model": self.vertex_model}
         else:
             needed = {"llm_base_url": self.llm_base_url, "llm_model": self.llm_model}

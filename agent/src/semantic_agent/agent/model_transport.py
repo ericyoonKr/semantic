@@ -127,7 +127,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
         where = self._where(request)
         if verdict(response.status_code) is Verdict.AUTH:
             log.error(
-                "vertex refused status=%s google_status=%s reason=%s where=%s attempt=%d",
+                "gemini refused status=%s google_status=%s reason=%s where=%s attempt=%d",
                 response.status_code,
                 error.status,
                 error.reason,
@@ -139,7 +139,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
         wait = wait_s(self.policy, attempt, server, self._rng)
         if wait is None:
             log.warning(
-                "vertex gave up status=%s google_status=%s where=%s attempts=%d server_wait_s=%s max_wait_s=%s",
+                "gemini gave up status=%s google_status=%s where=%s attempts=%d server_wait_s=%s max_wait_s=%s",
                 response.status_code,
                 error.status,
                 where,
@@ -149,7 +149,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
             )
         else:
             log.warning(
-                "vertex retry status=%s google_status=%s where=%s attempt=%d wait_s=%.2f server_wait_s=%s",
+                "gemini retry status=%s google_status=%s where=%s attempt=%d wait_s=%.2f server_wait_s=%s",
                 response.status_code,
                 error.status,
                 where,
@@ -164,7 +164,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
         detail = scrub(str(exc), self._secrets(request))
         if wait is None:
             log.warning(
-                "vertex gave up error=%s detail=%s where=%s attempts=%d",
+                "gemini gave up error=%s detail=%s where=%s attempts=%d",
                 type(exc).__name__,
                 detail,
                 self._where(request),
@@ -172,7 +172,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
             )
         else:
             log.warning(
-                "vertex retry error=%s detail=%s where=%s attempt=%d wait_s=%.2f",
+                "gemini retry error=%s detail=%s where=%s attempt=%d wait_s=%.2f",
                 type(exc).__name__,
                 detail,
                 self._where(request),
@@ -185,7 +185,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
         self._prepare(request)
         gate = self._async_gate()
         if gate.locked():
-            log.info("vertex waiting for slot limit=%d where=%s", self.limit, self._where(request))
+            log.info("gemini waiting for slot limit=%d where=%s", self.limit, self._where(request))
         await gate.acquire()
         release = _Once(gate.release)
         try:
@@ -216,7 +216,7 @@ class ModelTransport(httpx.AsyncBaseTransport, httpx.BaseTransport):
     async def close_left(self, owner: Any) -> int:
         streams = list(self._open.get(owner, ()))
         for stream in streams:
-            log.warning("vertex stream closed after caller stopped reading limit=%d", self.limit)
+            log.warning("gemini stream closed after caller stopped reading limit=%d", self.limit)
             await stream.aclose()
         return len(streams)
 

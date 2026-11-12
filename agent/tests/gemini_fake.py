@@ -7,14 +7,14 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from semantic_agent.agent.model import GOOGLE_ENV, build_model, vertex_transport
+from semantic_agent.agent.model import GOOGLE_ENV, build_model, gemini_transport
 from semantic_agent.agent.model_transport import ModelTransport
 from semantic_agent.config import Settings
 
 KEY = "vk-test-0123456789"
 MODEL_ID = "gemini-test-model"
-EXPRESS_URL = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{MODEL_ID}:generateContent"
-STREAM_URL = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{MODEL_ID}:streamGenerateContent?alt=sse"
+GENERATE_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent"
+STREAM_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:streamGenerateContent?alt=sse"
 
 
 def candidate(text: str = "답", finish: str | None = "STOP", parts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -52,7 +52,7 @@ def google_failure(code: int, status: str, message: str = "", details: list[dict
     return wire(code, json.dumps(error).encode(), **headers)
 
 
-class FakeVertex:
+class FakeGemini:
     def __init__(self, *replies: httpx.Response | Exception | Callable[[httpx.Request], Any]) -> None:
         self.replies = list(replies)
         self.requests: list[httpx.Request] = []
@@ -84,8 +84,8 @@ class FakeVertex:
         return json.loads(self.requests[index].content)
 
 
-def vertex_settings(**kwargs: Any) -> Settings:
-    values: dict[str, Any] = {"llm_provider": "vertex", "vertex_api_key": SecretStr(KEY), "vertex_model": MODEL_ID}
+def gemini_settings(**kwargs: Any) -> Settings:
+    values: dict[str, Any] = {"llm_provider": "gemini", "vertex_api_key": SecretStr(KEY), "vertex_model": MODEL_ID}
     values.update(kwargs)
     return Settings(**values)
 
@@ -101,17 +101,20 @@ class NoSleep:
         self.waits.append(seconds)
 
 
-def fake_model(fake: FakeVertex, settings: Settings | None = None, *, use_async: bool = True, limit: int | None = None) -> tuple[Any, ModelTransport, NoSleep]:
-    settings = settings or vertex_settings()
+def fake_model(fake: FakeGemini, settings: Settings | None = None, *, use_async: bool = True, limit: int | None = None) -> tuple[Any, ModelTransport, NoSleep]:
+    settings = settings or gemini_settings()
     if limit is not None:
         settings = settings.model_copy(update={"vertex_max_concurrency": limit})
     nap = NoSleep()
     inner = httpx.MockTransport(fake.ahandler if use_async else fake.handler)
-    transport = vertex_transport(settings, inner, asleep=nap, sleep=nap.sync)
+    transport = gemini_transport(settings, inner, asleep=nap, sleep=nap.sync)
     return build_model(settings, transport), transport, nap
+
+
+AMBIENT_ENV = (*GOOGLE_ENV, "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE", "LANGSMITH_GATEWAY")
 
 
 @pytest.fixture
 def clean_google_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in GOOGLE_ENV:
+    for name in AMBIENT_ENV:
         monkeypatch.delenv(name, raising=False)

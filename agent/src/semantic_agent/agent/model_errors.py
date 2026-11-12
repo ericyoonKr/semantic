@@ -177,13 +177,13 @@ def auth_message(http_status: int, error: GoogleError, secrets: Iterable[str] = 
         cause = "API 키가 틀렸거나 만료되었거나 지워졌습니다. VERTEX_API_KEY 값을 확인하십시오"
     else:
         cause = (
-            "키에 이 요청을 할 권한이 없습니다. 프로젝트에서 Vertex AI API가 켜져 있는지, "
-            "키의 API·IP 제한에 Vertex AI가 들어 있는지 확인하십시오"
+            "키에 이 요청을 할 권한이 없습니다. AI Studio에서 발급한 Gemini API 키인지, "
+            "키의 API·IP 제한에 Generative Language API가 들어 있는지 확인하십시오"
         )
     code = ", ".join(part for part in (f"HTTP {http_status}", error.status, error.reason) if part)
     said = scrub(error.message, secrets)[:MESSAGE_LIMIT]
     tail = f" 서버 응답: {said}" if said else ""
-    return f"Vertex AI가 요청을 거부했습니다({code}). {cause}. 다시 시도하지 않습니다.{tail}"
+    return f"Gemini API가 요청을 거부했습니다({code}). {cause}. 다시 시도하지 않습니다.{tail}"
 
 
 def _blocked_categories(ratings: Any) -> list[str]:
