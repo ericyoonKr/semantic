@@ -83,7 +83,10 @@ pub struct KeywordIndex {
     index: Index,
     reader: IndexReader,
     fields: Fields,
+    max_df_ratio: f64,
 }
+
+pub const KEEP_RAREST: usize = 3;
 
 fn text_of(doc: &TantivyDocument, field: Field) -> String {
     doc.get_first(field).and_then(|v| v.as_str()).unwrap_or_default().to_string()
@@ -103,7 +106,7 @@ impl KeywordIndex {
         }
         register(&index);
         let reader = index.reader_builder().reload_policy(ReloadPolicy::Manual).try_into().map_err(error::open(dir))?;
-        Ok(Self { index, reader, fields })
+        Ok(Self { index, reader, fields, max_df_ratio: 1.0 })
     }
 
     fn valid_on(&self, on: NaiveDate) -> Vec<(Occur, Box<dyn Query>)> {
@@ -127,10 +130,35 @@ impl KeywordIndex {
         built_with(&self.index, self.fields.text).unwrap_or_default()
     }
 
+    pub fn with_max_df_ratio(mut self, ratio: f64) -> Self {
+        self.max_df_ratio = ratio;
+        self
+    }
+
+    fn prune(&self, pieces: Vec<String>) -> Result<Vec<String>, KeywordError> {
+        if self.max_df_ratio >= 1.0 {
+            return Ok(pieces);
+        }
+        let searcher = self.reader.searcher();
+        let limit = (searcher.num_docs() as f64 * self.max_df_ratio) as u64;
+        let mut freq: Vec<(u64, String)> = Vec::with_capacity(pieces.len());
+        for p in pieces {
+            let df = searcher.doc_freq(&Term::from_field_text(self.fields.text, &p)).map_err(error::search)?;
+            freq.push((df, p));
+        }
+        let kept: Vec<String> = freq.iter().filter(|(df, _)| *df <= limit).map(|(_, p)| p.clone()).collect();
+        if !kept.is_empty() {
+            return Ok(kept);
+        }
+        freq.sort();
+        Ok(freq.into_iter().take(KEEP_RAREST).map(|(_, p)| p).collect())
+    }
+
     fn words(&self, text: &str) -> Result<Option<Box<dyn Query>>, KeywordError> {
         let mut pieces = self.pieces(text)?;
         pieces.sort();
         pieces.dedup();
+        let pieces = self.prune(pieces)?;
         if pieces.is_empty() {
             return Ok(None);
         }

@@ -91,6 +91,9 @@ async fn bad_arguments_are_400_before_touching_the_database() -> Checked {
         ("/annex/lookup", json!({"law": "가법"})),
         ("/annex/compute", json!({"node_id": ""})),
         ("/annex/compute", json!({"node_id": "x", "elapsed": -1})),
+        ("/laws/scope", json!({"names": []})),
+        ("/laws/scope", json!({"names": ["  "]})),
+        ("/laws/scope", json!({})),
     ];
     for (uri, body) in annex {
         let (status, reply) = post(&router, uri, body.clone()).await?;
@@ -142,6 +145,8 @@ async fn database_checks(router: &Router) -> Checked {
     check(status == StatusCode::OK, format!("{status} {cited}"))?;
     check(cited["extract_run"] == "2:v2", format!("{cited}"))?;
     check(cited["items"].as_array().map(Vec::len) == Some(1), format!("{cited}"))?;
+    let (status, scope) = post(router, "/laws/scope", json!({"names": ["국가배상법", "없는법"]})).await?;
+    check(status == StatusCode::OK && scope["law_ids"] == json!(["L1", "L2"]), format!("{status} {scope}"))?;
     let uri = format!("/citations?law={}&unit={}", encode("국가배상법"), encode("제2조"));
     let (status, citing) = get(router, &uri).await?;
     check(status == StatusCode::OK, format!("{status} {citing}"))?;

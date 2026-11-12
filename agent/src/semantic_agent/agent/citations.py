@@ -2,7 +2,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from semantic_agent.ledger import Ledger
+from semantic_agent.agent.issues import Issue, check_refs
+from semantic_agent.ledger import Authority, Ledger
 
 REF = re.compile(r"^\s*\[?근거\s*(\d+)\]?")
 
@@ -13,6 +14,8 @@ class Finding:
     source: str
     quote: str
     stance: str = "neutral"
+    annex_used: bool = False
+    old_law_case: bool = False
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,7 @@ class Findings:
     dropped: int
     limit: str | None
     reverse_query: str | None = None
+    issues: tuple[Issue, ...] = ()
 
 
 def _keep(findings: Findings, judge: Callable[[Finding], Finding | None]) -> Findings:
@@ -36,12 +40,24 @@ def _keep(findings: Findings, judge: Callable[[Finding], Finding | None]) -> Fin
     return replace(findings, found=kept, dropped=dropped)
 
 
+def _authority(ledger: Ledger, source: str) -> Authority | None:
+    match = REF.match(source)
+    return ledger.get(int(match.group(1))) if match else None
+
+
+def _shown(authority: Authority) -> str:
+    return f"[근거 {authority.ref}] {authority.display()}"
+
+
 def check_research(findings: Findings, ledger: Ledger) -> Findings:
     def judge(item: Finding) -> Finding | None:
-        match = REF.match(item.source)
-        authority = ledger.get(int(match.group(1))) if match else None
+        authority = _authority(ledger, item.source)
         if authority is None or not authority.has_quote(item.quote):
             return None
-        return replace(item, source=f"[근거 {authority.ref}] {authority.display()}")
+        return replace(item, source=_shown(authority))
 
-    return _keep(findings, judge)
+    def ref(source: str) -> str | None:
+        authority = _authority(ledger, source)
+        return _shown(authority) if authority else None
+
+    return replace(_keep(findings, judge), issues=check_refs(findings.issues, ref))

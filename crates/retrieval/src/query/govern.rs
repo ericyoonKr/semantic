@@ -107,9 +107,13 @@ async fn with_subordinates(pool: &PgPool, name: &str) -> Result<Vec<String>, Ret
 }
 
 pub async fn governing_laws(pool: &PgPool, text: &str) -> Result<Vec<String>, RetrievalError> {
+    named_laws(pool, &mentioned_names(text)).await
+}
+
+pub async fn named_laws(pool: &PgPool, names: &[String]) -> Result<Vec<String>, RetrievalError> {
     let mut ids: Vec<String> = Vec::new();
-    for name in mentioned_names(text) {
-        let Some((law_id, resolved, _)) = resolve_law(pool, &name).await? else { continue };
+    for name in names {
+        let Some((law_id, resolved, _)) = resolve_law(pool, name).await? else { continue };
         let mut found = with_subordinates(pool, &resolved).await?;
         if !found.contains(&law_id) {
             found.push(law_id);

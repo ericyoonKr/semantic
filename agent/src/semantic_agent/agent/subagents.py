@@ -95,12 +95,14 @@ class SubagentLimit(AgentMiddleware):
         return _close(await handler(last), f"{LIMIT_MARK}: {reason}")
 
 
-def make_subagents(backend: BackendProtocol, search_tools: list[BaseTool]) -> list[SubAgent]:
+def make_subagents(
+    backend: BackendProtocol, search_tools: list[BaseTool], prompt: str = RESEARCHER_PROMPT
+) -> list[SubAgent]:
     return [
         {
             "name": RESEARCHER,
             "description": RESEARCHER_DESCRIPTION,
-            "system_prompt": RESEARCHER_PROMPT,
+            "system_prompt": prompt,
             "tools": search_tools,
             "middleware": [
                 QuestionBudget(),

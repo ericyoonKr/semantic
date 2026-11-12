@@ -13,7 +13,10 @@ from langgraph.types import Command
 
 from semantic_agent.agent.citations import Finding, Findings, check_research
 from semantic_agent.agent.guards import result_text
+from semantic_agent.agent.intent import IntentScope
+from semantic_agent.agent.issues import flag, parse_issues, render_issues
 from semantic_agent.agent.prompts import ADVERSE_NOTE, RETRY_NOTE
+from semantic_agent.agent.prompts_research import INTENT_NOTE
 from semantic_agent.agent.subagents import LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
 from semantic_agent.ledger import Ledger, current_ledger, normalize
 from semantic_agent.tools.client import material
@@ -67,11 +70,20 @@ def parse_findings(text: str) -> Findings | None:
             dropped += 1
             continue
         stance = _clean(entry.get("stance"))
-        kept.append(Finding(claim, source, _clean(entry.get("quote")), stance if stance in STANCES else "neutral"))
+        kept.append(
+            Finding(
+                claim,
+                source,
+                _clean(entry.get("quote")),
+                stance if stance in STANCES else "neutral",
+                annex_used=flag(entry.get("annex_used")),
+                old_law_case=flag(entry.get("old_law_case")),
+            )
+        )
     misses = [m for m in (_clean(x) for x in not_found) if m]
     limit = next((s for s in (line.strip() for line in text.splitlines()) if s.startswith(LIMIT_MARK)), None)
     reverse = _clean(data.get("reverse_query")) or None
-    return Findings(kept, misses, dropped, limit, reverse)
+    return Findings(kept, misses, dropped, limit, reverse, parse_issues(data.get("issues")))
 
 
 def _query_key(text: str) -> str:
@@ -93,10 +105,15 @@ def render_findings(name: str, findings: Findings) -> str:
         lines += [f"- 주장: {item.claim}", f"  출처: {item.source}", f"  인용: {item.quote}"]
         if item.stance != "neutral":
             lines.append(f"  방향: {item.stance}")
+        if item.annex_used:
+            lines.append("  별표 계산값 사용")
+        if item.old_law_case:
+            lines.append("  구법 판례")
     if not findings.found:
         lines.append("- 없음")
     lines.append("찾지 못한 것:")
     lines += [f"- {miss}" for miss in findings.not_found] or ["- 없음"]
+    lines += render_issues(findings.issues)
     if findings.reverse_query:
         lines.append(f"반대 방향 검색어: {findings.reverse_query}")
     if findings.limit:
@@ -149,12 +166,14 @@ class SubagentGate(AgentMiddleware):
         limit: int = SUB_CONCURRENCY,
         deadline_s: float = SUB_DEADLINE_S,
         routes: Mapping[str, Sequence[str]] | None = None,
+        scope: IntentScope | None = None,
     ) -> None:
         super().__init__()
         self._names = frozenset(names)
         self._limit = limit
         self._deadline_s = deadline_s
         self._routes = dict(routes or {})
+        self._scope = scope
         self._slots: dict[str, _Slot] = {}
 
     async def awrap_tool_call(
@@ -228,6 +247,7 @@ class SubagentGate(AgentMiddleware):
         attempt = self._first_request(request, name, brief)
         malformed = 0
         adverse = 0
+        followed = self._scope is None or name != RESEARCHER
         start = len(ledger.queries)
         while True:
             result = await self._run_once(attempt, handler)
@@ -264,6 +284,10 @@ class SubagentGate(AgentMiddleware):
                         else:
                             actual = ledger.queries[start:]
                             findings = replace(findings, reverse_query=actual[-1] if actual else None)
+                if not note and not followed and self._scope is not None:
+                    followed = True
+                    hint = await self._scope.hint(brief.issue, findings.issues, ledger)
+                    note = f"{hint}\n\n{INTENT_NOTE}" if hint else ""
                 if not note:
                     if findings.dropped:
                         log.info("subagent lines dropped name=%s count=%d", name, findings.dropped)

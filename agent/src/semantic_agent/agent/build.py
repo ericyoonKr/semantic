@@ -11,6 +11,7 @@ from deepagents import (
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.language_models import BaseChatModel
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_config
 from langgraph.store.base import BaseStore
@@ -19,9 +20,11 @@ from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import ContextMiddleware
 from semantic_agent.agent.delegation import SubagentGate
 from semantic_agent.agent.guards import ScopeGuard, ToolGuard
+from semantic_agent.agent.intent import IntentScope
 from semantic_agent.agent.judge_route import JudgeRoute
 from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
+from semantic_agent.agent.research import VERSION_TOOLS, ResearchOptions
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.memory.store import prefs_namespace
 from semantic_agent.tools.annex import make_annex_tools
@@ -93,19 +96,28 @@ def _disable_general_purpose(model: BaseChatModel) -> None:
     )
 
 
+def researcher_tools(client: ToolClient, research: ResearchOptions) -> list[BaseTool]:
+    tools = [*make_search_tools(client, scoped=research.steps), *make_annex_tools(client)]
+    if research.steps:
+        tools += [t for t in make_version_tools(client) if t.name in VERSION_TOOLS]
+    return tools
+
+
 def build_agent(
     model: BaseChatModel,
     client: ToolClient,
     catalogs: Catalogs,
     checkpointer: BaseCheckpointSaver,
     store: BaseStore,
+    research: ResearchOptions | None = None,
 ) -> Any:
+    research = research or ResearchOptions()
     _disable_general_purpose(model)
     backend = CompositeBackend(
         default=StateBackend(),
         routes={"/prefs/": StoreBackend(namespace=_prefs_namespace)},
     )
-    subagents = make_subagents(backend, [*make_search_tools(client), *make_annex_tools(client)])
+    subagents = make_subagents(backend, researcher_tools(client, research), research.researcher_prompt())
     return create_deep_agent(
         model=model,
         tools=[
@@ -124,7 +136,11 @@ def build_agent(
             ProgressMiddleware(catalogs.kg_hashes),
             TodoListMiddleware(system_prompt=PLAN_PROMPT),
             ToolGuard(),
-            SubagentGate(SUBAGENT_NAMES, routes=catalogs.routes),
+            SubagentGate(
+                SUBAGENT_NAMES,
+                routes=catalogs.routes,
+                scope=IntentScope(client) if research.intent_scope else None,
+            ),
         ],
         subagents=subagents,
         permissions=PERMISSIONS,

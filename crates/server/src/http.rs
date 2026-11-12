@@ -8,6 +8,7 @@ pub mod kgstate;
 pub mod kgtree;
 pub mod middleware;
 pub mod rules;
+pub mod scope;
 pub mod search;
 pub mod sessions;
 pub mod versions;
@@ -40,6 +41,7 @@ pub fn router(state: AppState) -> Router {
         .route("/search/laws", post(search::search_laws))
         .route("/search/cases", post(search::search_cases))
         .route("/laws/unit", get(search::law_unit))
+        .route("/laws/scope", post(scope::law_scope))
         .route("/cases/{decision_id}", get(search::case))
         .route("/citations", get(search::citations))
         .route("/versions/resolve", post(versions::resolve))

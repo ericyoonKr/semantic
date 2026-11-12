@@ -11,6 +11,7 @@ from langgraph.store.memory import InMemoryStore
 from pydantic import Field
 
 from semantic_agent.agent.build import build_agent, load_catalogs
+from semantic_agent.agent.research import ResearchOptions
 from semantic_agent.tools.client import ToolClient
 from semantic_agent.tools.fake import FakeClient
 
@@ -59,13 +60,14 @@ async def make_agent(
     script: list[AIMessage] | None = None,
     client: ToolClient | None = None,
     model: BaseChatModel | None = None,
+    research: ResearchOptions | None = None,
 ) -> tuple[Any, Any, Any]:
     use_client = client or FakeClient()
     catalogs = await load_catalogs(use_client)
     if isinstance(use_client, FakeClient):
         use_client.calls.clear()
     use_model = model or ScriptedToolModel(script=iter(script or []))
-    agent = build_agent(use_model, use_client, catalogs, InMemorySaver(), InMemoryStore())
+    agent = build_agent(use_model, use_client, catalogs, InMemorySaver(), InMemoryStore(), research)
     return agent, use_model, use_client
 
 

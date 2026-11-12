@@ -25,6 +25,7 @@ pub struct CorpusConfig {
     pub law_weights_annex: bool,
     pub term_stem: bool,
     pub keyword_index: Option<std::path::PathBuf>,
+    pub keyword_max_df: f64,
     pub case_keyword_index: Option<std::path::PathBuf>,
     pub case_weights: CaseWeights,
 }
@@ -60,6 +61,13 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
             Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_WEIGHTS_ANNEX")),
         },
         keyword_index: r.text("CORPUS_KEYWORD_INDEX").map(std::path::PathBuf::from),
+        keyword_max_df: match r.text("CORPUS_KEYWORD_MAX_DF") {
+            None => 1.0,
+            Some(v) => match v.parse::<f64>() {
+                Ok(x) if x > 0.0 && x <= 1.0 => x,
+                _ => return Err(ConfigError::Invalid("CORPUS_KEYWORD_MAX_DF")),
+            },
+        },
         case_keyword_index: r.text("CORPUS_CASE_KEYWORD_INDEX").map(std::path::PathBuf::from),
         case_weights: match r.text("CORPUS_CASE_WEIGHTS") {
             None => CaseWeights::default(),
@@ -168,8 +176,8 @@ impl CorpusConfig {
         if let Some(dir) = &self.keyword_index {
             match KeywordIndex::open(dir) {
                 Ok(index) => {
-                    tracing::info!(dir = %dir.display(), "keyword index ready");
-                    corpus = corpus.with_keyword(index);
+                    tracing::info!(dir = %dir.display(), max_df = self.keyword_max_df, "keyword index ready");
+                    corpus = corpus.with_keyword(index.with_max_df_ratio(self.keyword_max_df));
                 }
                 Err(e) => log_open_failure(&e),
             }

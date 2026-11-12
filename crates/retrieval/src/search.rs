@@ -109,7 +109,10 @@ async fn keyword_candidates(corpus: &Corpus, q: &LawQuery, law_ids: Option<&[Str
     let text = q.text.clone();
     let ids: Vec<String> = law_ids.map(<[String]>::to_vec).unwrap_or_default();
     let limit = usize::try_from(CANDIDATES).unwrap_or(usize::MAX);
+    let scoped = !ids.is_empty();
+    let started = std::time::Instant::now();
     let found = tokio::task::spawn_blocking(move || index.search(&text, &ids, on, limit)).await;
+    tracing::info!(elapsed_ms = started.elapsed().as_millis() as u64, scoped, "keyword branch searched");
     let hits = match found {
         Ok(Ok(hits)) => hits,
         Ok(Err(e)) => {

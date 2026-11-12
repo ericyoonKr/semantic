@@ -17,6 +17,7 @@ from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 
 from semantic_agent.agent.build import build_agent, load_catalogs
+from semantic_agent.agent.research import ResearchOptions
 from semantic_agent.agent.model import build_model
 from semantic_agent.api.sessions import SessionRegistry, run_ask, run_upload
 from semantic_agent.api.sse import event, to_sse
@@ -145,7 +146,14 @@ def create_app(
             use_store = await open_store(pool)
         use_client = client or (FakeClient() if settings.fake_tools else RustClient(settings))
         catalogs = await load_catalogs(use_client)
-        agent = build_agent(model or build_model(settings), use_client, catalogs, use_saver, use_store)
+        agent = build_agent(
+            model or build_model(settings),
+            use_client,
+            catalogs,
+            use_saver,
+            use_store,
+            ResearchOptions.from_settings(settings),
+        )
         registry = SessionRegistry()
         app.state.rt = AppState(agent, use_saver, use_store, use_client, registry)
         try:

@@ -53,16 +53,24 @@ def _scheduled(value: Any) -> str:
     return f" · 시행 예정: {value}" if value else ""
 
 
-def format_laws(data: dict[str, Any]) -> str:
+def _scope_parts(hit: dict[str, Any]) -> tuple[str, str]:
+    law_id = f" · 법령 ID {hit['law_id']}" if hit.get("law_id") else ""
+    units = hit.get("matched_units") or []
+    matched = f"\n맞은 항·호: {', '.join(str(u) for u in units)}" if units else ""
+    return law_id, matched
+
+
+def format_laws(data: dict[str, Any], scoped: bool = False) -> str:
     lines = _degraded_line(data.get("degraded_reason") or data.get("degraded"))
     for hit in data.get("hits", []):
         version = hit.get("version_id") or _version(hit.get("kind"), hit.get("lsi_seq"))
         node = f" · node_id {hit['node_id']}" if hit.get("node_id") else ""
+        law_id, matched = _scope_parts(hit) if scoped else ("", "")
         head = (
             f"[{hit.get('law_name', '')} {hit.get('unit_key', '')}({hit.get('title', '')})"
-            f" · {hit.get('enforcement_date', '')} · {version}{node}{_scheduled(hit.get('scheduled_from'))}]"
+            f" · {hit.get('enforcement_date', '')} · {version}{node}{law_id}{_scheduled(hit.get('scheduled_from'))}]"
         )
-        lines.append(f"{head}\n{str(hit.get('text', ''))[:SNIPPET_CHARS]}")
+        lines.append(f"{head}{matched}\n{str(hit.get('text', ''))[:SNIPPET_CHARS]}")
     if not data.get("hits"):
         lines.append("찾은 조문 없음")
     else:
@@ -205,23 +213,43 @@ async def run_queries(queries: list[str], one: Callable[[str], Awaitable[str]]) 
     return "\n\n".join(parts)
 
 
-def make_search_tools(client: ToolClient) -> list[BaseTool]:
-    @tool(
-        "search_laws",
-        description=f"법령 조문·별표를 검색한다. 검색어를 {MAX_QUERIES}개까지 한 번에 주면 동시에 찾는다. 항목마다 법령명·조문·시행일·판본이 붙는다.",
-    )
+LAWS_DESCRIPTION = (
+    f"법령 조문·별표를 검색한다. 검색어를 {MAX_QUERIES}개까지 한 번에 주면 동시에 찾는다. 항목마다 법령명·조문·시행일·판본이 붙는다."
+)
+SCOPE_DESCRIPTION = " 항목에 법령 ID와 맞은 항·호가 붙는다. law_ids에 법령 ID를 주면 그 법령 안에서만 찾는다."
+
+
+def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool]:
+    async def find_laws(
+        queries: list[str], k: int, as_of: str | None, law_type: list[str] | None, law_ids: list[str] | None
+    ) -> str:
+        async def one(query: str) -> str:
+            body: dict[str, Any] = {"query": query, "k": k, "as_of": as_of, "law_type": law_type}
+            if law_ids:
+                body["law_ids"] = law_ids
+            data, err = await client.fetch("POST", "/search/laws", kind="search", fail=SEARCH_FAIL, json=body)
+            return failed(err) or material("법령 검색", format_laws(data, scoped))
+
+        return await run_queries(queries, one)
+
+    @tool("search_laws", description=LAWS_DESCRIPTION)
     async def search_laws(
         queries: Queries,
         k: Limit = 8,
         as_of: IsoDate | None = None,
         law_type: list[str] | None = None,
     ) -> str:
-        async def one(query: str) -> str:
-            body = {"query": query, "k": k, "as_of": as_of, "law_type": law_type}
-            data, err = await client.fetch("POST", "/search/laws", kind="search", fail=SEARCH_FAIL, json=body)
-            return failed(err) or material("법령 검색", format_laws(data))
+        return await find_laws(queries, k, as_of, law_type, None)
 
-        return await run_queries(queries, one)
+    @tool("search_laws", description=LAWS_DESCRIPTION + SCOPE_DESCRIPTION)
+    async def search_laws_scoped(
+        queries: Queries,
+        k: Limit = 8,
+        as_of: IsoDate | None = None,
+        law_type: list[str] | None = None,
+        law_ids: list[str] | None = None,
+    ) -> str:
+        return await find_laws(queries, k, as_of, law_type, law_ids)
 
     @tool(
         "search_cases",
@@ -304,4 +332,4 @@ def make_search_tools(client: ToolClient) -> list[BaseTool]:
         data, err = await client.fetch("GET", "/citations", kind="search", fail=SEARCH_FAIL, params=params)
         return case_failed(err) or material("인용 관계", format_citations(data))
 
-    return [search_laws, search_cases, read_law, read_case, case_citations]
+    return [search_laws_scoped if scoped else search_laws, search_cases, read_law, read_case, case_citations]
