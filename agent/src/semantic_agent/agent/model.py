@@ -21,7 +21,13 @@ log = logging.getLogger(__name__)
 
 VERTEX_API_VERSION = "v1"
 SDK_ATTEMPTS = 1
-GOOGLE_ENV = ("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION")
+GOOGLE_ENV = (
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+)
 
 
 class VertexChat(ChatGoogleGenerativeAI):
@@ -82,7 +88,7 @@ def _refuse_ambient_google(settings: Settings) -> None:
     present = [name for name in GOOGLE_ENV if os.environ.get(name)]
     if present:
         reasons.append(
-            f"환경변수 {', '.join(present)}가 있으면 라이브러리가 VERTEX_API_KEY 대신 그 값을 먼저 씁니다. "
+            f"환경변수 {', '.join(present)}가 있으면 라이브러리가 VERTEX_API_KEY 대신 그 값이나 이 기계의 인증 정보를 쓸 수 있습니다. "
             "이 환경변수들을 지우십시오"
         )
     if reasons:

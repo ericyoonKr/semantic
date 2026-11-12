@@ -219,7 +219,10 @@ def test_project_or_location_with_key_is_refused(settings: dict) -> None:
     assert fake.requests == []
 
 
-@pytest.mark.parametrize("name", ["GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"])
+@pytest.mark.parametrize(
+    "name",
+    ["GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS"],
+)
 def test_ambient_google_env_is_refused(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     monkeypatch.setenv(name, "other-value")
     with pytest.raises(ModelConfigError) as caught:
