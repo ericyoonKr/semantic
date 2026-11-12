@@ -114,7 +114,9 @@ mod tests {
 
     #[test]
     fn weights_parse_and_map_law_kinds() {
-        let w = LawWeights::parse("1, 0.9,0.8,0.5").expect("four weights");
+        let parsed = LawWeights::parse("1, 0.9,0.8,0.5");
+        assert!(parsed.is_some());
+        let w = parsed.unwrap_or_default();
         assert_eq!(w.of("law", "법률"), 1.0);
         assert_eq!(w.of("law", "대통령령"), 0.9);
         assert_eq!(w.of("law", "부령"), 0.8);

@@ -20,6 +20,7 @@ pub struct LawSearchRequest {
     pub k: Option<usize>,
     pub as_of: Option<NaiveDate>,
     pub law_type: Option<Vec<String>>,
+    pub law_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +168,7 @@ pub async fn search_laws(
         k: top_k(req.k)?,
         as_of: req.as_of,
         law_type: list(req.law_type),
+        law_ids: list(req.law_ids),
     };
     let c = corpus(&state)?;
     run(&state, retrieval::search_laws(c, &q)).await

@@ -3,6 +3,8 @@ pub mod cases;
 pub mod citations;
 pub mod direct;
 pub mod fusion;
+pub mod govern;
+pub mod keyword;
 pub mod laws;
 pub mod terms;
 pub mod weights;

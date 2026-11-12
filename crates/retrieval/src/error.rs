@@ -22,6 +22,8 @@ pub enum RetrievalError {
     Argument(&'static str),
     #[error("{0} not found")]
     NotFound(&'static str),
+    #[error(transparent)]
+    Keyword(#[from] crate::query::keyword::error::KeywordError),
 }
 
 impl RetrievalError {

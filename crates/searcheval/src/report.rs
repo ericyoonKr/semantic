@@ -63,6 +63,12 @@ pub fn group(name: &str, t: &Tally) {
         .map(|(b, c)| format!("{b}:{c}"))
         .collect();
     println!("  첫 정답 순위 분포: {}", dist.join(" "));
+    if t.paragraph_asked > 0 {
+        println!(
+            "  정답 조문의 맞은 항·호에 정답 항이 든 질의(정답에 항이 적힌 질의 중): {}",
+            pct(t.paragraph_found, t.paragraph_asked)
+        );
+    }
     let mut lat = t.latencies.clone();
     lat.sort_by(f64::total_cmp);
     match (quantile(&lat, 0.5), quantile(&lat, 0.95)) {

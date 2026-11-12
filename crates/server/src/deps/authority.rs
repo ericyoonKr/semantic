@@ -84,7 +84,7 @@ impl AuthoritySearch for CorpusAuthority {
         };
         let law_k = k.div_ceil(2).max(1);
         let case_k = (k - law_k.min(k)).max(1);
-        let laws = LawQuery { text: query.to_string(), k: law_k, as_of: None, law_type: None };
+        let laws = LawQuery { text: query.to_string(), k: law_k, as_of: None, law_type: None, law_ids: None };
         let cases = CaseQuery {
             text: query.to_string(),
             k: case_k,

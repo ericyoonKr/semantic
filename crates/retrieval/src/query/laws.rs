@@ -18,6 +18,9 @@ const QUERY_CANCELED: &str = "57014";
 
 pub const DAY: &str = "COALESCE($1::date, current_date)";
 const LAW_TYPE: &str = "($2::text[] IS NULL OR l.law_type = ANY($2::text[]))";
+const TEXT_LAW_IDS: &str = "($4::text[] IS NULL OR l.law_id = ANY($4::text[]))";
+const TEXT_FIRST_PATTERN: usize = 5;
+const VECTOR_LAW_IDS: &str = "($6::text[] IS NULL OR l.law_id = ANY($6::text[]))";
 const OPEN_ARTICLE: &str = "upper_inf(av.sys_period)";
 const OPEN_ANNEX: &str = "upper_inf(a.sys_period)";
 const NODE_TYPES: &str = "('row','row_item','rule_para','note','section')";
@@ -42,18 +45,18 @@ fn text_sql(terms: &Terms, m: usize, weights: &LawWeights) -> Option<String> {
     Some(format!(
         "(SELECT 'a' AS src, av.row_id AS id, {sa} * {w} AS s, length(av.body) AS len FROM article_version av \
            JOIN law l ON l.law_id = av.law_id \
-           WHERE {ma} AND {OPEN_ARTICLE} AND {VALID_AV} AND {LAW_TYPE} \
+           WHERE {ma} AND {OPEN_ARTICLE} AND {VALID_AV} AND {LAW_TYPE} AND {TEXT_LAW_IDS} \
            ORDER BY s DESC, len, av.row_id LIMIT $3) \
          UNION ALL \
          (SELECT 'x' AS src, a.row_id AS id, {sx} * {wx} AS s, length(a.raw_text) AS len FROM annex a \
            JOIN law l ON l.law_id = a.law_id \
-           WHERE {mx} AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} \
+           WHERE {mx} AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} AND {TEXT_LAW_IDS} \
            ORDER BY s DESC, len, a.row_id LIMIT $3) \
          ORDER BY s DESC, len, src, id LIMIT $3",
-        sa = terms.contained("av.body", 4),
-        ma = terms.at_least("av.body", 4, m)?,
-        sx = terms.contained("a.raw_text", 4),
-        mx = terms.at_least("a.raw_text", 4, m)?,
+        sa = terms.contained("av.body", TEXT_FIRST_PATTERN),
+        ma = terms.at_least("av.body", TEXT_FIRST_PATTERN, m)?,
+        sx = terms.contained("a.raw_text", TEXT_FIRST_PATTERN),
+        mx = terms.at_least("a.raw_text", TEXT_FIRST_PATTERN, m)?,
     ))
 }
 
@@ -62,6 +65,7 @@ pub async fn text_candidates(
     q: &LawQuery,
     terms: &Terms,
     weights: &LawWeights,
+    law_ids: Option<&[String]>,
 ) -> Result<Vec<UnitRef>, RetrievalError> {
     let patterns = terms.like_patterns();
     let mut rows = Vec::new();
@@ -70,7 +74,8 @@ pub async fn text_candidates(
         let mut query = sqlx::query(AssertSqlSafe(sql))
             .bind(q.as_of)
             .bind(q.law_type.clone())
-            .bind(CANDIDATES);
+            .bind(CANDIDATES)
+            .bind(law_ids);
         for p in &patterns {
             query = query.bind(p.clone());
         }
@@ -158,19 +163,20 @@ pub async fn vector_candidates(
     q: &LawQuery,
     registry: &str,
     vector: &str,
+    law_ids: Option<&[String]>,
 ) -> Result<Vec<UnitRef>, RetrievalError> {
     let sql = format!(
         "(SELECT 'a' AS src, av.row_id::text AS id, e.embedding <=> CAST($5::text AS halfvec) AS d \
            FROM law_text_embedding e JOIN embedding_model m ON m.model_id = e.model_id \
            JOIN article_version av ON av.content_hash = e.content_hash \
            JOIN law l ON l.law_id = av.law_id \
-           WHERE m.name = $4 AND {OPEN_ARTICLE} AND {VALID_AV} AND {LAW_TYPE} \
+           WHERE m.name = $4 AND {OPEN_ARTICLE} AND {VALID_AV} AND {LAW_TYPE} AND {VECTOR_LAW_IDS} \
            ORDER BY d LIMIT $3) \
          UNION ALL \
          (SELECT 'n' AS src, n.node_id AS id, n.embedding <=> CAST($5::text AS halfvec) AS d \
            FROM annex_node n JOIN annex a ON a.row_id = n.annex_row_id \
            JOIN law l ON l.law_id = a.law_id \
-           WHERE n.embedding IS NOT NULL AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} \
+           WHERE n.embedding IS NOT NULL AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} AND {VECTOR_LAW_IDS} \
            ORDER BY d LIMIT $3) \
          ORDER BY d LIMIT $3"
     );
@@ -180,6 +186,7 @@ pub async fn vector_candidates(
         .bind(CANDIDATES)
         .bind(registry)
         .bind(vector)
+        .bind(law_ids)
         .fetch_all(pool)
         .await?;
     let mut out: Vec<UnitRef> = Vec::with_capacity(rows.len());
@@ -283,6 +290,7 @@ pub async fn hits(
     pool: &PgPool,
     ranked: &[(UnitRef, f64, String)],
     as_of: Option<NaiveDate>,
+    units: &HashMap<i64, Vec<String>>,
 ) -> Result<Vec<LawHit>, RetrievalError> {
     let mut articles = Vec::new();
     let mut annexes = Vec::new();
@@ -297,8 +305,9 @@ pub async fn hits(
     let mut found: HashMap<UnitRef, LawHit> = HashMap::new();
     if !articles.is_empty() {
         for row in sqlx::query(ARTICLE_DETAILS).bind(&articles).bind(as_of).fetch_all(pool).await? {
+            let row_id: i64 = row.try_get(0)?;
             found.insert(
-                UnitRef::Article(row.try_get(0)?),
+                UnitRef::Article(row_id),
                 LawHit {
                     law_name: row.try_get(1)?,
                     unit_key: row.try_get(2)?,
@@ -314,6 +323,7 @@ pub async fn hits(
                     node_id: None,
                     scheduled_from: row.try_get(10)?,
                     matched: String::new(),
+                    matched_units: units.get(&row_id).cloned().unwrap_or_default(),
                 },
             );
         }
@@ -338,6 +348,7 @@ pub async fn hits(
                     node_id: None,
                     scheduled_from: None,
                     matched: String::new(),
+                    matched_units: Vec::new(),
                 },
             );
         }
@@ -363,6 +374,7 @@ pub async fn hits(
                     node_id: Some(id),
                     scheduled_from: None,
                     matched: String::new(),
+                    matched_units: Vec::new(),
                 },
             );
         }
@@ -377,6 +389,17 @@ pub async fn hits(
             })
         })
         .collect())
+}
+
+pub async fn unit_paths(pool: &PgPool, ids: &[i64]) -> Result<HashMap<i64, String>, RetrievalError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(i64, String)> = sqlx::query_as("SELECT unit_id, path FROM article_unit WHERE unit_id = ANY($1)")
+        .bind(ids)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().collect())
 }
 
 fn deleted(article_no: &str, body: &str) -> bool {

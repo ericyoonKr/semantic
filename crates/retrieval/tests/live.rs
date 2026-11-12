@@ -125,7 +125,7 @@ async fn abbreviation_reads_the_official_law() -> Checked {
 async fn vector_search_off_by_configuration_says_so() -> Checked {
     let Some(c) = corpus()? else { return Ok(()) };
     let c = c.without_vectors();
-    let q = LawQuery { text: "영업정지 처분 기준".into(), k: 5, as_of: None, law_type: None };
+    let q = LawQuery { text: "영업정지 처분 기준".into(), k: 5, as_of: None, law_type: None, law_ids: None };
     let r = retrieval::search_laws(&c, &q).await?;
     check(r.degraded, "degraded")?;
     check(r.degraded_reason.as_deref() == Some(retrieval::search::VECTOR_OFF), format!("{:?}", r.degraded_reason))?;

@@ -77,7 +77,7 @@ impl<R: BufRead + Guarded> XmlReader<R> {
         }
         loop {
             self.events = self.events.wrapping_add(1);
-            if self.events % CHECK_EVERY == 0 {
+            if self.events.is_multiple_of(CHECK_EVERY) {
                 self.deadline.check()?;
             }
             self.buf.clear();

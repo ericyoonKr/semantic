@@ -169,8 +169,8 @@ mod tests {
         assert_eq!(stem("‘분양대상자별"), "분양대상자별");
         assert_eq!(stem("대가"), "대가");
         assert_eq!(stem("방법"), "방법");
-        let t = Terms::split_with("행정청의 행위가 항고소송의 대상이", true).expect("terms");
-        assert_eq!(t.words(), ["행정청", "행위", "항고소송", "대상"]);
+        let words: Vec<String> = Terms::split_with("행정청의 행위가 항고소송의 대상이", true).map(|t| t.words().to_vec()).unwrap_or_default();
+        assert_eq!(words, ["행정청", "행위", "항고소송", "대상"]);
     }
 
     use super::*;

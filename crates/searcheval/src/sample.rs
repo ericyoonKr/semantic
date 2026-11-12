@@ -8,6 +8,8 @@ pub struct GoldLaw {
     pub law: String,
     pub unit: String,
     #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
     pub named_in_query: bool,
 }
 

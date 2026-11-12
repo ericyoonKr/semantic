@@ -7,6 +7,8 @@ pub struct SearchResult<T> {
     pub degraded: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub degraded_reason: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
     pub hits: Vec<T>,
 }
 
@@ -28,6 +30,8 @@ pub struct LawHit {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scheduled_from: Option<NaiveDate>,
     pub matched: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub matched_units: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -48,6 +52,7 @@ pub struct LawQuery {
     pub k: usize,
     pub as_of: Option<NaiveDate>,
     pub law_type: Option<Vec<String>>,
+    pub law_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

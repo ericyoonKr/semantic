@@ -18,8 +18,10 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tantivy = "=0.27.0"
 
 [dev-dependencies]
+tempfile = { workspace = true }
 axum = { workspace = true }
 
 [lints.clippy]

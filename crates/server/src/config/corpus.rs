@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use retrieval::query::keyword::KeywordIndex;
+use retrieval::query::keyword::error::log_open_failure;
 use retrieval::{Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
 
 use super::Reader;
@@ -16,9 +18,11 @@ pub struct CorpusConfig {
     pub search_deadline: Duration,
     pub citations_max: i64,
     pub vector_search: bool,
+    pub law_scope: bool,
     pub law_weights: LawWeights,
     pub law_weights_annex: bool,
     pub term_stem: bool,
+    pub keyword_index: Option<std::path::PathBuf>,
 }
 
 pub(super) fn read<F: Fn(&str) -> Option<String>>(
@@ -51,10 +55,16 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
             Some("off") => false,
             Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_WEIGHTS_ANNEX")),
         },
+        keyword_index: r.text("CORPUS_KEYWORD_INDEX").map(std::path::PathBuf::from),
         term_stem: match r.text("CORPUS_TERM_STEM").as_deref() {
             None | Some("off") => false,
             Some("on") => true,
             Some(_) => return Err(ConfigError::Invalid("CORPUS_TERM_STEM")),
+        },
+        law_scope: match r.text("CORPUS_LAW_SCOPE").as_deref() {
+            None | Some("on") => true,
+            Some("off") => false,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_SCOPE")),
         },
         vector_search: match r.text("CORPUS_VECTOR_SEARCH").as_deref() {
             None | Some("on") => true,
@@ -124,7 +134,16 @@ impl CorpusConfig {
             }
         };
         let weights = if self.law_weights_annex { self.law_weights } else { self.law_weights.articles_only() };
-        let corpus = Corpus::new(pool, embedder).with_weights(weights).with_stemming(self.term_stem);
+        let mut corpus = Corpus::new(pool, embedder).with_weights(weights).with_stemming(self.term_stem).with_law_scope(self.law_scope);
+        if let Some(dir) = &self.keyword_index {
+            match KeywordIndex::open(dir) {
+                Ok(index) => {
+                    tracing::info!(dir = %dir.display(), "keyword index ready");
+                    corpus = corpus.with_keyword(index);
+                }
+                Err(e) => log_open_failure(&e),
+            }
+        }
         if !self.law_weights.is_flat() {
             tracing::info!(weights = ?self.law_weights, "law kind weights on");
         }
@@ -210,4 +229,5 @@ mod tests {
             Err(ConfigError::DeadlineOrder(_, _))
         ));
     }
+
 }

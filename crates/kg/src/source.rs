@@ -347,6 +347,25 @@ fn top_key(line: &str) -> Option<&str> {
     line.split_once(':').map(|(k, _)| k.trim())
 }
 
+fn flush(
+    section: Section,
+    buf: &mut String,
+    start: u64,
+    on_item: &mut impl FnMut(Item) -> Result<(), KgError>,
+) -> Result<(), KgError> {
+    if buf.is_empty() {
+        return Ok(());
+    }
+    let parsed: Vec<Value> = serde_yaml::from_str(buf).map_err(|_| KgError::Json(start))?;
+    buf.clear();
+    let [body] = <[Value; 1]>::try_from(parsed).map_err(|_| KgError::UnknownItem(start))?;
+    match section {
+        Section::Nodes => on_item(Item::Node(body, start)),
+        Section::Edges => on_item(Item::Edge(body, start)),
+        Section::Other => Ok(()),
+    }
+}
+
 fn stream(
     reader: impl std::io::Read,
     mut on_item: impl FnMut(Item) -> Result<(), KgError>,
@@ -355,32 +374,19 @@ fn stream(
     let mut buf = String::new();
     let mut start: u64 = 0;
     let mut line_no: u64 = 0;
-    let mut flush = |section: Section, buf: &mut String, start: u64| -> Result<(), KgError> {
-        if buf.is_empty() {
-            return Ok(());
-        }
-        let parsed: Vec<Value> = serde_yaml::from_str(buf).map_err(|_| KgError::Json(start))?;
-        buf.clear();
-        let [body] = <[Value; 1]>::try_from(parsed).map_err(|_| KgError::UnknownItem(start))?;
-        match section {
-            Section::Nodes => on_item(Item::Node(body, start)),
-            Section::Edges => on_item(Item::Edge(body, start)),
-            Section::Other => Ok(()),
-        }
-    };
     let mut schema: Option<String> = None;
     for line in BufReader::with_capacity(1024 * 1024, reader).lines() {
         let line = line?;
         line_no += 1;
         if line.starts_with('-') && section != Section::Other {
-            flush(section, &mut buf, start)?;
+            flush(section, &mut buf, start, &mut on_item)?;
             start = line_no;
             buf.push_str(&line);
             buf.push('\n');
             continue;
         }
         if let Some(key) = top_key(&line) {
-            flush(section, &mut buf, start)?;
+            flush(section, &mut buf, start, &mut on_item)?;
             if key == "schema_version" {
                 schema = line.split_once(':').map(|(_, v)| v.trim().to_string());
             }
@@ -396,8 +402,7 @@ fn stream(
             buf.push('\n');
         }
     }
-    flush(section, &mut buf, start)?;
-    drop(flush);
+    flush(section, &mut buf, start, &mut on_item)?;
     on_item(Item::Schema(schema.unwrap_or_default()))
 }
 

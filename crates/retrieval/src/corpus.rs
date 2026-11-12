@@ -8,6 +8,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::embedder::Embedder;
 use crate::error::RetrievalError;
+use crate::query::keyword::KeywordIndex;
 use crate::query::weights::LawWeights;
 
 pub const HNSW_ITERATIVE_SCAN: &str = "strict_order";
@@ -51,6 +52,8 @@ pub struct Corpus {
     vector_off: bool,
     weights: LawWeights,
     stemmed: bool,
+    law_scope: bool,
+    keyword: Option<Arc<KeywordIndex>>,
 }
 
 impl fmt::Debug for Corpus {
@@ -61,7 +64,7 @@ impl fmt::Debug for Corpus {
 
 impl Corpus {
     pub fn new(pool: PgPool, embedder: Arc<dyn Embedder>) -> Self {
-        Self { pool, embedder, vector_off: false, weights: LawWeights::default(), stemmed: false }
+        Self { pool, embedder, vector_off: false, weights: LawWeights::default(), stemmed: false, law_scope: true, keyword: None }
     }
 
     pub fn with_weights(mut self, weights: LawWeights) -> Self {
@@ -72,6 +75,24 @@ impl Corpus {
     pub fn with_stemming(mut self, on: bool) -> Self {
         self.stemmed = on;
         self
+    }
+
+    pub fn with_law_scope(mut self, on: bool) -> Self {
+        self.law_scope = on;
+        self
+    }
+
+    pub fn law_scope(&self) -> bool {
+        self.law_scope
+    }
+
+    pub fn with_keyword(mut self, index: KeywordIndex) -> Self {
+        self.keyword = Some(Arc::new(index));
+        self
+    }
+
+    pub fn keyword(&self) -> Option<Arc<KeywordIndex>> {
+        self.keyword.clone()
     }
 
     pub fn stemmed(&self) -> bool {
