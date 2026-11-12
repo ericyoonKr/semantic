@@ -47,7 +47,7 @@ async fn handler(State(fake): State<Fake>, headers: HeaderMap, body: axum::Json<
     };
     match fake.plan {
         Plan::Good => axum::Json(rows(DIM)).into_response(),
-        Plan::WrongDim => axum::Json(rows(1024)).into_response(),
+        Plan::WrongDim => axum::Json(rows(768)).into_response(),
         Plan::Status(code) => StatusCode::from_u16(code)
             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
             .into_response(),
@@ -114,7 +114,7 @@ async fn returns_vectors_in_input_order_and_sends_model_key_priority() -> TestRe
 async fn wrong_dimension_is_an_error() -> TestResult {
     let (addr, _) = serve(Plan::WrongDim).await?;
     let err = client(addr, 2000)?.embed_one("x").await;
-    assert!(matches!(err, Err(RetrievalError::Dimension(1024))), "{err:?}");
+    assert!(matches!(err, Err(RetrievalError::Dimension(768))), "{err:?}");
     Ok(())
 }
 
@@ -186,7 +186,7 @@ async fn vertex_query_embedding_uses_key_header_retries_quota_and_normalizes() -
         base_url: String::new(),
         model: "gemini-embedding-001".into(),
         api_key: "vk".into(),
-        registry_name: "gemini-embedding-001@768".into(),
+        registry_name: "gemini-embedding-001@1024".into(),
         deadline: Duration::from_secs(10),
         concurrency: 2,
         priority: None,

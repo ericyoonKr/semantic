@@ -10,7 +10,7 @@ use llm::vertex::VertexEndpoint;
 use super::Reader;
 use crate::error::ConfigError;
 
-const DEFAULT_REGISTRY_MODEL: &str = "gemini-embedding-001@768";
+const DEFAULT_REGISTRY_MODEL: &str = "BAAI/bge-m3";
 
 #[derive(Debug, Clone)]
 pub struct CorpusConfig {

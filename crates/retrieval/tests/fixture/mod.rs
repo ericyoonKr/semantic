@@ -75,9 +75,9 @@ fn vector_rows() -> Vec<String> {
     vec![
         "CREATE TABLE embedding_model (model_id smallint PRIMARY KEY, name text NOT NULL UNIQUE, dim integer NOT NULL)".into(),
         "CREATE TABLE chunk_embedding (chunk_id bigint NOT NULL REFERENCES decision_chunk, \
-         model_id smallint NOT NULL REFERENCES embedding_model, embedding halfvec(768) NOT NULL, PRIMARY KEY (chunk_id, model_id))"
+         model_id smallint NOT NULL REFERENCES embedding_model, embedding halfvec(1024) NOT NULL, PRIMARY KEY (chunk_id, model_id))"
             .into(),
-        format!("INSERT INTO embedding_model VALUES (1,'{VECTOR_MODEL}',768)"),
+        format!("INSERT INTO embedding_model VALUES (1,'{VECTOR_MODEL}',1024)"),
         format!("INSERT INTO chunk_embedding VALUES (1001,1,{}), (1000,1,{})", literal(true), literal(false)),
     ]
 }
