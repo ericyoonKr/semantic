@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 
 use super::{matched, prepare, query_vector, settle};
-use crate::corpus::Corpus;
+use crate::corpus::{CasePhrase, Corpus};
 use crate::error::RetrievalError;
 use crate::model::{CaseHit, CaseQuery, SearchResult};
 use crate::query::cases::candidates::{self, Candidate};
 use crate::query::cases::hits::{self, Pick};
 use crate::query::cases::{cited, rank};
 use crate::query::fusion::{CANDIDATES, RRF_K, rrf};
-use crate::query::keyword::error::log_search_failure;
+use crate::query::keyword::KeywordHit;
+use crate::query::keyword::error::{KeywordError, log_search_failure};
+use crate::query::terms::Terms;
 
 async fn vector_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, RetrievalError> {
     if corpus.vector_off() {
@@ -26,13 +28,15 @@ async fn vector_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, R
     candidates::vector(pool, q, registry, &lit).await
 }
 
-async fn keyword_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, RetrievalError> {
-    let Some(index) = corpus.case_keyword() else {
-        return Ok(Vec::new());
-    };
-    let text = q.text.clone();
-    let limit = usize::try_from(CANDIDATES).unwrap_or(usize::MAX);
-    let found = tokio::task::spawn_blocking(move || index.search_sections(&text, limit)).await;
+fn candidate_limit() -> usize {
+    usize::try_from(CANDIDATES).unwrap_or(usize::MAX)
+}
+
+async fn sections_of(
+    found: Result<Result<Vec<KeywordHit>, KeywordError>, tokio::task::JoinError>,
+    corpus: &Corpus,
+    q: &CaseQuery,
+) -> Result<Vec<Candidate>, RetrievalError> {
     let hits = match found {
         Ok(Ok(hits)) => hits,
         Ok(Err(e)) => {
@@ -46,6 +50,31 @@ async fn keyword_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, 
     };
     let sections: Vec<i64> = hits.iter().filter_map(|h| h.id.parse().ok()).collect();
     candidates::keyword(corpus.pool(), q, &sections).await
+}
+
+async fn keyword_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, RetrievalError> {
+    let Some(index) = corpus.case_keyword() else {
+        return Ok(Vec::new());
+    };
+    let text = q.text.clone();
+    let found = tokio::task::spawn_blocking(move || index.search_sections(&text, candidate_limit())).await;
+    sections_of(found, corpus, q).await
+}
+
+async fn phrase_side(corpus: &Corpus, q: &CaseQuery, words: &[String]) -> Result<Vec<Candidate>, RetrievalError> {
+    let Some(index) = corpus.case_keyword().filter(|_| corpus.case_phrase() != CasePhrase::Off) else {
+        return Ok(Vec::new());
+    };
+    let words = words.to_vec();
+    let found = tokio::task::spawn_blocking(move || index.search_sections_containing(&words, candidate_limit())).await;
+    sections_of(found, corpus, q).await
+}
+
+async fn text_side(corpus: &Corpus, q: &CaseQuery, terms: &Terms, rare: &[usize]) -> Result<Vec<Candidate>, RetrievalError> {
+    if corpus.case_phrase() == CasePhrase::Replace {
+        return Ok(Vec::new());
+    }
+    candidates::text(corpus.pool(), q, terms, rare).await
 }
 
 async fn cited_side(corpus: &Corpus, q: &CaseQuery) -> Result<Vec<Candidate>, RetrievalError> {
@@ -68,7 +97,7 @@ async fn timed<T>(stage: &'static str, fut: impl std::future::Future<Output = T>
 const RARE_MIN_CHARS: usize = 3;
 
 fn rare_words(corpus: &Corpus, words: &[String]) -> Vec<usize> {
-    let n = corpus.case_text_rare();
+    let n = if corpus.case_phrase() == CasePhrase::Replace { 0 } else { corpus.case_text_rare() };
     let Some(index) = corpus.case_keyword().filter(|_| n > 0) else {
         return Vec::new();
     };
@@ -89,24 +118,31 @@ pub async fn search_cases(corpus: &Corpus, q: &CaseQuery) -> Result<SearchResult
     let (terms, k) = prepare(&q.text, q.k, corpus.stemmed())?;
     let pool = corpus.pool();
     let rare = rare_words(corpus, terms.words());
-    let (text, vector, keyword, cited) = tokio::join!(
-        timed("text", candidates::text(pool, q, &terms, &rare)),
+    let (text, vector, keyword, cited, phrase) = tokio::join!(
+        timed("text", text_side(corpus, q, &terms, &rare)),
         timed("vector", vector_side(corpus, q)),
         timed("keyword", keyword_side(corpus, q)),
-        timed("cited", cited_side(corpus, q))
+        timed("cited", cited_side(corpus, q)),
+        timed("phrase", phrase_side(corpus, q, terms.words()))
     );
-    let (text, keyword, cited) = (text?, keyword?, cited?);
+    let (text, keyword, cited, phrase) = (text?, keyword?, cited?, phrase?);
+    let (text, phrase) = if corpus.case_phrase() == CasePhrase::Replace { (phrase, Vec::new()) } else { (text, phrase) };
     let (vector, reason) = settle(vector);
-    let decision_of: HashMap<i64, i64> = [&text, &vector, &keyword, &cited]
+    let decision_of: HashMap<i64, i64> = [&text, &vector, &keyword, &cited, &phrase]
         .into_iter()
         .flatten()
         .map(|c| (c.section_id, c.decision_id))
         .collect();
-    let (text_ids, vector_ids, keyword_ids) = (ids(&text), ids(&vector), ids(&keyword));
-    let others = rrf(&[&text_ids, &vector_ids, &keyword_ids], RRF_K);
+    let (text_ids, vector_ids, keyword_ids, phrase_ids) = (ids(&text), ids(&vector), ids(&keyword), ids(&phrase));
+    let others = rrf(&[&text_ids, &vector_ids, &keyword_ids, &phrase_ids], RRF_K);
     let cited_ids = cited::place(&cited, &others, &decision_of);
-    let sides: [(&str, &[i64]); 4] =
-        [("text", &text_ids), ("vector", &vector_ids), ("keyword", &keyword_ids), ("cited", &cited_ids)];
+    let sides: [(&str, &[i64]); 5] = [
+        ("text", &text_ids),
+        ("vector", &vector_ids),
+        ("keyword", &keyword_ids),
+        ("phrase", &phrase_ids),
+        ("cited", &cited_ids),
+    ];
     let lists: Vec<&[i64]> = sides.iter().map(|(_, l)| *l).collect();
     let mut fused = rrf(&lists, RRF_K);
     let all: Vec<i64> = fused.iter().map(|(id, _)| *id).collect();

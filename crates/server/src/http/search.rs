@@ -1,14 +1,16 @@
 use axum::Json;
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use chrono::NaiveDate;
 use retrieval::{
     CaseDoc, CaseHit, CaseQuery, Citations, CitationsBy, Corpus, LawHit, LawQuery, LawUnit,
     RetrievalError, SearchResult,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
+use crate::readlog::thread_of;
 use crate::state::AppState;
 
 const DEFAULT_K: usize = 8;
@@ -105,6 +107,7 @@ pub(crate) fn api_error(e: RetrievalError) -> ApiError {
         RetrievalError::NotFound("law unit") => ApiError::bad_request("그 조문을 찾지 못했습니다"),
         RetrievalError::NotFound("decision") => ApiError::bad_request("그 판례를 찾지 못했습니다"),
         RetrievalError::NotFound("annex") => ApiError::bad_request("그 기준일에 그 별표를 찾지 못했습니다"),
+        RetrievalError::NotFound("law") => ApiError::bad_request("그 법령을 찾지 못했습니다"),
         RetrievalError::NotFound("annex row") => ApiError::bad_request("그 별표 행을 찾지 못했습니다"),
         RetrievalError::NotFound(_) => ApiError::bad_request("찾지 못했습니다"),
         RetrievalError::Db(sqlx::Error::Database(db)) if db.code().as_deref() == Some(UNDEFINED_TABLE) => {
@@ -198,11 +201,68 @@ pub async fn search_cases(
 
 pub async fn law_unit(
     State(state): State<AppState>,
+    headers: HeaderMap,
     params: Result<Query<UnitParams>, QueryRejection>,
 ) -> Result<Json<LawUnit>, ApiError> {
     let p = query_params(params)?;
     let c = corpus(&state)?;
-    run(&state, retrieval::read_law_unit(c.pool(), &p.law, &p.unit, p.as_of)).await
+    let out = run(&state, retrieval::read_law_unit(c.pool(), &p.law, &p.unit, p.as_of)).await?;
+    if let Some(thread) = thread_of(&headers)
+        && !out.deleted
+    {
+        state.reads.record(&thread, |r| r.add_unit_body(&out.law_name, &out.unit_key, &out.body));
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AnnexListParams {
+    pub law: String,
+    pub as_of: Option<NaiveDate>,
+}
+
+pub async fn law_annexes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    params: Result<Query<AnnexListParams>, QueryRejection>,
+) -> Result<Json<retrieval::AnnexList>, ApiError> {
+    let p = query_params(params)?;
+    let c = corpus(&state)?;
+    let work = async { retrieval::list_annexes(c.pool(), &p.law, p.as_of).await?.ok_or(RetrievalError::NotFound("law")) };
+    let out = run(&state, work).await?;
+    if let Some(thread) = thread_of(&headers) {
+        state.reads.record(&thread, |r| {
+            for a in &out.annexes {
+                r.add_unit(&out.law_name, &a.unit_key);
+            }
+        });
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckRequest {
+    pub thread_id: String,
+    pub sentences: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckReply {
+    pub results: Vec<citegate::Verdict>,
+}
+
+const CHECK_MAX_SENTENCES: usize = 200;
+
+pub async fn answer_check(
+    State(state): State<AppState>,
+    body: Result<Json<CheckRequest>, JsonRejection>,
+) -> Result<Json<CheckReply>, ApiError> {
+    let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: thread_id·sentences"))?;
+    if req.sentences.len() > CHECK_MAX_SENTENCES {
+        return Err(ApiError::bad_request("인자 오류: 문장이 너무 많습니다"));
+    }
+    let reads = state.reads.snapshot(req.thread_id.trim());
+    Ok(Json(CheckReply { results: req.sentences.iter().map(|s| citegate::check(s, &reads)).collect() }))
 }
 
 fn decision_id(raw: &str) -> Result<i64, ApiError> {
@@ -213,6 +273,7 @@ fn decision_id(raw: &str) -> Result<i64, ApiError> {
 
 pub async fn case(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     params: Result<Query<CaseParams>, QueryRejection>,
 ) -> Result<Json<CaseDoc>, ApiError> {
@@ -224,7 +285,11 @@ pub async fn case(
     );
     let c = corpus(&state)?;
     let minority = p.include_minority.unwrap_or(false);
-    run(&state, retrieval::read_case(c.pool(), id, sections.as_deref(), minority)).await
+    let out = run(&state, retrieval::read_case(c.pool(), id, sections.as_deref(), minority)).await?;
+    if let Some(thread) = thread_of(&headers) {
+        state.reads.record(&thread, |r| r.add_case(&out.case_no));
+    }
+    Ok(out)
 }
 
 pub async fn citations(

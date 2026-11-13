@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import httpx
@@ -154,6 +155,22 @@ UPLOAD = {
 }
 
 
+FAKE_READ = re.compile(r"제\s*\d+\s*조|별표\s*\d|서식\s*\d|\d{2,4}[가-힣]{1,2}\d+")
+FAKE_KNOWN = ("가짜법 제1조", "0000가0000")
+
+
+def _fake_check(body: Any) -> dict[str, Any]:
+    sentences = body.get("sentences", []) if isinstance(body, dict) else []
+    results = []
+    for s in sentences:
+        rest = s
+        for known in FAKE_KNOWN:
+            rest = rest.replace(known, "")
+        ok = FAKE_READ.search(rest) is None
+        results.append({"ok": ok, "reasons": [] if ok else ["unit_not_read"]})
+    return {"results": results}
+
+
 def _answer(method: str, path: str) -> Any:
     if method == "DELETE":
         return {}
@@ -205,6 +222,8 @@ class FakeClient:
         headers: dict[str, str] | None = None,
     ) -> tuple[Any, str | None]:
         self.calls.append((method, path))
+        if path == "/answer/check":
+            return _fake_check(json), None
         return _answer(method, path), None
 
     async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None:

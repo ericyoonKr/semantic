@@ -41,6 +41,7 @@ fn required(v: &str, name: &str) -> Result<String, ApiError> {
 
 pub async fn lookup(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     body: Result<Json<LookupRequest>, JsonRejection>,
 ) -> Result<Json<AnnexTable>, ApiError> {
     let req = json_body(body)?;
@@ -61,7 +62,11 @@ pub async fn lookup(
         limit,
     };
     let c = corpus(&state)?;
-    run(&state, retrieval::annex_lookup(c.pool(), &q)).await
+    let out = run(&state, retrieval::annex_lookup(c.pool(), &q)).await?;
+    if let Some(thread) = crate::readlog::thread_of(&headers) {
+        state.reads.record(&thread, |r| r.add_unit(&out.annex.law_name, &out.annex.annex_label));
+    }
+    Ok(out)
 }
 
 pub async fn compute(

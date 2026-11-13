@@ -86,11 +86,6 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
     let id = owned(&state, &signed, &raw).await?;
     let question = body.get("question").and_then(Value::as_str).ok_or(GatewayError::BadRequest)?;
     let rid = request_id();
-    if state.store.tokens_today(signed.user_id).await? >= state.cfg.daily_token_limit {
-        tracing::info!(request_id = %rid, "ask.daily_limit");
-        state.audit.spawn(Event::new("guard_block").user(signed.user_id).thread(id).request(&rid).detail(json!({ "guard": "daily_tokens" })));
-        return Err(GatewayError::DailyLimit);
-    }
     let permit = state.quota.acquire(signed.user_id, id).await?;
     let res = upstream(&state, reqwest::Method::POST, &format!("/session/{id}/ask"), signed.user_id, &rid)
         .timeout(state.cfg.ask_deadline)

@@ -21,8 +21,6 @@ pub enum GatewayError {
     TooMany,
     #[error("thread is busy")]
     Busy,
-    #[error("daily token limit reached")]
-    DailyLimit,
     #[error("temporarily unavailable")]
     Unavailable,
     #[error("bad request")]
@@ -45,7 +43,6 @@ impl GatewayError {
             GatewayError::NotFound => (StatusCode::NOT_FOUND, "없는 대화입니다"),
             GatewayError::TooMany => (StatusCode::TOO_MANY_REQUESTS, "잠시 뒤 다시 시도해 주세요"),
             GatewayError::Busy => (StatusCode::CONFLICT, "이 대화에서 답을 쓰는 중입니다"),
-            GatewayError::DailyLimit => (StatusCode::TOO_MANY_REQUESTS, "오늘 쓸 수 있는 양을 다 썼습니다. 내일 다시 질문해 주세요"),
             GatewayError::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "잠시 뒤 다시 시도해 주세요"),
             GatewayError::BadRequest => (StatusCode::BAD_REQUEST, "요청을 처리할 수 없습니다"),
             GatewayError::Upstream => (StatusCode::BAD_GATEWAY, "지금은 답할 수 없습니다. 잠시 뒤 다시 시도해 주세요"),

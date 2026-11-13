@@ -1,3 +1,5 @@
+import asyncio
+
 from semantic_agent.api.answer_gate import NOTICE, SentenceGate, check_sentence
 from semantic_agent.ledger import Ledger
 
@@ -122,21 +124,32 @@ FABRICATED = [
 KNOWN_GAPS: list[str] = []
 
 
-def test_gate_accuracy_on_sample(capsys: object) -> None:
+def test_ref_tags_are_checked_here_and_reads_are_left_to_the_search_server() -> None:
     ledger = _ledger()
     wrongly_dropped = [s for s in CORRECT if check_sentence(s, ledger).text is None]
-    let_through = [s for s in FABRICATED if check_sentence(s, ledger).text is not None]
-    gaps_through = [s for s in KNOWN_GAPS if check_sentence(s, ledger).text is not None]
-    print(
-        f"correct={len(CORRECT)} wrongly_dropped={len(wrongly_dropped)} "
-        f"fabricated={len(FABRICATED)} let_through={len(let_through)} "
-        f"known_gaps={len(KNOWN_GAPS)} gaps_through={len(gaps_through)}"
-    )
-    print("wrongly_dropped:", wrongly_dropped)
-    print("let_through:", let_through)
-    print("gaps_through:", gaps_through)
+    bad_tags = [s for s in FABRICATED if "[근거" in s]
+    let_through = [s for s in bad_tags if check_sentence(s, ledger).text is not None]
+    print(f"correct={len(CORRECT)} wrongly_dropped={len(wrongly_dropped)} bad_tags={len(bad_tags)} let_through={len(let_through)}")
     assert wrongly_dropped == []
     assert let_through == []
+
+
+UNREAD = ("민법 제750조", "헌법 제10조")
+
+
+async def _fake_reads(pieces: list[str]) -> list[bool]:
+    return [not any(u in p for u in UNREAD) for p in pieces]
+
+
+def _run_gate(gate: SentenceGate, pieces: list[str]) -> str:
+    async def go() -> str:
+        out: list[str] = []
+        for piece in pieces:
+            out += await gate.push(piece)
+        out += await gate.flush()
+        return "".join(out)
+
+    return asyncio.run(go())
 
 
 def test_tags_become_code_built_display() -> None:
@@ -150,19 +163,15 @@ def test_tags_become_code_built_display() -> None:
 
 
 def test_stream_releases_sentences_and_notice_once() -> None:
-    gate = SentenceGate(_ledger())
-    out: list[str] = []
-    for piece in ["국가가 배상", "합니다 [근", "거 1]. 민법 제7", "50조가 적용됩니다. 헌법 제10조도", " 봅니다.\n처분일은 2023. 1. 5. 입니다", "."]:
-        out += gate.push(piece)
-    out += gate.flush()
-    text = "".join(out)
+    gate = SentenceGate(_ledger(), checker=_fake_reads)
+    text = _run_gate(gate, ["국가가 배상", "합니다 [근", "거 1]. 민법 제7", "50조가 적용됩니다. 헌법 제10조도", " 봅니다.\n처분일은 2023. 1. 5. 입니다", "."])
     assert text == f"국가가 배상합니다 국가배상법 제2조(시행 2017-10-31). {NOTICE} \n처분일은 2023. 1. 5. 입니다."
     assert len(gate.drops) == 2
 
 
 def test_long_sentence_is_checked_at_limit() -> None:
-    gate = SentenceGate(_ledger())
-    out = gate.push("가" * 450)
+    gate = SentenceGate(_ledger(), checker=_fake_reads)
+    out = asyncio.run(gate.push("가" * 450))
     assert out and len(out[0]) == 400
 
 
@@ -176,6 +185,7 @@ TOOL_LEAKS = [
     ("kg_find로 찾은 개념은 공무원입니다.", "지식그래프로 찾은 개념은 공무원입니다."),
     ("판단은 [judge] 결과를 따릅니다.", "판단은 결과를 따릅니다."),
     ("조사 결과를 [researcher] 받았습니다.", "조사 결과를 받았습니다."),
+    ("[researcher]를 통해 조사한 결과입니다.", "조사를 통해 조사한 결과입니다."),
     ("파일을 [ls] 보았습니다.", "파일을 보았습니다."),
 ]
 
@@ -205,17 +215,13 @@ def test_notice_says_search_failed_when_it_did() -> None:
     ledger = _ledger()
     ledger.search_failed = True
     gate = SentenceGate(ledger)
-    out = "".join(gate.push("민법 제750조가 적용됩니다.\n") + gate.flush())
+    out = _run_gate(gate, ["민법 제750조가 적용됩니다.\n"])
     assert out.startswith("법령·판례 검색이 지금 되지 않아")
 
 
 def test_material_wrapper_marks_do_not_reach_the_answer() -> None:
-    gate = SentenceGate(_ledger())
-    out: list[str] = []
-    for piece in ["판단할 수 없습니다. <자료 출", '처="요건 판단">\n', "근거가 없습니다 </자료>.", " 끝입니다."]:
-        out += gate.push(piece)
-    out += gate.flush()
-    text = "".join(out)
+    gate = SentenceGate(_ledger(), checker=_fake_reads)
+    text = _run_gate(gate, ["판단할 수 없습니다. <자료 출", '처="요건 판단">\n', "근거가 없습니다 </자료>.", " 끝입니다."])
     assert "<자료" not in text and "</자료>" not in text
     assert "판단할 수 없습니다." in text and "끝입니다." in text
 

@@ -10,13 +10,13 @@ from langgraph.errors import GraphRecursionError
 from semantic_agent.agent.budget import BudgetExceeded
 from semantic_agent.agent.build import MAIN_AGENT
 from semantic_agent.agent.injection import INJECTION_KIND
-from semantic_agent.api.answer_gate import SentenceGate, log_drop
+from semantic_agent.api.answer_gate import Checker, SentenceGate, log_drop
 from semantic_agent.api.sources import build_sources
 from semantic_agent.api.emoji import strip_emoji
 from semantic_agent.api.thought import ThoughtFilter
 from semantic_agent.api.verify import verify_sources
 from semantic_agent.ledger import LEDGER, Ledger
-from semantic_agent.tools.client import REQUEST_ID, ToolClient, unwrap_material
+from semantic_agent.tools.client import REQUEST_ID, SEARCH_FAIL, THREAD_ID, ToolClient, unwrap_material
 from semantic_agent.tools.judge import needed_asks, verdict_text
 from semantic_agent.turn import TURN, Turn
 
@@ -114,8 +114,23 @@ async def sources_event(gate: SentenceGate, client: ToolClient | None) -> list[s
     return [event("Sources", {"items": await verify_sources(client, gate.ledger, items)})]
 
 
-def _limit_events(gate: SentenceGate, message: str) -> list[str]:
-    out = [event("Token", {"text": piece}) for piece in gate.flush()]
+def read_checker(client: ToolClient | None, thread_id: str) -> Checker:
+    async def check(pieces: list[str]) -> list[bool] | None:
+        if client is None or not thread_id:
+            return None
+        data, err = await client.fetch(
+            "POST", "/answer/check", kind="search", fail=SEARCH_FAIL, json={"thread_id": thread_id, "sentences": pieces}
+        )
+        results = data.get("results") if isinstance(data, dict) and not err else None
+        if not isinstance(results, list):
+            return None
+        return [bool(r.get("ok")) if isinstance(r, dict) else False for r in results]
+
+    return check
+
+
+async def _limit_events(gate: SentenceGate, message: str) -> list[str]:
+    out = [event("Token", {"text": piece}) for piece in await gate.flush()]
     out.append(event("Token", {"text": f"\n\n{message}"}))
     out.append(event("Warning", {"kind": "limit", "message": message}))
     return out
@@ -136,7 +151,9 @@ async def to_sse(
     LEDGER.set(ledger)
     turn = Turn()
     TURN.set(turn)
-    gate = SentenceGate(ledger, log_drop(request_id, turn))
+    thread_id = str(cfg.get("configurable", {}).get("thread_id", ""))
+    THREAD_ID.set(thread_id)
+    gate = SentenceGate(ledger, log_drop(request_id, turn), read_checker(client, thread_id))
     thought = ThoughtFilter()
     stream = agent.astream(
         {"messages": [HumanMessage(content=question)]},
@@ -150,29 +167,29 @@ async def to_sse(
                     chunk, metadata = payload
                     if _is_main_token(chunk, metadata):
                         text = strip_emoji(thought.push(_chunk_text(chunk)))
-                        for piece in gate.push(text) if text else []:
+                        for piece in await gate.push(text) if text else []:
                             yield event("Token", {"text": piece})
                 elif mode == "updates":
                     for item in _update_events(payload):
                         yield item
                 for item in turn_events(turn):
                     yield item
-        for piece in [*gate.push(strip_emoji(thought.flush())), *gate.flush()]:
+        for piece in [*await gate.push(strip_emoji(thought.flush())), *await gate.flush()]:
             yield event("Token", {"text": piece})
         for item in await sources_event(gate, client):
             yield item
     except GraphRecursionError:
-        for item in _limit_events(gate, LIMIT_STEPS):
+        for item in await _limit_events(gate, LIMIT_STEPS):
             yield item
         for item in await sources_event(gate, client):
             yield item
     except BudgetExceeded as exc:
-        for item in _limit_events(gate, f"{LIMIT_HEAD}: {exc.device}"):
+        for item in await _limit_events(gate, f"{LIMIT_HEAD}: {exc.device}"):
             yield item
         for item in await sources_event(gate, client):
             yield item
     except TimeoutError:
-        for item in _limit_events(gate, LIMIT_TIME):
+        for item in await _limit_events(gate, LIMIT_TIME):
             yield item
         for item in await sources_event(gate, client):
             yield item

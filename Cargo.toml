@@ -15,6 +15,7 @@ members = [
     "crates/searcheval",
     "crates/lawtime",
     "crates/lawnames",
+    "crates/citegate",
 ]
 
 [workspace.package]
@@ -29,6 +30,7 @@ parsers = { path = "crates/parsers" }
 checks = { path = "crates/checks" }
 llm = { path = "crates/llm" }
 retrieval = { path = "crates/retrieval" }
+citegate = { path = "crates/citegate" }
 engine = { path = "crates/engine" }
 sessdb = { path = "crates/sessdb" }
 kg = { path = "crates/kg" }

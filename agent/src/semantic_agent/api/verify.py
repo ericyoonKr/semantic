@@ -10,9 +10,20 @@ CHANGED = "DB 원문과 다름"
 NO_ID = "ID 없음"
 
 
+async def _check_annex_list(client: ToolClient, item: Authority) -> str | None:
+    from semantic_agent.tools.annex import format_annex_list
+
+    data, err = await client.fetch("GET", "/laws/annexes", kind="search", fail=VERIFY_FAIL, params={"law": item.law_id})
+    if err or not isinstance(data, dict):
+        return NOT_FOUND
+    return None if compact(format_annex_list(data)) == compact(item.body) else CHANGED
+
+
 async def _check_law(client: ToolClient, item: Authority) -> str | None:
     if not item.law_id or not item.source_id:
         return NO_ID
+    if item.unit_key == "별표 목록":
+        return await _check_annex_list(client, item)
     params = {"law": item.law_id, "unit": item.unit_key, "as_of": item.enforced or None}
     data, err = await client.fetch("GET", "/laws/unit", kind="search", fail=VERIFY_FAIL, params=params)
     if err or not isinstance(data, dict):

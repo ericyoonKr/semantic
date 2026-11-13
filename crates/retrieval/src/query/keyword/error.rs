@@ -15,6 +15,8 @@ pub enum KeywordError {
     Read(String),
     #[error("keyword index could not be written: {0}")]
     Write(String),
+    #[error("keyword index was built without positions; rebuild it with positions to search whole words")]
+    NoPositions,
 }
 
 pub(crate) fn open(dir: &Path) -> impl FnOnce(tantivy::TantivyError) -> KeywordError + '_ {

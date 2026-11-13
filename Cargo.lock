@@ -496,6 +496,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "citegate"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3206,6 +3214,7 @@ dependencies = [
  "axum",
  "checks",
  "chrono",
+ "citegate",
  "docmodel",
  "engine",
  "kg",

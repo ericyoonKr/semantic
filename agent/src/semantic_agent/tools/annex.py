@@ -4,8 +4,10 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import Field
 
 from semantic_agent.tools.client import SEARCH_FAIL, IsoDate, ToolClient, material
-from semantic_agent.tools.search import failed
+from semantic_agent.ledger import compact, current_ledger
+from semantic_agent.tools.search import failed, ref_line
 
+ANNEX_LIST_KEY = "별표 목록"
 RowLimit = Annotated[int, Field(ge=1, le=200)]
 Elapsed = Annotated[int, Field(ge=0)]
 AMOUNT_RULE = "금액은 이 결과의 원 단위 값만 옮긴다. 기억이나 검색 발췌의 숫자를 쓰지 않는다."
@@ -117,7 +119,40 @@ def format_computation(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_annex_list(data: dict[str, Any]) -> str:
+    rows = data.get("annexes") or []
+    head = f"[{_text(data.get('law_name'))} 별표·서식 목록 {len(rows)}건]"
+    lines = [head]
+    lines.extend(f"- {_text(a.get('unit_key'))} {_text(a.get('title'))} (시행 {_text(a.get('enforcement_date'))})" for a in rows)
+    if not rows:
+        lines.append("별표·서식 없음")
+    lines.append("목록의 제목만 쓸 수 있다. 내용을 말하려면 read_law(law, \"별표 N\")로 읽는다.")
+    return "\n".join(lines)
+
+
+def trust_annex_list(data: dict[str, Any]) -> None:
+    ledger = current_ledger()
+    law = compact(_text(data.get("law_name")))
+    for a in data.get("annexes") or []:
+        ledger.trust(law + compact(_text(a.get("unit_key"))) + compact(_text(a.get("title"))))
+
+
 def make_annex_tools(client: ToolClient) -> list[BaseTool]:
+    @tool(
+        "list_annexes",
+        description="법령 하나의 별표·서식 전체 목록(번호·제목)을 기준일 판본으로 가져온다. 별표가 무엇이 있는지 물으면 이것으로 모두 가져온다.",
+    )
+    async def list_annexes(law: str, as_of: IsoDate | None = None) -> str:
+        data, err = await client.fetch("GET", "/laws/annexes", kind="search", fail=SEARCH_FAIL, params={"law": law, "as_of": as_of})
+        if err:
+            return failed(err)
+        trust_annex_list(data)
+        text = format_annex_list(data)
+        item = current_ledger().add_law(
+            {"law_name": data.get("law_name") or law, "unit_key": ANNEX_LIST_KEY, "body": text, "law_id": data.get("law_id"), "version": {"version_id": ANNEX_LIST_KEY}}
+        )
+        return material(f"{law} 별표 목록", ref_line(item.ref) + "\n" + text)
+
     @tool(
         "annex_lookup",
         description=(
@@ -159,4 +194,4 @@ def make_annex_tools(client: ToolClient) -> list[BaseTool]:
         data, err = await client.fetch("POST", "/annex/compute", kind="search", fail=SEARCH_FAIL, json=body)
         return failed(err) or material(f"별표 계산 {node_id}", format_computation(data))
 
-    return [annex_lookup, annex_compute]
+    return [list_annexes, annex_lookup, annex_compute]

@@ -11,6 +11,7 @@ from semantic_agent.config import Settings
 log = logging.getLogger(__name__)
 
 REQUEST_ID: ContextVar[str] = ContextVar("request_id", default="-")
+THREAD_ID: ContextVar[str] = ContextVar("thread_id", default="")
 SEARCH_FAIL = "검색 실패"
 JUDGE_FAIL = "판정 불가"
 
@@ -92,7 +93,8 @@ class RustClient:
         headers: dict[str, str] | None = None,
     ) -> tuple[Any, str | None]:
         request_id = REQUEST_ID.get()
-        sent_headers = {"x-request-id": request_id, **(headers or {})}
+        thread_id = THREAD_ID.get()
+        sent_headers = {"x-request-id": request_id, **({"x-thread-id": thread_id} if thread_id else {}), **(headers or {})}
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
         try:
             response = await self._http.request(

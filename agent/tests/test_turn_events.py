@@ -30,11 +30,11 @@ def _used(tokens: int, text: str = "", **kwargs: Any) -> AIMessage:
 
 
 async def _run(script: list[AIMessage], text: str | None = None) -> list[tuple[str, dict[str, Any]]]:
-    agent, _, _ = await make_agent(script)
+    agent, _, client = await make_agent(script)
     cfg = run_config()
     if text is not None:
         await record_upload(agent, cfg, {"file_id": "aaa", "filename": "계약서.docx", "pages": 1, "text": text})
-    return _events([e async for e in to_sse(agent, "계약 기간이 얼마야?", cfg, timeout_s=60)])
+    return _events([e async for e in to_sse(agent, "계약 기간이 얼마야?", cfg, timeout_s=60, client=client)])
 
 
 def _read_twice() -> list[AIMessage]:
@@ -77,7 +77,7 @@ def test_dropped_sub_lines_and_sentences_are_audited_without_text() -> None:
     events = asyncio.run(_run(script))
     audits = [data for name, data in events if name == "Audit"]
     assert {"kind": "guard_block", "detail": {"guard": "sub_result", "name": "researcher", "dropped": 1}} in audits
-    assert {"kind": "guard_block", "detail": {"guard": "answer_gate", "reasons": ["law_not_read"], "refs": []}} in audits
+    assert {"kind": "guard_block", "detail": {"guard": "answer_gate", "reasons": ["not_read"], "refs": []}} in audits
     assert "지어낸" not in json.dumps(audits, ensure_ascii=False) and "750" not in json.dumps(audits)
 
 

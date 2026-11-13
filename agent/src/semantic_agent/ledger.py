@@ -167,6 +167,19 @@ class Ledger:
         wanted = compact(case_no)
         return [item for item in self.items.values() if item.kind == "case" and item.case_no == wanted]
 
+    def annexes_named(self, law_name: str | None, key: str) -> list[Authority]:
+        return [
+            item
+            for item in self.items.values()
+            if item.kind == "law"
+            and compact(item.unit_key) == key
+            and (law_name is None or item.law_name.endswith(law_name))
+        ]
+
+    def trusts_annex(self, law_name: str | None, key: str) -> bool:
+        pattern = re.compile((re.escape(law_name) if law_name else "") + re.escape(key) + r"(?!\d|의\d)")
+        return any(pattern.search(text) for text in self.trusted)
+
     def laws_with_article(self, law_name: str | None, article: str) -> list[Authority]:
         return [
             item

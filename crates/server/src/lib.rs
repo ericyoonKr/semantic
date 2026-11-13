@@ -6,6 +6,7 @@ pub mod judge;
 pub mod kgids;
 pub mod kgview;
 pub mod logging;
+pub mod readlog;
 pub mod rules;
 pub mod session;
 pub mod shutdown;

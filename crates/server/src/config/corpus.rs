@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use retrieval::query::keyword::KeywordIndex;
 use retrieval::query::keyword::error::{log_case_index_unset, log_open_failure};
-use retrieval::{CaseWeights, Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
+use retrieval::{CasePhrase, CaseWeights, Corpus, CorpusDb, EmbedClient, EmbedSettings, Embedder, LawWeights, NoEmbedder};
 
 use llm::vertex::VertexEndpoint;
 
@@ -26,6 +26,7 @@ pub struct CorpusConfig {
     pub unit_vectors: bool,
     pub case_vectors: bool,
     pub case_text_rare: usize,
+    pub case_phrase: CasePhrase,
     pub law_weights: LawWeights,
     pub law_weights_annex: bool,
     pub term_stem: bool,
@@ -94,6 +95,12 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
                 Ok(n) if n <= 8 => n,
                 _ => return Err(ConfigError::Invalid("CORPUS_CASE_TEXT_RARE")),
             },
+        },
+        case_phrase: match r.text("CORPUS_CASE_PHRASE").as_deref() {
+            None | Some("off") => CasePhrase::Off,
+            Some("add") => CasePhrase::Add,
+            Some("replace") => CasePhrase::Replace,
+            Some(_) => return Err(ConfigError::Invalid("CORPUS_CASE_PHRASE")),
         },
         case_vectors: match r.text("CORPUS_CASE_VECTOR").as_deref() {
             None | Some("off") => false,
@@ -197,6 +204,7 @@ impl CorpusConfig {
             .with_unit_vectors(self.unit_vectors)
             .with_case_vectors(self.case_vectors)
             .with_case_text_rare(self.case_text_rare)
+            .with_case_phrase(self.case_phrase)
             .with_case_weights(self.case_weights);
         if let Some(dir) = &self.keyword_index {
             match KeywordIndex::open(dir) {
@@ -210,7 +218,7 @@ impl CorpusConfig {
         match &self.case_keyword_index {
             Some(dir) => match KeywordIndex::open(dir) {
                 Ok(index) => {
-                    tracing::info!(dir = %dir.display(), "case keyword index ready");
+                    tracing::info!(dir = %dir.display(), positions = index.has_positions(), phrase = ?self.case_phrase, "case keyword index ready");
                     corpus = corpus.with_case_keyword(index);
                 }
                 Err(e) => log_open_failure(&e),
@@ -261,6 +269,7 @@ mod tests {
         assert!(cfg.unit_vectors);
         assert!(!cfg.case_vectors);
         assert_eq!(cfg.case_text_rare, DEFAULT_CASE_TEXT_RARE);
+        assert_eq!(cfg.case_phrase, CasePhrase::Off);
         assert_eq!(cfg.keyword_max_df, DEFAULT_KEYWORD_MAX_DF);
         Ok(())
     }
@@ -277,6 +286,15 @@ mod tests {
     fn case_text_rare_reads_zero_to_eight_only() -> Result<(), ConfigError> {
         assert_eq!(read(&reader(&[("CORPUS_CASE_TEXT_RARE", "4")]))?.case_text_rare, 4);
         assert!(matches!(read(&reader(&[("CORPUS_CASE_TEXT_RARE", "9")])), Err(ConfigError::Invalid("CORPUS_CASE_TEXT_RARE"))));
+        Ok(())
+    }
+
+    #[test]
+    fn case_phrase_reads_off_add_or_replace_only() -> Result<(), ConfigError> {
+        assert_eq!(read(&reader(&[("CORPUS_CASE_PHRASE", "off")]))?.case_phrase, CasePhrase::Off);
+        assert_eq!(read(&reader(&[("CORPUS_CASE_PHRASE", "add")]))?.case_phrase, CasePhrase::Add);
+        assert_eq!(read(&reader(&[("CORPUS_CASE_PHRASE", "replace")]))?.case_phrase, CasePhrase::Replace);
+        assert!(matches!(read(&reader(&[("CORPUS_CASE_PHRASE", "on")])), Err(ConfigError::Invalid("CORPUS_CASE_PHRASE"))));
         Ok(())
     }
 

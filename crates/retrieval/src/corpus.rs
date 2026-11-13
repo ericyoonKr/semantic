@@ -46,6 +46,14 @@ impl CorpusDb {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CasePhrase {
+    #[default]
+    Off,
+    Add,
+    Replace,
+}
+
 #[derive(Clone)]
 pub struct Corpus {
     pool: PgPool,
@@ -57,6 +65,7 @@ pub struct Corpus {
     unit_vectors: bool,
     case_vectors: bool,
     case_text_rare: usize,
+    case_phrase: CasePhrase,
     keyword: Option<Arc<KeywordIndex>>,
     case_keyword: Option<Arc<KeywordIndex>>,
     case_weights: CaseWeights,
@@ -80,6 +89,7 @@ impl Corpus {
             unit_vectors: false,
             case_vectors: true,
             case_text_rare: 0,
+            case_phrase: CasePhrase::Off,
             keyword: None,
             case_keyword: None,
             case_weights: CaseWeights::default(),
@@ -130,6 +140,15 @@ impl Corpus {
 
     pub fn case_text_rare(&self) -> usize {
         self.case_text_rare
+    }
+
+    pub fn with_case_phrase(mut self, mode: CasePhrase) -> Self {
+        self.case_phrase = mode;
+        self
+    }
+
+    pub fn case_phrase(&self) -> CasePhrase {
+        self.case_phrase
     }
 
     pub fn with_keyword(mut self, index: KeywordIndex) -> Self {

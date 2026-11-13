@@ -1,17 +1,18 @@
 pub mod bigram;
 pub mod error;
 
+use std::cmp::Reverse;
 use std::ops::Bound;
 use std::path::Path;
 
 use chrono::{Datelike, NaiveDate};
 
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, ConstScoreQuery, Occur, Query, RangeQuery, TermQuery};
+use tantivy::query::{BooleanQuery, BoostQuery, ConstScoreQuery, Occur, PhraseQuery, Query, RangeQuery, TermQuery};
 use tantivy::schema::{
     FAST, Field, FieldType, INDEXED, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions, Value,
 };
-use tantivy::{Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
+use tantivy::{DocAddress, DocId, Index, IndexReader, ReloadPolicy, Score, SegmentReader, Searcher, TantivyDocument, Term};
 
 use bigram::BigramTokenizer;
 use tantivy::tokenizer::TokenStream;
@@ -47,10 +48,17 @@ pub struct KeywordHit {
 }
 
 pub fn schema() -> (Schema, Fields) {
+    schema_with(IndexRecordOption::WithFreqs)
+}
+
+pub fn case_schema() -> (Schema, Fields) {
+    schema_with(IndexRecordOption::WithFreqsAndPositions)
+}
+
+fn schema_with(record: IndexRecordOption) -> (Schema, Fields) {
     let mut b = Schema::builder();
-    let words = TextOptions::default().set_indexing_options(
-        TextFieldIndexing::default().set_tokenizer(TOKENIZER).set_index_option(IndexRecordOption::WithFreqs),
-    );
+    let words = TextOptions::default()
+        .set_indexing_options(TextFieldIndexing::default().set_tokenizer(TOKENIZER).set_index_option(record));
     let fields = Fields {
         kind: b.add_text_field("kind", STRING | STORED),
         id: b.add_text_field("id", STRING | STORED),
@@ -124,6 +132,58 @@ impl KeywordIndex {
             out.push(stream.token().text.clone());
         }
         Ok(out)
+    }
+
+    pub fn has_positions(&self) -> bool {
+        match self.index.schema().get_field_entry(self.fields.text).field_type() {
+            FieldType::Str(o) => o.get_indexing_options().is_some_and(|i| i.index_option().has_positions()),
+            _ => false,
+        }
+    }
+
+    fn contains(&self, word: &str) -> Result<Option<Box<dyn Query>>, KeywordError> {
+        let mut analyzer = self.index.tokenizer_for_field(self.fields.text).map_err(error::search)?;
+        let mut stream = analyzer.token_stream(word);
+        let mut terms: Vec<(usize, Term)> = Vec::new();
+        while stream.advance() {
+            let t = stream.token();
+            terms.push((t.position, Term::from_field_text(self.fields.text, &t.text)));
+        }
+        let first = terms.first().map(|(p, _)| *p).unwrap_or_default();
+        let query: Box<dyn Query> = match terms.len() {
+            0 => return Ok(None),
+            1 => Box::new(TermQuery::new(terms.remove(0).1, IndexRecordOption::Basic)),
+            _ => Box::new(PhraseQuery::new_with_offset(terms.into_iter().map(|(p, t)| (p - first, t)).collect())),
+        };
+        Ok(Some(Box::new(ConstScoreQuery::new(query, 1.0))))
+    }
+
+    pub fn search_sections_containing(&self, words: &[String], limit: usize) -> Result<Vec<KeywordHit>, KeywordError> {
+        if !self.has_positions() {
+            return Err(KeywordError::NoPositions);
+        }
+        let mut any: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(words.len());
+        for w in words {
+            if let Some(q) = self.contains(w)? {
+                any.push((Occur::Should, q));
+            }
+        }
+        if any.is_empty() {
+            return Ok(Vec::new());
+        }
+        let kind = TermQuery::new(Term::from_field_text(self.fields.kind, KIND_SECTION), IndexRecordOption::Basic);
+        let query = BooleanQuery::new(vec![
+            (Occur::Must, Box::new(BooleanQuery::new(any)) as Box<dyn Query>),
+            (Occur::Must, Box::new(ConstScoreQuery::new(Box::new(kind), 0.0))),
+        ]);
+        let text = self.fields.text;
+        let shorter_first = TopDocs::with_limit(limit.max(1)).tweak_score(move |segment: &SegmentReader| {
+            let norms = segment.get_fieldnorms_reader(text).ok();
+            move |doc: DocId, score: Score| (score, Reverse(norms.as_ref().map_or(0, |n| n.fieldnorm(doc))))
+        });
+        let searcher = self.reader.searcher();
+        let top = searcher.search(&query, &shorter_first).map_err(error::search)?;
+        top.into_iter().map(|((score, _), address)| self.hit(&searcher, score, address)).collect()
     }
 
     pub fn tokenizer(&self) -> String {
@@ -226,24 +286,25 @@ impl KeywordIndex {
     fn top(&self, query: &dyn Query, limit: usize) -> Result<Vec<KeywordHit>, KeywordError> {
         let searcher = self.reader.searcher();
         let top = searcher.search(query, &TopDocs::with_limit(limit.max(1)).order_by_score()).map_err(error::search)?;
-        top.into_iter()
-            .map(|(score, address)| {
-                let doc: TantivyDocument = searcher.doc(address).map_err(error::read)?;
-                Ok(KeywordHit {
-                    kind: text_of(&doc, self.fields.kind),
-                    id: text_of(&doc, self.fields.id),
-                    row: int_of(&doc, self.fields.row),
-                    law_id: text_of(&doc, self.fields.law_id),
-                    score,
-                })
-            })
-            .collect()
+        top.into_iter().map(|(score, address)| self.hit(&searcher, score, address)).collect()
+    }
+
+    fn hit(&self, searcher: &Searcher, score: Score, address: DocAddress) -> Result<KeywordHit, KeywordError> {
+        let doc: TantivyDocument = searcher.doc(address).map_err(error::read)?;
+        Ok(KeywordHit {
+            kind: text_of(&doc, self.fields.kind),
+            id: text_of(&doc, self.fields.id),
+            row: int_of(&doc, self.fields.row),
+            law_id: text_of(&doc, self.fields.law_id),
+            score,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{KIND_SECTION, KIND_UNIT, KeywordIndex, OPEN_FROM, OPEN_TO, TOKENIZER, day_number, register, schema};
+    use super::{KIND_SECTION, KIND_UNIT, KeywordIndex, OPEN_FROM, OPEN_TO, TOKENIZER, case_schema, day_number, register, schema};
+    use crate::query::keyword::error::KeywordError;
     use chrono::NaiveDate;
     use tantivy::{Index, doc};
 
@@ -310,6 +371,52 @@ mod tests {
         assert_eq!(hits.iter().map(|h| (h.id.as_str(), h.row)).collect::<Vec<_>>(), [("501", 50)]);
         assert!(hits.iter().all(|h| h.kind == KIND_SECTION), "{hits:?}");
         assert!(index.search_sections("", 5)?.is_empty());
+        Ok(())
+    }
+
+    fn sections(dir: &std::path::Path, bodies: &[(&str, &str)]) -> Result<(), Box<dyn std::error::Error>> {
+        let (schema, f) = case_schema();
+        let index = Index::create_in_dir(dir, schema)?;
+        register(&index);
+        let mut writer = index.writer(50_000_000)?;
+        for (id, body) in bodies {
+            writer.add_document(doc!(f.kind => KIND_SECTION, f.id => *id, f.row => 1i64, f.law_id => "",
+                f.head => "", f.text => *body, f.valid_from => OPEN_FROM, f.valid_to => OPEN_TO))?;
+        }
+        writer.commit()?;
+        Ok(())
+    }
+
+    fn words(list: &[&str]) -> Vec<String> {
+        list.iter().map(|w| (*w).to_string()).collect()
+    }
+
+    #[test]
+    fn whole_words_count_and_split_pieces_do_not() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        sections(dir.path(), &[
+            ("1", "부당 해고와 무관한 재심 사건으로 길게 적은 판결요지이다."),
+            ("2", "부당해고에 해당한다."),
+            ("3", "부당해고 구제 재심판정은 위법하다."),
+            ("4", "부당해고 구제 재심판정은 위법하다고 볼 수 없다는 판단을 길게 적었다."),
+        ])?;
+        let index = KeywordIndex::open(dir.path())?;
+        assert!(index.has_positions());
+        let hits = index.search_sections_containing(&words(&["부당해고", "재심판정"]), 10)?;
+        let got: Vec<(&str, f32)> = hits.iter().map(|h| (h.id.as_str(), h.score)).collect();
+        assert_eq!(got, [("3", 2.0), ("4", 2.0), ("2", 1.0)]);
+        assert!(index.search_sections_containing(&words(&["경우"]), 10)?.is_empty());
+        assert!(index.search_sections_containing(&[], 10)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn index_without_positions_refuses_whole_word_search() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        build(dir.path())?;
+        let index = KeywordIndex::open(dir.path())?;
+        assert!(!index.has_positions());
+        assert_eq!(index.search_sections_containing(&words(&["처분"]), 5), Err(KeywordError::NoPositions));
         Ok(())
     }
 }

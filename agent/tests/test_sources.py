@@ -1,3 +1,5 @@
+import asyncio
+
 from semantic_agent.api.answer_gate import SentenceGate
 from semantic_agent.api.sources import best_line, build_sources, paragraph_span
 from semantic_agent.ledger import Ledger
@@ -28,7 +30,7 @@ def test_best_line_needs_enough_shared_pieces() -> None:
 def test_gate_records_cited_items_and_sources_mark_the_part() -> None:
     ledger = _ledger()
     gate = SentenceGate(ledger)
-    out = gate.push("차관은 정부위원입니다 [근거 1 제2항]. 법률상 이익이 없다고 보았습니다 [근거 2]. ")
+    out = asyncio.run(gate.push("차관은 정부위원입니다 [근거 1 제2항]. 법률상 이익이 없다고 보았습니다 [근거 2]. "))
     assert out and all("근거" not in piece for piece in out)
     items = {s["ref"]: s for s in build_sources(ledger, gate.cited)}
     law = items[1]
@@ -44,5 +46,5 @@ def test_gate_records_cited_items_and_sources_mark_the_part() -> None:
 def test_dropped_sentence_cites_nothing() -> None:
     ledger = _ledger()
     gate = SentenceGate(ledger)
-    gate.push("행정절차법 제21조에 따라야 합니다. ")
+    asyncio.run(gate.push("행정절차법 제21조에 따라야 합니다. "))
     assert gate.cited == []

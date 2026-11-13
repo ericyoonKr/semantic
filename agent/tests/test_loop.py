@@ -55,9 +55,9 @@ def test_streamed_answer_shows_checked_sources_only() -> None:
             answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": quote}]),
             AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1]. 민법 제750조도 적용됩니다.\n"),
         ]
-        agent, _, _ = await make_agent(script)
+        agent, _, client = await make_agent(script)
         cfg = run_config(Settings(internal_key="k", fake_tools=True).recursion_limit)
-        events = [e async for e in to_sse(agent, "가짜법 제1조가 뭐야?", cfg, timeout_s=60)]
+        events = [e async for e in to_sse(agent, "가짜법 제1조가 뭐야?", cfg, timeout_s=60, client=client)]
         tokens = "".join(
             json.loads(e.split("data: ", 1)[1])["text"] for e in events if e.startswith("event: Token")
         )

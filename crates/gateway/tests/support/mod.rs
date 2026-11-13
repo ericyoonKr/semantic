@@ -116,7 +116,6 @@ pub async fn fixture() -> Option<Fixture> {
         upload_limit_bytes: 1024 * 1024,
         login_per_minute: 10,
         hidden_spans: vec![("<think>".into(), "</think>".into())],
-        daily_token_limit: 3_000_000,
         ask_wait: Duration::from_millis(300),
         ask_global: 4,
         memory_floor_bytes: 0,

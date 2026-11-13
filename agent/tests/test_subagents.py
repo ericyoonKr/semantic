@@ -21,7 +21,7 @@ EXCERPT = "이 조문은 가짜 도구가 돌려주는 고정 문장이다."
 KEPT = {"claim": "가짜법 제1조는 목적 조항이다", "source": "근거 1", "quote": LAW_BODY}
 SHOWN_SOURCE = "[근거 1] 가짜법 제1조(시행 2000-01-01)"
 UNSOURCED = {"claim": "출처 없는 가짜 주장", "source": "", "quote": LAW_BODY}
-RESEARCHER_TOOLS = {"search_laws", "search_cases", "read_law", "read_case", "case_citations", "annex_lookup", "annex_compute"}
+RESEARCHER_TOOLS = {"search_laws", "search_cases", "read_law", "read_case", "case_citations", "list_annexes", "annex_lookup", "annex_compute"}
 READ = {"law": "가짜법", "unit": "제1조"}
 
 

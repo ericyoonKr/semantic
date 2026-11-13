@@ -27,7 +27,12 @@ pub async fn judge(
     };
     send(&state, &sid, event)?;
     match tokio::time::timeout(deadline, rx).await {
-        Ok(Ok(out)) => out.map(Json),
+        Ok(Ok(out)) => out.map(|reply| {
+            if let Ok(text) = serde_json::to_string(&reply) {
+                state.reads.record(sid.as_str(), |r| r.add_mentions(&text));
+            }
+            Json(reply)
+        }),
         Ok(Err(_)) => Err(ApiError::closed()),
         Err(_) => Err(ApiError::timeout()),
     }

@@ -1,6 +1,6 @@
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from semantic_agent.ledger import Ledger, article_key, compact
@@ -26,9 +26,22 @@ TOOL_BARE = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(n for n in TOOL_LABELS i
 INTERNAL_TAG = re.compile(r"\s*[\[(（【]\s*(?:하위\s*에이전트\s*결과|researcher\s*결과|조사\s*결과)\s*[\])）】]")
 
 
+TOOL_NAME = re.compile(_NAMES)
+HANGUL = re.compile(r"[가-힣]")
+
+
+def _tag_or_label(match: re.Match[str]) -> str:
+    rest = match.string[match.end() : match.end() + 1]
+    if not HANGUL.match(rest):
+        return ""
+    labels = dict.fromkeys(TOOL_LABELS[n] for n in TOOL_NAME.findall(match.group(0)))
+    lead = " " if match.group(0)[:1].isspace() else ""
+    return lead + "·".join(labels)
+
+
 def scrub_tools(text: str) -> str:
     text = INTERNAL_TAG.sub("", text)
-    text = TOOL_TAG.sub("", text)
+    text = TOOL_TAG.sub(_tag_or_label, text)
     return TOOL_BARE.sub(lambda m: TOOL_LABELS[m.group(1)], text)
 MAX_SENTENCE = 400
 
@@ -52,6 +65,9 @@ CASE_CODES = (
     "구합", "구단", "가합", "가단", "가소", "고합", "고단", "고정", "고약",
     "카합", "카단", "드합", "드단", "느합", "느단",
     "구", "누", "두", "다", "나", "가", "도", "노", "므", "르", "스", "브", "마", "라", "카", "재", "추", "후", "허", "그", "아", "모", "오",
+)
+ANNEX = re.compile(
+    r"(?<![가-힣])(?:([가-힣]*(?:법률|법))(?:\s*(시행령|시행규칙))?(?:의|상)?\s*)?(별표|서식)\s*(\d+)(?:\s*의\s*(\d+))?(?!\d)"
 )
 CASE_NO = re.compile(r"(?<!\d)((?:\d{4}|\d{2})(?:" + "|".join(CASE_CODES) + r")\d{1,7})(?!\d)")
 
@@ -89,23 +105,17 @@ def check_sentence(sentence: str, ledger: Ledger) -> Checked:
     replaced = TAG.sub(replace, sentence)
     bare = TAG.sub(" ", sentence)
     for match in LAW.finditer(bare):
-        name = _law_name(match.group(1), match.group(2))
         article = article_key(match.group(3))
-        if article is None:
-            continue
-        paragraph = int(match.group(5)) if match.group(5) else None
-        found = ledger.laws_with_article(name, article)
-        cites.extend((item.ref, paragraph) for item in found)
-        if ledger.trusts_law(name, article, paragraph):
-            continue
-        if not found:
-            reasons.append("law_not_read")
-        elif paragraph is not None and all(paragraph not in item.paragraphs for item in found):
-            reasons.append("paragraph_not_in_text")
+        if article is not None:
+            paragraph = int(match.group(5)) if match.group(5) else None
+            found = ledger.laws_with_article(_law_name(match.group(1), match.group(2)), article)
+            cites.extend((item.ref, paragraph) for item in found)
+    for match in ANNEX.finditer(bare):
+        name = _law_name(match.group(1), match.group(2)) if match.group(1) else None
+        key = match.group(3) + match.group(4) + (f"의{match.group(5)}" if match.group(5) else "")
+        cites.extend((item.ref, None) for item in ledger.annexes_named(name, key))
     for match in CASE_NO.finditer(bare):
         cites.extend((item.ref, None) for item in ledger.cases_numbered(match.group(1)))
-        if not ledger.knows_case(match.group(1)):
-            reasons.append("case_not_read")
     if reasons:
         return Checked(None, tuple(dict.fromkeys(reasons)))
     return Checked(scrub_tools(replaced), (), tuple(dict.fromkeys(cites)))
@@ -129,48 +139,80 @@ def _trailing_space(text: str) -> str:
     return text[len(stripped):]
 
 
+Checker = Callable[[list[str]], Awaitable[list[bool] | None]]
+CITES_SOMETHING = re.compile(r"제\s*\d+\s*조|별표\s*\d|서식\s*\d")
+NOT_READ = "not_read"
+
+
+def offline_verdicts(pieces: list[str]) -> list[bool]:
+    return [not (CITES_SOMETHING.search(p) or CASE_NO.search(p)) for p in pieces]
+
+
+async def unreachable(pieces: list[str]) -> list[bool] | None:
+    return None
+
+
 @dataclass
 class SentenceGate:
     ledger: Ledger
     on_drop: Callable[[tuple[str, ...], tuple[int, ...]], None] = lambda reasons, refs: None
+    checker: Checker = unreachable
     buf: str = ""
     dropped_last: bool = False
+    check_failed: bool = False
     drops: list[tuple[str, ...]] = field(default_factory=list)
     cited: list[tuple[int, int | None, str]] = field(default_factory=list)
 
-    def _emit(self, piece: str) -> list[str]:
-        piece = MATERIAL_MARK.sub("", piece)
+    async def _read_verdicts(self, pieces: list[str]) -> list[bool]:
+        asks = [p for p in pieces if p.strip()]
+        got = await self.checker(asks) if asks else []
+        if got is None or len(got) != len(asks):
+            self.check_failed = True
+            got = offline_verdicts(asks)
+        answers = iter(got)
+        return [next(answers) if p.strip() else True for p in pieces]
+
+    def _emit(self, piece: str, read: bool) -> list[str]:
         if not piece.strip():
             return [piece]
         checked = check_sentence(piece, self.ledger)
-        if checked.text is not None:
+        reasons = checked.reasons if read else (*checked.reasons, NOT_READ)
+        if not reasons and checked.text is not None:
             self.dropped_last = False
             self.cited.extend((ref, paragraph, piece) for ref, paragraph in checked.cites)
             return [checked.text]
-        self.drops.append(checked.reasons)
-        self.on_drop(checked.reasons, tuple(dict.fromkeys(int(m.group(1)) for m in TAG.finditer(piece))))
+        self.drops.append(reasons)
+        self.on_drop(reasons, tuple(dict.fromkeys(int(m.group(1)) for m in TAG.finditer(piece))))
         if self.dropped_last:
             return [_trailing_space(piece)] if _trailing_space(piece) else []
         self.dropped_last = True
-        notice = NOTICE_SEARCH if self.ledger.search_failed else NOTICE
+        notice = NOTICE_SEARCH if self.ledger.search_failed or self.check_failed else NOTICE
         return [notice + (_trailing_space(piece) or " ")]
 
-    def push(self, text: str) -> list[str]:
-        self.buf += text
+    async def _emit_all(self, pieces: list[str]) -> list[str]:
+        pieces = [MATERIAL_MARK.sub("", p) for p in pieces]
         out: list[str] = []
+        for piece, read in zip(pieces, await self._read_verdicts(pieces), strict=True):
+            out.extend(self._emit(piece, read))
+        return out
+
+    async def push(self, text: str) -> list[str]:
+        self.buf += text
+        pieces: list[str] = []
         while True:
             cut = _cut(self.buf)
             if cut is None and len(self.buf) > MAX_SENTENCE:
                 space = self.buf.rfind(" ", 0, MAX_SENTENCE)
                 cut = space + 1 if space > 0 else MAX_SENTENCE
             if cut is None:
-                return out
-            piece, self.buf = self.buf[:cut], self.buf[cut:]
-            out.extend(self._emit(piece))
+                break
+            pieces.append(self.buf[:cut])
+            self.buf = self.buf[cut:]
+        return await self._emit_all(pieces) if pieces else []
 
-    def flush(self) -> list[str]:
+    async def flush(self) -> list[str]:
         piece, self.buf = self.buf, ""
-        return self._emit(piece) if piece else []
+        return await self._emit_all([piece]) if piece else []
 
 
 def log_drop(request_id: str, turn: Turn) -> Callable[[tuple[str, ...], tuple[int, ...]], None]:
