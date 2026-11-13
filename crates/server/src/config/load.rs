@@ -23,6 +23,7 @@ pub struct Config {
     pub pdfium_dir: Option<PathBuf>,
     pub ocr_dir: Option<PathBuf>,
     pub ocr_threads: usize,
+    pub ocr_lanes: usize,
     pub lawtime_principles: Option<PathBuf>,
     pub law_aliases: Option<PathBuf>,
     pub route_legal: bool,
@@ -77,6 +78,7 @@ impl Config {
         let pdfium_dir = r.text("PDFIUM_DIR").map(PathBuf::from);
         let ocr_dir = r.text("OCR_DIR").map(PathBuf::from);
         let ocr_threads = r.positive("OCR_THREADS", 8)?;
+        let ocr_lanes = r.positive("OCR_LANES", 4)?;
         let lawtime_principles = r.text("LAWTIME_PRINCIPLES").map(PathBuf::from);
         let law_aliases = r.text("LAW_ALIASES").map(PathBuf::from);
         let route_legal = match r.text("ROUTE_LEGAL").as_deref() {
@@ -99,6 +101,7 @@ impl Config {
             pdfium_dir,
             ocr_dir,
             ocr_threads,
+            ocr_lanes,
             lawtime_principles,
             law_aliases,
             route_legal,

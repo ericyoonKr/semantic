@@ -70,6 +70,21 @@ impl Default for OcrOptions {
     }
 }
 
+pub(crate) struct Rendered {
+    raster: Raster,
+    width_pt: f32,
+    height_pt: f32,
+}
+
+impl Rendered {
+    pub(crate) fn of(page: &PdfPage) -> Result<Self, OcrError> {
+        let (width_pt, height_pt) = (page.width().value, page.height().value);
+        let scale = OCR_RENDER_DPI / POINTS_PER_INCH;
+        let raster = Raster::render(page, width_pt * scale, height_pt * scale)?;
+        Ok(Self { raster, width_pt, height_pt })
+    }
+}
+
 pub struct Ocr {
     _env: Environment,
     det: Detector,
@@ -124,13 +139,16 @@ impl Ocr {
     }
 
     pub fn read_page(&self, page: &PdfPage) -> Result<Vec<OcrLine>, OcrError> {
-        let (width_pt, height_pt) = (page.width().value, page.height().value);
-        let scale = OCR_RENDER_DPI / POINTS_PER_INCH;
-        let raster = Raster::render(page, width_pt * scale, height_pt * scale)?;
+        self.read_rendered(&Rendered::of(page)?)
+    }
+
+    pub(crate) fn read_rendered(&self, rendered: &Rendered) -> Result<Vec<OcrLine>, OcrError> {
+        let Rendered { raster, width_pt, height_pt } = rendered;
+        let (width_pt, height_pt) = (*width_pt, *height_pt);
         let to_x = width_pt / raster.width as f32;
         let to_y = height_pt / raster.height as f32;
         Ok(self
-            .read_raster(&raster)?
+            .read_raster(raster)?
             .into_iter()
             .map(|l| OcrLine {
                 x0: l.x0 * to_x,

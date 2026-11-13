@@ -66,14 +66,14 @@ impl AppState {
         let corpus = cfg.corpus.open();
         let lawtime = crate::versions::startup(cfg.lawtime_principles.as_deref());
         crate::versions::load_aliases(cfg.law_aliases.as_deref());
-        Ok(Self(Arc::new(Inner {
+        let state = Self(Arc::new(Inner {
             rules,
             engine,
             corpus,
             lawtime,
             z3: Semaphore::new(cfg.judge.z3_concurrency),
             uploads: Semaphore::new(cfg.limits.upload_concurrency),
-            pdf: PdfWorker::start(cfg.pdfium_dir.as_deref(), cfg.ocr_dir.as_deref(), cfg.ocr_threads, cfg.limits.upload_concurrency),
+            pdf: PdfWorker::start(cfg.pdfium_dir.as_deref(), cfg.ocr_dir.as_deref(), cfg.ocr_threads, cfg.ocr_lanes, cfg.limits.upload_concurrency),
             cfg,
             db,
             kg,
@@ -86,7 +86,8 @@ impl AppState {
             steps: crate::funcall::next_step::StepLog::default(),
             coverage: crate::funcall::coverage::Coverage::default(),
             known: crate::funcall::known::KnownLaws::default(),
-        })))
+        }));
+        Ok(state)
     }
 }
 

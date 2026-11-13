@@ -24,7 +24,7 @@ fn unavailable() -> ParseError {
 }
 
 impl PdfWorker {
-    pub fn start(library_dir: Option<&Path>, ocr_dir: Option<&Path>, ocr_threads: usize, queue: usize) -> Self {
+    pub fn start(library_dir: Option<&Path>, ocr_dir: Option<&Path>, ocr_threads: usize, ocr_lanes: usize, queue: usize) -> Self {
         let Some(dir) = library_dir else {
             tracing::warn!("PDFIUM_DIR is not set; PDF uploads will be refused");
             return Self(None, false);
@@ -35,7 +35,7 @@ impl PdfWorker {
         let ocr_dir: Option<PathBuf> = ocr_dir.map(Path::to_path_buf);
         match thread::Builder::new()
             .name("pdfium".to_string())
-            .spawn(move || serve(&dir, ocr_dir.as_deref(), ocr_threads, rx))
+            .spawn(move || serve(&dir, ocr_dir.as_deref(), ocr_threads, ocr_lanes, rx))
         {
             Ok(_) => Self(Some(tx), recognizes),
             Err(e) => {
@@ -79,24 +79,27 @@ impl PdfWorker {
     }
 }
 
-fn with_ocr(reader: PdfReader, ocr_dir: Option<&Path>, threads: usize) -> PdfReader {
+fn with_ocr(mut reader: PdfReader, ocr_dir: Option<&Path>, threads: usize, lanes: usize) -> PdfReader {
     let Some(dir) = ocr_dir else {
         tracing::info!("OCR_DIR is not set; pages without text stay unextracted");
         return reader;
     };
-    match Ocr::load(dir, threads) {
-        Ok(ocr) => {
-            tracing::info!("text recognition ready");
-            reader.with_ocr(ocr)
-        }
-        Err(e) => {
-            log_load_failure(&e, dir);
-            reader
+    let lanes = lanes.max(1);
+    let per_lane = (threads / lanes).max(1);
+    for _ in 0..lanes {
+        match Ocr::load(dir, per_lane) {
+            Ok(ocr) => reader = reader.with_ocr(ocr),
+            Err(e) => {
+                log_load_failure(&e, dir);
+                break;
+            }
         }
     }
+    tracing::info!(lanes = reader.lanes(), threads_per_lane = per_lane, "text recognition ready");
+    reader
 }
 
-fn serve(dir: &Path, ocr_dir: Option<&Path>, ocr_threads: usize, mut rx: mpsc::Receiver<Job>) {
+fn serve(dir: &Path, ocr_dir: Option<&Path>, ocr_threads: usize, ocr_lanes: usize, mut rx: mpsc::Receiver<Job>) {
     let reader = match PdfReader::load(dir) {
         Ok(reader) => reader,
         Err(_) => {
@@ -104,7 +107,7 @@ fn serve(dir: &Path, ocr_dir: Option<&Path>, ocr_threads: usize, mut rx: mpsc::R
             return;
         }
     };
-    let reader = with_ocr(reader, ocr_dir, ocr_threads);
+    let reader = with_ocr(reader, ocr_dir, ocr_threads, ocr_lanes);
     tracing::info!("pdf reading ready");
     while let Some(job) = rx.blocking_recv() {
         let out = catch_unwind(AssertUnwindSafe(|| read_checked(&reader, &job.bytes, &job.limits, job.recognize)));

@@ -10,10 +10,10 @@ use docmodel::{Block, Document, ExtractWarning, FactSource, FileId, Rect};
 use pdfium_render::prelude::*;
 
 use crate::error::ParseError;
-use crate::ocr::error::{log_page_failure, log_page_unread};
-use crate::ocr::{Ocr, OcrLine};
+use crate::ocr::error::{OcrError, log_page_failure, log_page_unread};
+use crate::ocr::{Ocr, OcrLine, Rendered};
 use crate::pdf_table::{Segment, TableSettings};
-use layout::{PageInput, lay_out};
+use layout::{PageInput, PageOutput, lay_out};
 use words::CharBox;
 
 pub const PDF_LIBRARY_MISSING: &str = "PDF 읽기 모듈을 찾지 못했습니다";
@@ -21,7 +21,7 @@ pub const PDF_LIBRARY_MISSING: &str = "PDF 읽기 모듈을 찾지 못했습니�
 pub struct PdfReader {
     pdfium: Pdfium,
     settings: TableSettings,
-    ocr: Option<Ocr>,
+    ocr: Vec<Ocr>,
 }
 
 fn rect(r: &PdfRect) -> Rect {
@@ -118,12 +118,16 @@ impl PdfReader {
     pub fn load(library_dir: &Path) -> Result<Self, ParseError> {
         let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(library_dir))
             .map_err(|_| ParseError::Unsupported(PDF_LIBRARY_MISSING.to_string()))?;
-        Ok(Self { pdfium: Pdfium::new(bindings), settings: TableSettings::default(), ocr: None })
+        Ok(Self { pdfium: Pdfium::new(bindings), settings: TableSettings::default(), ocr: Vec::new() })
     }
 
     pub fn with_ocr(mut self, ocr: Ocr) -> Self {
-        self.ocr = Some(ocr);
+        self.ocr.push(ocr);
         self
+    }
+
+    pub fn lanes(&self) -> usize {
+        self.ocr.len()
     }
 
     pub fn read(&self, bytes: &[u8], source: FileId) -> Result<Document, ParseError> {
@@ -135,7 +139,38 @@ impl PdfReader {
     }
 
     pub fn can_recognize(&self) -> bool {
-        self.ocr.is_some()
+        !self.ocr.is_empty()
+    }
+
+    fn recognize_batch(&self, pending: &mut Vec<Pending>, outputs: &mut [Option<PageOutput>], recognized: &mut Vec<u32>, fact: &FactSource) {
+        let done: Vec<(Pending, Result<Vec<OcrLine>, OcrError>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = pending
+                .drain(..)
+                .zip(self.ocr.iter())
+                .map(|(job, lane)| {
+                    scope.spawn(move || {
+                        let lines = lane.read_rendered(&job.rendered);
+                        (job, lines)
+                    })
+                })
+                .collect();
+            handles.into_iter().filter_map(|h| h.join().ok()).collect()
+        });
+        for (job, lines) in done {
+            match lines {
+                Ok(lines) => {
+                    let input = PageInput { number: job.number, chars: line_chars(&lines), segments: job.segments };
+                    let again = lay_out(input, fact, &self.settings);
+                    if !again.has_text {
+                        log_page_unread(job.number, lines.len());
+                    } else if let Some(slot) = outputs.get_mut(job.index) {
+                        *slot = Some(again);
+                        recognized.push(job.number);
+                    }
+                }
+                Err(e) => log_page_failure(&e, job.number),
+            }
+        }
     }
 
     fn read_with(&self, bytes: &[u8], source: FileId, recognize: bool) -> Result<Document, ParseError> {
@@ -144,35 +179,36 @@ impl PdfReader {
             _ => ParseError::Corrupted,
         })?;
         let fact = FactSource::File(source.clone());
-        let mut blocks: Vec<Block> = Vec::new();
-        let mut warnings: Vec<ExtractWarning> = Vec::new();
-        let mut empty: Vec<u32> = Vec::new();
-        let mut recognized: Vec<u32> = Vec::new();
         let total = doc.pages().len();
+        let mut outputs: Vec<Option<PageOutput>> = Vec::with_capacity(usize::from(total));
+        let mut pending: Vec<Pending> = Vec::new();
+        let mut recognized: Vec<u32> = Vec::new();
         for (index, page) in doc.pages().iter().enumerate() {
             let number = u32::try_from(index).map_err(|_| ParseError::TooLarge)? + 1;
             let input = PageInput { number, chars: page_chars(&page)?, segments: page_segments(&page) };
-            let mut output = lay_out(input, &fact, &self.settings);
-            if !output.has_text
-                && recognize
-                && let Some(ocr) = &self.ocr
-            {
-                match ocr.read_page(&page) {
-                    Ok(lines) => {
-                        let input = PageInput { number, chars: line_chars(&lines), segments: page_segments(&page) };
-                        let again = lay_out(input, &fact, &self.settings);
-                        if again.has_text {
-                            output = again;
-                            recognized.push(number);
-                        } else {
-                            log_page_unread(number, lines.len());
-                        }
-                    }
-                    Err(e) => log_page_failure(&e, number),
-                }
+            let output = lay_out(input, &fact, &self.settings);
+            let wants_ocr = !output.has_text && recognize && self.can_recognize();
+            outputs.push(Some(output));
+            if !wants_ocr {
+                continue;
             }
+            match Rendered::of(&page) {
+                Ok(rendered) => pending.push(Pending { index, number, rendered, segments: page_segments(&page) }),
+                Err(e) => log_page_failure(&e, number),
+            }
+            if pending.len() >= self.ocr.len() {
+                self.recognize_batch(&mut pending, &mut outputs, &mut recognized, &fact);
+            }
+        }
+        self.recognize_batch(&mut pending, &mut outputs, &mut recognized, &fact);
+        recognized.sort_unstable();
+        let mut blocks: Vec<Block> = Vec::new();
+        let mut warnings: Vec<ExtractWarning> = Vec::new();
+        let mut empty: Vec<u32> = Vec::new();
+        for (index, output) in outputs.into_iter().enumerate() {
+            let Some(output) = output else { continue };
             if !output.has_text {
-                empty.push(number);
+                empty.push(u32::try_from(index).map_err(|_| ParseError::TooLarge)? + 1);
             }
             blocks.extend(output.blocks.into_iter().map(|(_, b)| b));
             warnings.extend(output.warnings);
@@ -184,6 +220,13 @@ impl PdfReader {
         warnings.extend(ranges(&recognized).into_iter().map(|(from, to)| ExtractWarning::PagesRecognized { from, to }));
         Ok(Document { blocks, source, warnings })
     }
+}
+
+struct Pending {
+    index: usize,
+    number: u32,
+    rendered: Rendered,
+    segments: Vec<Segment>,
 }
 
 fn line_chars(lines: &[OcrLine]) -> Vec<CharBox> {
