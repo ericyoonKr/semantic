@@ -61,21 +61,34 @@ export function AnswerText({ text, streaming = false, sources = [] }: Props) {
   return (
     <Fold long={!streaming && text.length > LONG_ANSWER_CHARS}>
       <div className="answer-text">
-        {toBlocks(text).map((b, i) =>
-          b.kind === "para" ? (
-            <p key={i}>
-              <Line text={b.text} names={names} open={setShown} />
-            </p>
-          ) : (
-            <ul key={i}>
-              {b.items.map((item, j) => (
-                <li key={j}>
-                  <Line text={item} names={names} open={setShown} />
-                </li>
-              ))}
-            </ul>
-          ),
-        )}
+        {toBlocks(text).map((b, i) => {
+          switch (b.kind) {
+            case "para":
+              return (
+                <p key={i}>
+                  <Line text={b.text} names={names} open={setShown} />
+                </p>
+              );
+            case "heading":
+              return (
+                <p key={i} className={"answer-heading answer-heading-" + Math.min(b.level, 4)} role="heading" aria-level={Math.min(b.level + 2, 6)}>
+                  <Line text={b.text} names={names} open={setShown} />
+                </p>
+              );
+            case "rule":
+              return <hr key={i} className="answer-rule" />;
+            case "list":
+              return (
+                <ul key={i}>
+                  {b.items.map((item, j) => (
+                    <li key={j}>
+                      <Line text={item} names={names} open={setShown} />
+                    </li>
+                  ))}
+                </ul>
+              );
+          }
+        })}
       </div>
       {sources.length > 0 ? (
         <div className="source-list" aria-label="근거">

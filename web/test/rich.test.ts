@@ -12,6 +12,15 @@ describe("rich answer text", () => {
     ]);
   });
 
+  it("reads heading and rule lines", () => {
+    expect(toBlocks(["### 1. 일반적인 허용 여부 (행정 및 계약의 원칙)", "---", "본문", "#해시만"].join("\n"))).toEqual([
+      { kind: "heading", level: 3, text: "1. 일반적인 허용 여부 (행정 및 계약의 원칙)" },
+      { kind: "rule" },
+      { kind: "para", text: "본문" },
+      { kind: "para", text: "#해시만" },
+    ]);
+  });
+
   it("marks bold pairs and leaves an unmatched star pair as text", () => {
     expect(toSegments("**목적**: 정함", [])).toEqual([
       { text: "목적", bold: true, source: null },

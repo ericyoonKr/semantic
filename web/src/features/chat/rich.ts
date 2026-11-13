@@ -1,12 +1,27 @@
-export type Block = { kind: "para"; text: string } | { kind: "list"; items: string[] };
+export type Block =
+  | { kind: "para"; text: string }
+  | { kind: "list"; items: string[] }
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "rule" };
 
 export type Segment = { text: string; bold: boolean; source: number | null };
 
 const LIST_LINE = /^\s*[*\-•]\s+(.*)$/;
+const HEADING_LINE = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/;
+const RULE_LINE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
 
 export function toBlocks(text: string): Block[] {
   const out: Block[] = [];
   for (const line of text.split("\n")) {
+    const heading = HEADING_LINE.exec(line);
+    if (heading?.[1] && heading[2]) {
+      out.push({ kind: "heading", level: heading[1].length, text: heading[2] });
+      continue;
+    }
+    if (RULE_LINE.test(line)) {
+      out.push({ kind: "rule" });
+      continue;
+    }
     const item = LIST_LINE.exec(line)?.[1];
     if (item !== undefined) {
       const last = out[out.length - 1];

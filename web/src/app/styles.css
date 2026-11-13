@@ -907,6 +907,36 @@ textarea {
   white-space: pre-wrap;
 }
 
+.answer-heading {
+  margin: 14px 0 6px;
+  color: var(--ink-900);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.answer-heading-1,
+.answer-heading-2 {
+  font-size: 1.15em;
+}
+
+.answer-heading-3 {
+  font-size: 1.05em;
+}
+
+.answer-heading-4 {
+  font-size: 1em;
+}
+
+.answer-text > .answer-heading:first-child {
+  margin-top: 0;
+}
+
+.answer-rule {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--ink-200);
+}
+
 .answer-text ul {
   margin: 0 0 8px;
   padding-left: 20px;
