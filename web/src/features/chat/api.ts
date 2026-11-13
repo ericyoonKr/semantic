@@ -50,6 +50,19 @@ export async function loadHistory(client: ApiClient, id: string): Promise<Histor
 export async function ask(client: ApiClient, id: string, question: string, onEvent: (event: ChatEvent) => void, signal?: AbortSignal): Promise<AskEnd> {
   const options = signal ? { json: { question }, accept: "text/event-stream", signal } : { json: { question }, accept: "text/event-stream" };
   const res = await client.send("POST", `/session/${encodeURIComponent(id)}/ask`, options);
+  return readEvents(res, onEvent);
+}
+
+export async function attachLive(client: ApiClient, id: string, onEvent: (event: ChatEvent) => void, signal?: AbortSignal): Promise<AskEnd | "none"> {
+  const options = signal ? { accept: "text/event-stream", signal } : { accept: "text/event-stream" };
+  const res = await client.send("GET", `/session/${encodeURIComponent(id)}/live`, options);
+  if (res.status === 204) {
+    return "none";
+  }
+  return readEvents(res, onEvent);
+}
+
+async function readEvents(res: Response, onEvent: (event: ChatEvent) => void): Promise<AskEnd> {
   if (!res.body) {
     return "broken";
   }

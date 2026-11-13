@@ -18,6 +18,7 @@ export type ChatEvent =
   | { kind: "needed"; asks: string[] }
   | { kind: "warning"; message: string }
   | { kind: "sources"; items: Source[] }
+  | { kind: "resume"; question: string }
   | { kind: "error"; message: string; requestId: string }
   | { kind: "done" };
 
@@ -95,6 +96,10 @@ export function toChatEvent(message: SseMessage): ChatEvent | null {
     case "Warning": {
       const m = text(data?.message);
       return m ? { kind: "warning", message: m } : null;
+    }
+    case "Resume": {
+      const q = text(data?.question);
+      return q ? { kind: "resume", question: q } : null;
     }
     case "Sources": {
       const raw = data?.items;

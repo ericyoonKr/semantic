@@ -120,6 +120,34 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
     Ok(out)
 }
 
+pub async fn live(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>) -> Result<Response, GatewayError> {
+    let id = owned(&state, &signed, &raw).await?;
+    let rid = request_id();
+    let res = upstream(&state, reqwest::Method::GET, &format!("/session/{id}/live"), signed.user_id, &rid)
+        .timeout(state.cfg.ask_deadline)
+        .send()
+        .await
+        .map_err(|_| GatewayError::Upstream)?;
+    if res.status() == reqwest::StatusCode::NO_CONTENT {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+    if !res.status().is_success() {
+        return Err(GatewayError::Upstream);
+    }
+    let filter = SseFilter::new(rid, state.cfg.hidden_spans.clone());
+    let stream = res.bytes_stream().scan(filter, |filter, chunk| {
+        let frames = match chunk {
+            Ok(bytes) => filter.push(&String::from_utf8_lossy(&bytes)),
+            Err(_) => filter.push(STREAM_BROKEN),
+        };
+        filter.take_side();
+        futures::future::ready(Some(Ok::<_, std::io::Error>(frames.concat())))
+    });
+    let mut out = Response::new(Body::from_stream(stream));
+    out.headers_mut().insert(CONTENT_TYPE, axum::http::HeaderValue::from_static("text/event-stream"));
+    Ok(out)
+}
+
 pub async fn upload(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>, headers: HeaderMap, body: Body) -> Result<Response, GatewayError> {
     let id = owned(&state, &signed, &raw).await?;
     if state.memory.low() {

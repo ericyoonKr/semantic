@@ -2,7 +2,7 @@ import asyncio
 import secrets
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,6 +20,7 @@ from semantic_agent.agent.build import build_agent, load_catalogs
 from semantic_agent.agent.research import ResearchOptions
 from semantic_agent.agent.model import build_model
 from semantic_agent.api.sessions import SessionRegistry, run_ask, run_upload
+from semantic_agent.api.runlog import RunLog
 from semantic_agent.api.sse import event, to_sse
 from semantic_agent.config import Settings
 from semantic_agent.logs import setup_logging
@@ -44,6 +45,7 @@ class AppState:
     store: BaseStore
     client: ToolClient
     registry: SessionRegistry
+    background: set[asyncio.Task[Any]] = field(default_factory=set)
 
 
 def _uuid(value: str | None) -> str | None:
@@ -214,29 +216,37 @@ def create_app(
         state = rt(request)
         cfg = _config(settings, sid, user_id)
         request_id = cfg["configurable"]["request_id"]
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        slot = state.registry.get(sid)
+        log = RunLog(body.question)
 
         async def produce() -> None:
+            slot.log = log
             try:
                 async for item in to_sse(state.agent, body.question, cfg, settings.ask_timeout_s):
-                    queue.put_nowait(item)
+                    log.add(item)
             except asyncio.CancelledError:
-                queue.put_nowait(event("Error", {"message": "질문이 중단되었습니다", "request_id": request_id}))
+                log.add(event("Error", {"message": "질문이 중단되었습니다", "request_id": request_id}))
                 raise
             finally:
-                queue.put_nowait(None)
+                log.finish()
 
-        task = asyncio.create_task(run_ask(state.registry.get(sid), produce()))
+        state.background.add(task := asyncio.create_task(run_ask(slot, produce())))
+        task.add_done_callback(state.background.discard)
+        return StreamingResponse(log.follow(), media_type="text/event-stream")
 
-        async def stream():
-            try:
-                while (item := await queue.get()) is not None:
-                    yield item
-            finally:
-                if not task.done():
-                    task.cancel()
+    @app.get("/session/{session_id}/live")
+    async def live(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
+        sid = _session(session_id)
+        log = rt(request).registry.live(sid)
+        if log is None:
+            return Response(status_code=204)
 
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        async def replay():
+            yield event("Resume", {"question": log.question})
+            async for item in log.follow():
+                yield item
+
+        return StreamingResponse(replay(), media_type="text/event-stream")
 
     @app.get("/session/{session_id}/history")
     async def history(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> dict[str, Any]:

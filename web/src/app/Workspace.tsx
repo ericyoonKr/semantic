@@ -13,9 +13,31 @@ type Props = {
   account: ReactNode;
 };
 
+const SELECTED_KEY = "semantic.selected-session";
+
+function readSelected(): string | null {
+  try {
+    return window.localStorage.getItem(SELECTED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSelected(id: string | null) {
+  try {
+    if (id === null) {
+      window.localStorage.removeItem(SELECTED_KEY);
+    } else {
+      window.localStorage.setItem(SELECTED_KEY, id);
+    }
+  } catch {
+    return;
+  }
+}
+
 export function Workspace({ client, onStreaming, account }: Props) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(readSelected);
   const [busy, setBusy] = useState(false);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +50,14 @@ export function Workspace({ client, onStreaming, account }: Props) {
   }, [client]);
 
   useEffect(() => {
-    refresh().catch((err: unknown) => setError(messageOf(err)));
+    refresh()
+      .then((list) => setSelected((id) => (id !== null && list.some((s) => s.id === id) ? id : null)))
+      .catch((err: unknown) => setError(messageOf(err)));
   }, [refresh]);
+
+  useEffect(() => {
+    writeSelected(selected);
+  }, [selected]);
 
   const streaming = useCallback(
     (on: boolean) => {

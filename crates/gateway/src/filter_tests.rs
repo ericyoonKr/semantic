@@ -113,3 +113,12 @@ fn gemma_thought_channel_is_hidden_with_default_spans() {
     assert!(joined.contains("답입니다"));
     assert!(!joined.contains("channel") && !joined.contains("속생각"));
 }
+
+#[test]
+fn resume_carries_the_running_question() {
+    let mut f = filter();
+    let out = f.push(&ev("Resume", r#"{"question":"국가배상 요건은?"}"#));
+    assert_eq!(out.len(), 1);
+    assert!(out[0].starts_with("event: Resume\n") && out[0].contains("국가배상 요건은?"));
+    assert!(f.push(&ev("Resume", r#"{}"#)).is_empty());
+}

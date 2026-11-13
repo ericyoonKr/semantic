@@ -25,3 +25,8 @@ export function toHistory(body: unknown): HistoryItem[] {
   }
   return out;
 }
+
+export function dropPending(items: HistoryItem[], question: string): HistoryItem[] {
+  const last = items[items.length - 1];
+  return last && last.role === "user" && last.text.trim() === question.trim() ? items.slice(0, -1) : items;
+}

@@ -38,6 +38,8 @@ export function applyEvent(turn: Turn, event: ChatEvent): Turn {
       return { ...turn, verdicts: [...turn.verdicts, event.text] };
     case "needed":
       return { ...turn, asks: event.asks.reduce(addOnce, turn.asks) };
+    case "resume":
+      return turn;
     case "sources":
       return { ...turn, sources: event.items };
     case "warning":

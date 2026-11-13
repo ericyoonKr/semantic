@@ -5,11 +5,14 @@ from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from typing import Any
 
+from semantic_agent.api.runlog import RunLog
+
 
 @dataclass
 class SessionSlot:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     running_ask: asyncio.Task | None = None
+    log: RunLog | None = None
     last_used: float = field(default_factory=time.monotonic)
 
 
@@ -29,6 +32,11 @@ class SessionRegistry:
         for slot in self._slots.values():
             if slot.running_ask is not None and not slot.running_ask.done():
                 slot.running_ask.cancel()
+
+    def live(self, session_id: str) -> RunLog | None:
+        slot = self._slots.get(session_id)
+        log = slot.log if slot is not None else None
+        return log if log is not None and not log.done else None
 
     def drop(self, session_id: str) -> None:
         self._slots.pop(session_id, None)

@@ -141,6 +141,10 @@ impl SseFilter {
                 };
                 Some(frame("Warning", json!({ "message": message })))
             }
+            "Resume" => {
+                let question = value.get("question").and_then(Value::as_str)?;
+                Some(frame("Resume", json!({ "question": question })))
+            }
             "Sources" => {
                 let items: Vec<Value> = value.get("items")?.as_array()?.iter().filter_map(source_item).collect();
                 (!items.is_empty()).then(|| frame("Sources", json!({ "items": items })))
