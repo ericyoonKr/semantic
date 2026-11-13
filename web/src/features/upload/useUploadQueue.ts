@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../shared/api/client";
 import { uploadFile, type UploadSummary } from "./api";
-import { BLOCKED_TEXT, UploadQueue, type QueueItem } from "./dropQueue";
+import { BLOCKED_TEXT, UploadQueue, sessionQueue, type QueueItem } from "./dropQueue";
 
 export type UploadQueueState = {
   items: QueueItem[];
@@ -24,15 +24,15 @@ export function useUploadQueue(client: ApiClient, sessionId: string, blocked: bo
   }, [onUploaded]);
 
   useEffect(() => {
-    const q = new UploadQueue((file, signal) => uploadFile(client, sessionId, file, signal), {
+    const q = sessionQueue(client, sessionId, () => new UploadQueue((file, signal) => uploadFile(client, sessionId, file, signal)));
+    queue.current = q;
+    q.listen({
       change: setItems,
       busy: setBusy,
       uploaded: (summary) => uploaded.current(summary),
     });
-    queue.current = q;
-    setItems([]);
     return () => {
-      q.close();
+      q.listen(null);
       if (queue.current === q) {
         queue.current = null;
       }

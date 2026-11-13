@@ -42,21 +42,26 @@ export type Uploader = (file: File, signal: AbortSignal) => Promise<UploadSummar
 
 export class UploadQueue {
   private readonly upload: Uploader;
-  private readonly listener: QueueListener;
+  private listener: QueueListener | null;
   private items: QueueItem[] = [];
   private pending: Pending[] = [];
   private nextId = 1;
   private running: Promise<void> | null = null;
-  private closed = false;
   private current: { id: number; stop: AbortController } | null = null;
 
-  constructor(upload: Uploader, listener: QueueListener) {
+  constructor(upload: Uploader, listener: QueueListener | null = null) {
     this.upload = upload;
     this.listener = listener;
   }
 
+  listen(listener: QueueListener | null): void {
+    this.listener = listener;
+    listener?.change(this.items);
+    listener?.busy(this.running !== null);
+  }
+
   offer(files: readonly File[], blocked: boolean): OfferResult {
-    if (this.closed || files.length === 0) {
+    if (files.length === 0) {
       return "empty";
     }
     if (blocked) {
@@ -106,38 +111,27 @@ export class UploadQueue {
     return this.running ?? Promise.resolve();
   }
 
-  close(): void {
-    this.closed = true;
-    this.pending = [];
-  }
-
   private set(id: number, patch: Partial<QueueItem>): void {
     this.items = this.items.map((i) => (i.id === id ? { ...i, ...patch } : i));
     this.emit();
   }
 
   private emit(): void {
-    if (!this.closed) {
-      this.listener.change(this.items);
-    }
+    this.listener?.change(this.items);
   }
 
   private async drain(): Promise<void> {
-    if (!this.closed) {
-      this.listener.busy(true);
-    }
+    this.listener?.busy(true);
     try {
       let next = this.pending.shift();
-      while (next && !this.closed) {
+      while (next) {
         this.set(next.id, { state: "uploading" });
         const stop = new AbortController();
         this.current = { id: next.id, stop };
         try {
           const summary = await this.upload(next.file, stop.signal);
           this.set(next.id, { state: "done", pages: summary.pages });
-          if (!this.closed) {
-            this.listener.uploaded(summary);
-          }
+          this.listener?.uploaded(summary);
         } catch (err) {
           this.set(next.id, stop.signal.aborted ? { state: "canceled", message: null } : { state: "failed", message: messageOf(err) });
         } finally {
@@ -147,11 +141,25 @@ export class UploadQueue {
       }
     } finally {
       this.running = null;
-      if (!this.closed) {
-        this.listener.busy(false);
-      }
+      this.listener?.busy(false);
     }
   }
+}
+
+const stores = new WeakMap<object, Map<string, UploadQueue>>();
+
+export function sessionQueue(owner: object, sessionId: string, make: () => UploadQueue): UploadQueue {
+  let queues = stores.get(owner);
+  if (!queues) {
+    queues = new Map();
+    stores.set(owner, queues);
+  }
+  let queue = queues.get(sessionId);
+  if (!queue) {
+    queue = make();
+    queues.set(sessionId, queue);
+  }
+  return queue;
 }
 
 export function guardWindow(target: EventTarget): () => void {

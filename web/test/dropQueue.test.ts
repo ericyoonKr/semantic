@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UploadSummary } from "../src/features/upload/api";
-import { BLOCKED_TEXT, REJECTED_TEXT, UploadQueue, guardWindow, hasFiles, isAccepted, type QueueItem } from "../src/features/upload/dropQueue";
+import { BLOCKED_TEXT, REJECTED_TEXT, UploadQueue, guardWindow, hasFiles, isAccepted, sessionQueue, type QueueItem } from "../src/features/upload/dropQueue";
 import { ApiError } from "../src/shared/api/errors";
 
 function file(name: string): File {
@@ -181,18 +181,35 @@ describe("UploadQueue", () => {
     await h.queue.idle();
   });
 
-  it("stops waiting uploads and stays quiet after close", async () => {
+  it("keeps uploading every file while nobody watches and shows the progress to the next viewer", async () => {
     const h = harness();
     h.queue.offer([file("a.pdf"), file("b.pdf")], false);
     await tick();
-    h.queue.close();
+    h.queue.listen(null);
     const count = h.snapshots.length;
     h.started[0]?.release();
+    await tick();
+    h.started[1]?.release();
     await h.queue.idle();
-    expect(h.started.map((g) => g.name)).toEqual(["a.pdf"]);
+    expect(h.started.map((g) => g.name)).toEqual(["a.pdf", "b.pdf"]);
     expect(h.snapshots.length).toBe(count);
-    expect(h.uploaded).toEqual([]);
-    expect(h.queue.offer([file("c.pdf")], false)).toBe("empty");
+    const seen: QueueItem[][] = [];
+    const busy: boolean[] = [];
+    h.queue.listen({ change: (items) => seen.push(items), busy: (b) => busy.push(b), uploaded: () => undefined });
+    expect(seen[0]?.map((i) => [i.name, i.state])).toEqual([
+      ["a.pdf", "done"],
+      ["b.pdf", "done"],
+    ]);
+    expect(busy).toEqual([false]);
+  });
+
+  it("gives one queue per conversation that lives across views", () => {
+    const owner = {};
+    const make = () => new UploadQueue(async () => summary("x.pdf", 1));
+    const first = sessionQueue(owner, "s1", make);
+    expect(sessionQueue(owner, "s1", make)).toBe(first);
+    expect(sessionQueue(owner, "s2", make)).not.toBe(first);
+    expect(sessionQueue({}, "s1", make)).not.toBe(first);
   });
 });
 
