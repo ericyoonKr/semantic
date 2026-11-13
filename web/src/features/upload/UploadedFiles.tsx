@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ApiClient } from "../../shared/api/client";
 import { messageOf } from "../../shared/api/errors";
 import { ErrorNote } from "../../shared/ui/ErrorNote";
+import { RichBlocks } from "../chat/AnswerText";
 import { listFiles, loadFileText, toPages, type FileText, type StoredFile } from "./files";
 
 type Props = {
@@ -65,7 +66,9 @@ export function UploadedFiles({ client, sessionId, version }: Props) {
             {toPages(open.text).map((p, i) => (
               <section key={i} className="file-page">
                 {p.page !== null ? <p className="file-page-mark">{p.page}쪽</p> : null}
-                <pre>{p.text}</pre>
+                <div className="answer-text file-page-text">
+                  <RichBlocks text={p.text} />
+                </div>
               </section>
             ))}
           </div>

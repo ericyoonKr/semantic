@@ -14,7 +14,23 @@ const TABLE_LINE = /^\s*\|.*\|\s*$/;
 const TABLE_SEPARATOR = /^:?-{2,}:?$/;
 
 function cells(line: string): string[] {
-  return line.trim().slice(1, -1).split("|").map((c) => c.trim());
+  const inner = line.trim().slice(1, -1);
+  const out: string[] = [];
+  let cell = "";
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "\\" && inner[i + 1] === "|") {
+      cell += "|";
+      i++;
+    } else if (ch === "|") {
+      out.push(cell.trim());
+      cell = "";
+    } else {
+      cell += ch;
+    }
+  }
+  out.push(cell.trim());
+  return out;
 }
 
 export function toBlocks(text: string): Block[] {

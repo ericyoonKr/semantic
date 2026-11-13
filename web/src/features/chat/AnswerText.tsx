@@ -35,6 +35,80 @@ function Line({ text, names, open }: LineProps) {
   );
 }
 
+type RichProps = {
+  text: string;
+  names?: { name: string; source: number }[];
+  open?: (source: number) => void;
+};
+
+const NO_NAMES: { name: string; source: number }[] = [];
+const IGNORE = (_source: number) => undefined;
+
+export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps) {
+  const setShown = open;
+  return (
+    <>
+    {toBlocks(text).map((b, i) => {
+      switch (b.kind) {
+        case "para":
+          return (
+            <p key={i}>
+              <Line text={b.text} names={names} open={setShown} />
+            </p>
+          );
+        case "heading":
+          return (
+            <p key={i} className={"answer-heading answer-heading-" + Math.min(b.level, 4)} role="heading" aria-level={Math.min(b.level + 2, 6)}>
+              <Line text={b.text} names={names} open={setShown} />
+            </p>
+          );
+        case "rule":
+          return <hr key={i} className="answer-rule" />;
+        case "table":
+          return (
+            <div key={i} className="answer-table-wrap">
+              <table className="answer-table">
+                {b.header ? (
+                  <thead>
+                    <tr>
+                      {b.header.map((c, j) => (
+                        <th key={j} scope="col">
+                          <Line text={c} names={names} open={setShown} />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                ) : null}
+                <tbody>
+                  {b.rows.map((row, r) => (
+                    <tr key={r}>
+                      {row.map((c, j) => (
+                        <td key={j}>
+                          <Line text={c} names={names} open={setShown} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        case "list":
+          return (
+            <ul key={i}>
+              {b.items.map((item, j) => (
+                <li key={j}>
+                  <Line text={item} names={names} open={setShown} />
+                </li>
+              ))}
+            </ul>
+          );
+      }
+    })}
+    </>
+  );
+}
+
 function SourcePanel({ source, close }: { source: Source; close: () => void }) {
   return (
     <aside className="source-panel" aria-label="근거 원문">
@@ -65,63 +139,7 @@ export function AnswerText({ text, streaming = false, sources = [] }: Props) {
   return (
     <Fold long={!streaming && text.length > LONG_ANSWER_CHARS}>
       <div className="answer-text">
-        {toBlocks(text).map((b, i) => {
-          switch (b.kind) {
-            case "para":
-              return (
-                <p key={i}>
-                  <Line text={b.text} names={names} open={setShown} />
-                </p>
-              );
-            case "heading":
-              return (
-                <p key={i} className={"answer-heading answer-heading-" + Math.min(b.level, 4)} role="heading" aria-level={Math.min(b.level + 2, 6)}>
-                  <Line text={b.text} names={names} open={setShown} />
-                </p>
-              );
-            case "rule":
-              return <hr key={i} className="answer-rule" />;
-            case "table":
-              return (
-                <div key={i} className="answer-table-wrap">
-                  <table className="answer-table">
-                    {b.header ? (
-                      <thead>
-                        <tr>
-                          {b.header.map((c, j) => (
-                            <th key={j} scope="col">
-                              <Line text={c} names={names} open={setShown} />
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                    ) : null}
-                    <tbody>
-                      {b.rows.map((row, r) => (
-                        <tr key={r}>
-                          {row.map((c, j) => (
-                            <td key={j}>
-                              <Line text={c} names={names} open={setShown} />
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            case "list":
-              return (
-                <ul key={i}>
-                  {b.items.map((item, j) => (
-                    <li key={j}>
-                      <Line text={item} names={names} open={setShown} />
-                    </li>
-                  ))}
-                </ul>
-              );
-          }
-        })}
+        <RichBlocks text={text} names={names} open={setShown} />
       </div>
       {sources.length > 0 ? (
         <div className="source-list" aria-label="근거">

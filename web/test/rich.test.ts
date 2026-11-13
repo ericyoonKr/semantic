@@ -30,6 +30,11 @@ describe("rich answer text", () => {
     ]);
   });
 
+  it("keeps an escaped bar inside a table cell", () => {
+    const text = ["| 항목 | 값 |", "| --- | --- |", "| A" + String.fromCharCode(92) + "|B | 1 |"].join(String.fromCharCode(10));
+    expect(toBlocks(text)).toEqual([{ kind: "table", header: ["항목", "값"], rows: [["A|B", "1"]] }]);
+  });
+
   it("marks bold pairs and leaves an unmatched star pair as text", () => {
     expect(toSegments("**목적**: 정함", [])).toEqual([
       { text: "목적", bold: true, source: null },
