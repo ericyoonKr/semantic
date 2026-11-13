@@ -16,6 +16,7 @@ class ResearchOptions:
     prompt: ResearchPrompt = "base"
     intent_scope: bool = False
     deadline_s: float = SUB_DEADLINE_S
+    first: bool = False
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ResearchOptions":
@@ -23,6 +24,7 @@ class ResearchOptions:
             prompt=settings.research_prompt,
             intent_scope=settings.research_intent_scope,
             deadline_s=settings.research_deadline_s,
+            first=settings.research_first,
         )
 
     @property

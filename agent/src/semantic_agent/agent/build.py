@@ -25,6 +25,7 @@ from semantic_agent.agent.judge_route import JudgeRoute
 from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
 from semantic_agent.agent.research import VERSION_TOOLS, ResearchOptions
+from semantic_agent.agent.research_first import ResearchFirst
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.memory.store import prefs_namespace
 from semantic_agent.tools.annex import make_annex_tools
@@ -131,6 +132,7 @@ def build_agent(
         ],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
+            *([ResearchFirst()] if research.first else []),
             QuestionBudget(),
             ScopeGuard(),
             ContextMiddleware(catalogs.judge, catalogs.kg),

@@ -46,7 +46,7 @@ def steps_answer(found: list[dict[str, Any]], issues: list[Any]) -> AIMessage:
 def test_switches_are_off_by_default() -> None:
     settings = Settings(_env_file=None)
     options = ResearchOptions.from_settings(settings)
-    assert options == ResearchOptions()
+    assert options == ResearchOptions(first=True)
     assert options.researcher_prompt() == RESEARCHER_PROMPT
     on = ResearchOptions.from_settings(Settings(_env_file=None, research_prompt="steps", research_intent_scope=True))
     assert on.steps and on.intent_scope and on.researcher_prompt() == RESEARCHER_STEPS_PROMPT
