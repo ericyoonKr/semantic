@@ -73,6 +73,10 @@ pub fn kg_ids_key(session: &str) -> Result<String, StorageError> {
     Ok(format!("{}kg_ids", session_prefix(session)?))
 }
 
+pub fn reads_key(session: &str) -> Result<String, StorageError> {
+    Ok(format!("{}reads", session_prefix(session)?))
+}
+
 pub(crate) fn encode(value: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(value.len() + 1);
     out.push(FORMAT_VERSION);

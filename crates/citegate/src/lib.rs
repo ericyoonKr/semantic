@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const MAX_SENTENCE: usize = 400;
 pub const NOTICE: &str = "확인하지 못한 근거를 든 문장을 뺐습니다.";
@@ -126,6 +126,12 @@ pub fn mentions(sentence: &str) -> Vec<Mention> {
     out
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadParts {
+    pub units: Vec<(String, String, Vec<u32>)>,
+    pub cases: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadSet {
     units: HashMap<(String, String), HashSet<u32>>,
@@ -161,6 +167,27 @@ impl ReadSet {
                 Mention::Unit { law: None, .. } => {}
             }
         }
+    }
+
+    pub fn parts(&self) -> ReadParts {
+        let mut units: Vec<(String, String, Vec<u32>)> = self
+            .units
+            .iter()
+            .map(|((law, unit), paras)| {
+                let mut p: Vec<u32> = paras.iter().copied().collect();
+                p.sort_unstable();
+                (law.clone(), unit.clone(), p)
+            })
+            .collect();
+        units.sort();
+        let mut cases: Vec<String> = self.cases.iter().cloned().collect();
+        cases.sort();
+        ReadParts { units, cases }
+    }
+
+    pub fn from_parts(parts: ReadParts) -> Self {
+        let units = parts.units.into_iter().map(|(law, unit, paras)| ((law, unit), paras.into_iter().collect())).collect();
+        ReadSet { units, cases: parts.cases.into_iter().collect() }
     }
 
     pub fn len(&self) -> usize {

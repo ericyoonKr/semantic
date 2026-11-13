@@ -60,6 +60,7 @@ impl AppState {
         let kg = Arc::new(load_kg(&cfg, &cpu).await);
         let rules = Arc::new(crate::rules::startup(cfg.kg_dir.clone(), kg.clone(), &cpu).await);
         let engine = EngineParts::build(&cfg.judge, &db);
+        let reads = crate::funcall::readlog::ReadLog::new(db.clone());
         let corpus = cfg.corpus.open();
         let lawtime = crate::versions::startup(cfg.lawtime_principles.as_deref());
         crate::versions::load_aliases(cfg.law_aliases.as_deref());
@@ -79,7 +80,7 @@ impl AppState {
             kg_ids: KgIdLocks::default(),
             shutdown: CancellationToken::new(),
             tracker: TaskTracker::new(),
-            reads: crate::funcall::readlog::ReadLog::default(),
+            reads,
             steps: crate::funcall::next_step::StepLog::default(),
         })))
     }
