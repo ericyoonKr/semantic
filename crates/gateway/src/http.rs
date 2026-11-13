@@ -28,7 +28,7 @@ pub fn router(state: AppState) -> Router {
         .route("/session/{id}/ask", post(chat::ask))
         .route("/session/{id}/upload", post(chat::upload))
         .route("/session/{id}/history", get(chat::history))
-        .route("/session/{id}", delete(chat::remove))
+        .route("/session/{id}", delete(chat::remove).patch(chat::rename))
         .route("/prefs", delete(chat::remove_prefs))
         .layer(DefaultBodyLimit::max(limit));
     let app = match state.cfg.web_dir.clone() {

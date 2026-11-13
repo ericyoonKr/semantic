@@ -37,6 +37,12 @@ export async function deleteSession(client: ApiClient, id: string): Promise<void
   await client.empty("DELETE", `/session/${encodeURIComponent(id)}`);
 }
 
+export const TITLE_MAX_CHARS = 80;
+
+export async function renameSession(client: ApiClient, id: string, title: string): Promise<void> {
+  await client.empty("PATCH", `/session/${encodeURIComponent(id)}`, { json: { title } });
+}
+
 export async function loadHistory(client: ApiClient, id: string): Promise<HistoryItem[]> {
   return toHistory(await client.json<unknown>("GET", `/session/${encodeURIComponent(id)}/history`));
 }

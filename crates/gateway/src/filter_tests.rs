@@ -84,3 +84,32 @@ fn injection_warning_gets_fixed_text() {
     assert!(out[0].contains("읽은 자료 안에 지시처럼 보이는 문장이 있었습니다"));
     assert!(!out[0].contains("uploads") && !out[0].contains("무시"));
 }
+
+#[test]
+fn sources_pass_with_checked_spans_and_drop_bad_items() {
+    let mut f = filter();
+    let data = r#"{"items":[{"ref":1,"kind":"law","label":"정부조직법 제1조","note":"시행 2021-12-30","displays":["정부조직법 제1조(시행 2021-12-30)"],"body":"가나다라","spans":[[1,3],[2,99],[3,3]]},{"kind":"memo","label":"x","body":"y"}]}"#;
+    let out = f.push(&ev("Sources", data));
+    assert_eq!(out.len(), 1);
+    assert!(out[0].starts_with("event: Sources\n"));
+    let body = out[0].lines().find_map(|l| l.strip_prefix("data: ")).unwrap_or_default();
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    let items = v["items"].as_array().cloned().unwrap_or_default();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["spans"], serde_json::json!([[1, 3]]));
+    assert_eq!(items[0]["displays"][0], "정부조직법 제1조(시행 2021-12-30)");
+    assert!(f.push(&ev("Sources", r#"{"items":[]}"#)).is_empty());
+}
+
+#[test]
+fn gemma_thought_channel_is_hidden_with_default_spans() {
+    let spans = crate::config::parse_spans(crate::config::DEFAULT_HIDDEN_SPANS);
+    assert_eq!(spans[1], ("<|channel>".to_string(), "<channel|>".to_string()));
+    assert_eq!(spans[0], ("<think>".to_string(), "</think>".to_string()));
+    let mut f = SseFilter::new("r", spans);
+    let mut out = f.push(&ev("Token", r#"{"text":"<|channel>thought\n속생각"}"#));
+    out.extend(f.push(&ev("Token", r#"{"text":"<channel|>답입니다"}"#)));
+    let joined = out.join("");
+    assert!(joined.contains("답입니다"));
+    assert!(!joined.contains("channel") && !joined.contains("속생각"));
+}

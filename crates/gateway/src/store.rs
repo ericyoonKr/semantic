@@ -207,12 +207,26 @@ impl AuthStore {
         Ok(row.is_some())
     }
 
-    pub async fn threads(&self, user_id: Uuid) -> Result<Vec<Uuid>, GatewayError> {
-        let rows = sqlx::query(AssertSqlSafe(format!("SELECT thread_id FROM {}.thread_owner WHERE user_id = $1 ORDER BY updated_at DESC", self.schema)))
+    pub async fn threads(&self, user_id: Uuid) -> Result<Vec<(Uuid, Option<String>)>, GatewayError> {
+        let rows = sqlx::query(AssertSqlSafe(format!(
+            "SELECT thread_id, title FROM {}.thread_owner WHERE user_id = $1 ORDER BY updated_at DESC",
+            self.schema
+        )))
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db)?;
+        rows.iter().map(|r| Ok((r.try_get("thread_id").map_err(db)?, r.try_get("title").map_err(db)?))).collect()
+    }
+
+    pub async fn rename_thread(&self, user_id: Uuid, thread_id: Uuid, title: &str) -> Result<bool, GatewayError> {
+        let done = sqlx::query(AssertSqlSafe(format!("UPDATE {}.thread_owner SET title = $3 WHERE thread_id = $1 AND user_id = $2", self.schema)))
+            .bind(thread_id)
             .bind(user_id)
-            .fetch_all(&self.pool)
+            .bind(title)
+            .execute(&self.pool)
             .await
             .map_err(db)?;
-        rows.iter().map(|r| r.try_get("thread_id").map_err(db)).collect()
+        Ok(done.rows_affected() == 1)
     }
 }

@@ -124,6 +124,10 @@ class Ledger:
             return True
         return any(wanted in text for text in self.trusted)
 
+    def cases_numbered(self, case_no: str) -> list[Authority]:
+        wanted = compact(case_no)
+        return [item for item in self.items.values() if item.kind == "case" and item.case_no == wanted]
+
     def laws_with_article(self, law_name: str | None, article: str) -> list[Authority]:
         return [
             item

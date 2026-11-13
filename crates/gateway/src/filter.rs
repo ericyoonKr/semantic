@@ -20,6 +20,41 @@ fn status_for(tool: &str) -> &'static str {
     }
 }
 
+const SOURCE_BODY_MAX: usize = 20_000;
+
+fn source_item(v: &Value) -> Option<Value> {
+    let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    let body: String = text("body")?.chars().take(SOURCE_BODY_MAX).collect();
+    let len = body.chars().count() as u64;
+    let spans: Vec<Value> = v
+        .get("spans")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| {
+                    let p = s.as_array()?;
+                    let (start, end) = (p.first()?.as_u64()?, p.get(1)?.as_u64()?);
+                    (start < end && end <= len).then(|| json!([start, end]))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let displays: Vec<Value> = v
+        .get("displays")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).filter(|s| !s.is_empty()).map(|s| json!(s)).collect())
+        .unwrap_or_default();
+    let kind = text("kind").filter(|k| k == "law" || k == "case")?;
+    Some(json!({
+        "kind": kind,
+        "label": text("label")?,
+        "note": text("note").unwrap_or_default(),
+        "displays": displays,
+        "body": body,
+        "spans": spans,
+    }))
+}
+
 fn frame(name: &str, data: Value) -> String {
     format!("event: {name}\ndata: {data}\n\n")
 }
@@ -105,6 +140,10 @@ impl SseFilter {
                     _ => return None,
                 };
                 Some(frame("Warning", json!({ "message": message })))
+            }
+            "Sources" => {
+                let items: Vec<Value> = value.get("items")?.as_array()?.iter().filter_map(source_item).collect();
+                (!items.is_empty()).then(|| frame("Sources", json!({ "items": items })))
             }
             "Error" => Some(frame("Error", json!({ "message": ERROR_TEXT, "request_id": self.request_id }))),
             "Done" => Some(frame("Done", json!({}))),

@@ -28,7 +28,7 @@ export function LiveTurn({ turn }: Props) {
         {turn.answer !== "" ? (
           <>
             <h3 className="who">답변</h3>
-            <AnswerText text={turn.answer} streaming={streaming} />
+            <AnswerText text={turn.answer} streaming={streaming} sources={turn.sources} />
           </>
         ) : null}
         <NeededFacts asks={turn.asks} />

@@ -46,8 +46,24 @@ async fn json_of(res: reqwest::Response) -> Result<Value, GatewayError> {
 }
 
 pub async fn list(State(state): State<AppState>, signed: Signed) -> Result<Json<Value>, GatewayError> {
-    let ids = state.store.threads(signed.user_id).await?;
-    Ok(Json(json!(ids.into_iter().map(|id| json!({ "session_id": id.to_string() })).collect::<Vec<_>>())))
+    let rows = state.store.threads(signed.user_id).await?;
+    Ok(Json(json!(rows.into_iter().map(|(id, title)| json!({ "session_id": id.to_string(), "title": title })).collect::<Vec<_>>())))
+}
+
+pub const TITLE_MAX_CHARS: usize = 80;
+
+pub fn clean_title(raw: &str) -> Option<String> {
+    let title: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!title.is_empty() && title.chars().count() <= TITLE_MAX_CHARS && !title.chars().any(char::is_control)).then_some(title)
+}
+
+pub async fn rename(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>, Json(body): Json<Value>) -> Result<StatusCode, GatewayError> {
+    let id = owned(&state, &signed, &raw).await?;
+    let title = body.get("title").and_then(Value::as_str).and_then(clean_title).ok_or(GatewayError::BadRequest)?;
+    if !state.store.rename_thread(signed.user_id, id, &title).await? {
+        return Err(GatewayError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn create(State(state): State<AppState>, signed: Signed) -> Result<Json<Value>, GatewayError> {
@@ -158,4 +174,17 @@ pub async fn remove_prefs(State(state): State<AppState>, signed: Signed) -> Resu
         return Err(GatewayError::Upstream);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::{TITLE_MAX_CHARS, clean_title};
+
+    #[test]
+    fn titles_are_trimmed_and_bounded() {
+        assert_eq!(clean_title("  국가배상   질문 ").as_deref(), Some("국가배상 질문"));
+        assert_eq!(clean_title("   "), None);
+        assert_eq!(clean_title(&"가".repeat(TITLE_MAX_CHARS + 1)), None);
+        assert!(clean_title(&"가".repeat(TITLE_MAX_CHARS)).is_some());
+    }
 }

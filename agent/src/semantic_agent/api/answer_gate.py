@@ -46,6 +46,7 @@ CASE_NO = re.compile(r"(?<!\d)((?:\d{4}|\d{2})(?:" + "|".join(CASE_CODES) + r")\
 class Checked:
     text: str | None
     reasons: tuple[str, ...]
+    cites: tuple[tuple[int, int | None], ...] = ()
 
 
 def _law_name(name: str, sub: str | None) -> str | None:
@@ -57,6 +58,7 @@ def _law_name(name: str, sub: str | None) -> str | None:
 
 def check_sentence(sentence: str, ledger: Ledger) -> Checked:
     reasons: list[str] = []
+    cites: list[tuple[int, int | None]] = []
 
     def replace(match: re.Match[str]) -> str:
         item = ledger.get(int(match.group(1)))
@@ -66,6 +68,7 @@ def check_sentence(sentence: str, ledger: Ledger) -> Checked:
             return match.group(0)
         if paragraph is not None and (item.kind != "law" or paragraph not in item.paragraphs):
             reasons.append("paragraph_not_in_text")
+        cites.append((item.ref, paragraph))
         return item.display(paragraph)
 
     replaced = TAG.sub(replace, sentence)
@@ -76,19 +79,21 @@ def check_sentence(sentence: str, ledger: Ledger) -> Checked:
         if article is None:
             continue
         paragraph = int(match.group(5)) if match.group(5) else None
+        found = ledger.laws_with_article(name, article)
+        cites.extend((item.ref, paragraph) for item in found)
         if ledger.trusts_law(name, article, paragraph):
             continue
-        found = ledger.laws_with_article(name, article)
         if not found:
             reasons.append("law_not_read")
         elif paragraph is not None and all(paragraph not in item.paragraphs for item in found):
             reasons.append("paragraph_not_in_text")
     for match in CASE_NO.finditer(bare):
+        cites.extend((item.ref, None) for item in ledger.cases_numbered(match.group(1)))
         if not ledger.knows_case(match.group(1)):
             reasons.append("case_not_read")
     if reasons:
         return Checked(None, tuple(dict.fromkeys(reasons)))
-    return Checked(scrub_tools(replaced), ())
+    return Checked(scrub_tools(replaced), (), tuple(dict.fromkeys(cites)))
 
 
 def _cut(buf: str) -> int | None:
@@ -116,6 +121,7 @@ class SentenceGate:
     buf: str = ""
     dropped_last: bool = False
     drops: list[tuple[str, ...]] = field(default_factory=list)
+    cited: list[tuple[int, int | None, str]] = field(default_factory=list)
 
     def _emit(self, piece: str) -> list[str]:
         piece = MATERIAL_MARK.sub("", piece)
@@ -124,6 +130,7 @@ class SentenceGate:
         checked = check_sentence(piece, self.ledger)
         if checked.text is not None:
             self.dropped_last = False
+            self.cited.extend((ref, paragraph, piece) for ref, paragraph in checked.cites)
             return [checked.text]
         self.drops.append(checked.reasons)
         self.on_drop(checked.reasons, tuple(dict.fromkeys(int(m.group(1)) for m in TAG.finditer(piece))))

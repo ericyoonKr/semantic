@@ -1,7 +1,7 @@
 import { ApiError, FALLBACK_TEXT, OFFLINE_TEXT, SIGN_IN_TEXT, errorFrom } from "./errors";
 import type { TokenStore } from "./tokenStore";
 
-export type Method = "GET" | "POST" | "DELETE";
+export type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
 export type SendOptions = {
   json?: unknown;

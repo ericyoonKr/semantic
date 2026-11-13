@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { createSession, deleteSession, listSessions, type SessionSummary } from "../features/chat/api";
+import { createSession, deleteSession, listSessions, renameSession, type SessionSummary } from "../features/chat/api";
 import { ChatView } from "../features/chat/ChatView";
 import { SessionList, sessionTitle } from "../features/chat/SessionList";
 import type { ApiClient } from "../shared/api/client";
@@ -73,6 +73,19 @@ export function Workspace({ client, onStreaming, account }: Props) {
     }
   }
 
+  async function rename(s: SessionSummary, title: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await renameSession(client, s.id, title);
+      await refresh();
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const current = sessions.find((s) => s.id === selected);
 
   function choose(id: string) {
@@ -98,7 +111,7 @@ export function Workspace({ client, onStreaming, account }: Props) {
             <Icon name="close" />
           </button>
         </div>
-        <SessionList sessions={sessions} selected={selected} locked={locked} busy={busy} onSelect={choose} onCreate={create} onDelete={remove} />
+        <SessionList sessions={sessions} selected={selected} locked={locked} busy={busy} onSelect={choose} onCreate={create} onDelete={remove} onRename={rename} />
         <div className="sidebar-error">
           <ErrorNote message={error} />
         </div>

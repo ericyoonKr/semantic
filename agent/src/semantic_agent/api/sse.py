@@ -11,6 +11,8 @@ from semantic_agent.agent.budget import BudgetExceeded
 from semantic_agent.agent.build import MAIN_AGENT
 from semantic_agent.agent.injection import INJECTION_KIND
 from semantic_agent.api.answer_gate import SentenceGate, log_drop
+from semantic_agent.api.sources import build_sources
+from semantic_agent.api.thought import ThoughtFilter
 from semantic_agent.ledger import LEDGER, Ledger
 from semantic_agent.tools.client import REQUEST_ID, unwrap_material
 from semantic_agent.tools.judge import needed_asks, verdict_text
@@ -89,11 +91,16 @@ def usage_event(turn: Turn) -> str:
     return event("Usage", {"tokens": turn.tokens, "calls": turn.calls})
 
 
+def sources_event(gate: SentenceGate) -> list[str]:
+    items = build_sources(gate.ledger, gate.cited)
+    return [event("Sources", {"items": items})] if items else []
+
+
 def _limit_events(gate: SentenceGate, message: str) -> list[str]:
     out = [event("Token", {"text": piece}) for piece in gate.flush()]
     out.append(event("Token", {"text": f"\n\n{message}"}))
     out.append(event("Warning", {"kind": "limit", "message": message}))
-    return out
+    return out + sources_event(gate)
 
 
 async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: float) -> AsyncIterator[str]:
@@ -104,6 +111,7 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
     turn = Turn()
     TURN.set(turn)
     gate = SentenceGate(ledger, log_drop(request_id, turn))
+    thought = ThoughtFilter()
     stream = agent.astream(
         {"messages": [HumanMessage(content=question)]},
         cfg,
@@ -115,7 +123,7 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
                 if mode == "messages":
                     chunk, metadata = payload
                     if _is_main_token(chunk, metadata):
-                        text = _chunk_text(chunk)
+                        text = thought.push(_chunk_text(chunk))
                         for piece in gate.push(text) if text else []:
                             yield event("Token", {"text": piece})
                 elif mode == "updates":
@@ -123,8 +131,10 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
                         yield item
                 for item in turn_events(turn):
                     yield item
-        for piece in gate.flush():
+        for piece in [*gate.push(thought.flush()), *gate.flush()]:
             yield event("Token", {"text": piece})
+        for item in sources_event(gate):
+            yield item
     except GraphRecursionError:
         for item in _limit_events(gate, LIMIT_STEPS):
             yield item

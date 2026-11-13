@@ -4,6 +4,18 @@ use std::time::Duration;
 
 use crate::error::GatewayError;
 
+pub const DEFAULT_HIDDEN_SPANS: &str = "<think>|</think>;<|channel>|<channel|>";
+
+pub fn parse_spans(text: &str) -> Vec<(String, String)> {
+    text.split(';')
+        .filter_map(|pair| {
+            let at = pair.find(">|<").map(|p| p + 1).or_else(|| pair.find('|'))?;
+            let (open, close) = (&pair[..at], &pair[at + 1..]);
+            (!open.is_empty() && !close.is_empty()).then(|| (open.to_string(), close.to_string()))
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bind: SocketAddr,
@@ -39,11 +51,8 @@ impl Config {
             .unwrap_or_else(|| "127.0.0.1:8090".into())
             .parse()
             .map_err(|_| GatewayError::Config("GATEWAY_BIND".into()))?;
-        let hidden = var("GATEWAY_HIDDEN_SPANS").unwrap_or_else(|| "<think>|</think>".into());
-        let hidden_spans = hidden
-            .split(';')
-            .filter_map(|pair| pair.split_once('|').map(|(a, b)| (a.to_string(), b.to_string())))
-            .collect();
+        let hidden = var("GATEWAY_HIDDEN_SPANS").unwrap_or_else(|| DEFAULT_HIDDEN_SPANS.into());
+        let hidden_spans = parse_spans(&hidden);
         Ok(Self {
             bind,
             app_db_url: var("APP_DB_URL").unwrap_or_default(),

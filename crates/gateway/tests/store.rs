@@ -79,8 +79,11 @@ async fn thread_ownership_is_per_user() -> Result<(), GatewayError> {
     store.add_thread(a, t).await?;
     assert!(store.owns(a, t).await?);
     assert!(!store.owns(b, t).await?);
-    assert_eq!(store.threads(a).await?, vec![t]);
+    assert_eq!(store.threads(a).await?, vec![(t, None)]);
     assert!(store.threads(b).await?.is_empty());
+    assert!(!store.rename_thread(b, t, "남의 대화").await?);
+    assert!(store.rename_thread(a, t, "국가배상 질문").await?);
+    assert_eq!(store.threads(a).await?, vec![(t, Some("국가배상 질문".to_string()))]);
     store.remove_thread(b, t).await?;
     assert!(store.owns(a, t).await?);
     store.remove_thread(a, t).await?;
