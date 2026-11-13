@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
 
-from semantic_agent.agent import build
+from semantic_agent.agent import build, delegation
 from semantic_agent.agent.delegation import RESEARCH_FAIL, SubagentGate
 from semantic_agent.agent.prompts import ADVERSE_NOTE, RESEARCHER_PROMPT, RETRY_NOTE
 from semantic_agent.agent.subagents import RESEARCHER_DESCRIPTION
@@ -268,6 +268,7 @@ class ConcurrencyModel(BaseChatModel):
 
 @pytest.mark.parametrize(("limit", "expected_peak"), [(None, 2), (3, 3)])
 def test_third_concurrent_subagent_waits(monkeypatch: pytest.MonkeyPatch, limit: int | None, expected_peak: int) -> None:
+    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
     if limit is not None:
         monkeypatch.setattr(build, "SubagentGate", lambda names, **kw: SubagentGate(names, limit=limit, **kw))
     three = AIMessage(

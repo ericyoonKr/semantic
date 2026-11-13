@@ -54,6 +54,10 @@ WRAP_UP_PROMPT = """제한에 걸렸다. 도구를 더 부르지 말고, 지금�
 
 EMPTY_ANSWER_NOTE = """방금 낸 답에 사용자에게 보일 글이 없었다. 지금까지의 조사 결과로 사용자에게 보일 답을 바로 쓴다. 조사하겠다거나 기다려 달라는 말은 쓰지 않는다."""
 
+NO_SEARCH_NOTE = """앞서 검색도 읽기도 하지 않고 결과를 돌려줬다. 쟁점의 낱말로 search_laws와 search_cases를 지금 실제로 부르고, 맞는 조문은 read_law로, 판례는 read_case로 읽은 뒤 정해진 JSON 형식으로 돌려준다."""
+
+MUST_READ_NOTE = """올린 문서에 적힌 다음 조문·판례를 아직 읽지 않았다. 각각 read_law 또는 read_case로 지금 읽고, 읽은 근거를 넣어 정해진 JSON 형식으로 다시 돌려준다:"""
+
 RETRY_NOTE = """앞서 돌려준 결과가 정해진 형식에 맞지 않았다. 정해진 JSON 형식 하나만 돌려준다."""
 
 ADVERSE_NOTE = """앞서 돌려준 reverse_query가 실제로 부른 검색어와 같지 않다. 반대 결론 쪽 검색어로 search_laws 또는 search_cases를 지금 실제로 한 번 부르고, 그 호출에 넣은 검색어를 글자 그대로 reverse_query에 적어 다시 돌려준다. 호출 없이 칸만 채우지 않는다."""

@@ -20,6 +20,9 @@ const CASE_CODES: [&str; 45] = [
 static NAME: &str = r"(?:「([^」\n]{1,60})」|([가-힣]*(?:법률|법)))(?:\s*(시행령|시행규칙))?(?:상|의)?\s*";
 static ARTICLE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"{NAME}제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*제\s*(\d+)\s*항)?")).expect("article pattern"));
+static BARE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*제\s*(\d+)\s*항)?").expect("bare article pattern"));
+static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"「([^」\n]{0,58}(?:법|법률|령|규칙|조례|규정))」(?:\s*(시행령|시행규칙))?").expect("quoted law pattern"));
 const CIRCLED_FIRST: u32 = 0x2460;
 const CIRCLED_COUNT: u32 = 20;
 static ANNEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -54,20 +57,52 @@ fn digit_before(text: &str, at: usize) -> bool {
     text[..at].chars().next_back().is_some_and(|c| c.is_ascii_digit())
 }
 
-pub fn mentions(sentence: &str) -> Vec<Mention> {
-    let mut out: Vec<Mention> = Vec::new();
-    for caps in ARTICLE.captures_iter(sentence) {
-        let (Some(no), whole) = (caps.get(4), caps.get(0)) else { continue };
-        if whole.is_some_and(|w| digit_at(sentence, w.end())) {
+fn article_key(no: &str, branch: Option<regex::Match<'_>>) -> String {
+    match branch {
+        Some(b) => format!("제{no}조의{}", b.as_str()),
+        None => format!("제{no}조"),
+    }
+}
+
+fn bare_articles(sentence: &str, covered: &[(usize, usize)], named: &[(usize, String)], out: &mut Vec<Mention>) {
+    for caps in BARE.captures_iter(sentence) {
+        let (Some(whole), Some(no)) = (caps.get(0), caps.get(1)) else { continue };
+        if digit_at(sentence, whole.end()) || covered.iter().any(|&(s, e)| whole.start() < e && s < whole.end()) {
             continue;
         }
-        let unit = match caps.get(5) {
-            Some(b) => format!("제{}조의{}", no.as_str(), b.as_str()),
-            None => format!("제{}조", no.as_str()),
+        let Some((_, law)) = named.iter().filter(|(at, _)| *at <= whole.start()).max_by_key(|(at, _)| *at) else {
+            continue;
         };
-        let para = caps.get(6).and_then(|p| p.as_str().parse().ok());
-        out.push(Mention::Unit { law: law_of(&caps), unit, para });
+        let para = caps.get(3).and_then(|p| p.as_str().parse().ok());
+        out.push(Mention::Unit { law: Some(law.clone()), unit: article_key(no.as_str(), caps.get(2)), para });
     }
+}
+
+pub fn mentions(sentence: &str) -> Vec<Mention> {
+    let mut out: Vec<Mention> = Vec::new();
+    let mut covered: Vec<(usize, usize)> = Vec::new();
+    let mut named: Vec<(usize, String)> = QUOTED
+        .captures_iter(sentence)
+        .filter_map(|c| {
+            let whole = c.get(0)?;
+            let sub = c.get(2).map(|m| m.as_str()).unwrap_or("");
+            Some((whole.end(), compact(&format!("{}{sub}", c.get(1)?.as_str()))))
+        })
+        .collect();
+    for caps in ARTICLE.captures_iter(sentence) {
+        let (Some(no), Some(whole)) = (caps.get(4), caps.get(0)) else { continue };
+        if digit_at(sentence, whole.end()) {
+            continue;
+        }
+        covered.push((whole.start(), whole.end()));
+        let law = law_of(&caps);
+        if let Some(l) = &law {
+            named.push((whole.end(), l.clone()));
+        }
+        let para = caps.get(6).and_then(|p| p.as_str().parse().ok());
+        out.push(Mention::Unit { law, unit: article_key(no.as_str(), caps.get(5)), para });
+    }
+    bare_articles(sentence, &covered, &named, &mut out);
     for caps in ANNEX.captures_iter(sentence) {
         let (Some(kind), Some(no), Some(whole)) = (caps.get(4), caps.get(5), caps.get(0)) else { continue };
         if digit_at(sentence, whole.end()) {
@@ -152,10 +187,20 @@ impl ReadSet {
 pub struct Verdict {
     pub ok: bool,
     pub reasons: Vec<&'static str>,
+    pub unread: Vec<String>,
+}
+
+fn label(m: &Mention) -> Option<String> {
+    match m {
+        Mention::Unit { law: Some(law), unit, .. } => Some(format!("{law} {unit}")),
+        Mention::Unit { law: None, .. } => None,
+        Mention::Case(no) => Some(no.clone()),
+    }
 }
 
 pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
     let mut reasons: Vec<&'static str> = Vec::new();
+    let mut unread: Vec<String> = Vec::new();
     for m in mentions(sentence) {
         let missing = match &m {
             Mention::Unit { law, unit, para } => {
@@ -168,11 +213,14 @@ pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
             }
             Mention::Case(no) => (!reads.has_case(no)).then_some(CASE_NOT_READ),
         };
+        if missing == Some(UNIT_NOT_READ) || missing == Some(CASE_NOT_READ) {
+            unread.extend(label(&m).filter(|l| !unread.contains(l)));
+        }
         if let Some(r) = missing.filter(|r| !reasons.contains(r)) {
             reasons.push(r);
         }
     }
-    Verdict { ok: reasons.is_empty(), reasons }
+    Verdict { ok: reasons.is_empty(), reasons, unread }
 }
 
 pub fn cut(buf: &str) -> Option<usize> {

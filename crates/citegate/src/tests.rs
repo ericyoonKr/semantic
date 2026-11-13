@@ -164,3 +164,25 @@ fn annexes_pass_only_when_read_or_listed() {
     assert_eq!(wrongly_blocked, Vec::<&str>::new());
     assert_eq!(let_through, Vec::<&str>::new());
 }
+
+#[test]
+fn articles_away_from_the_law_name_take_the_name_before_them() {
+    let listed = "「지방자치단체를 당사자로 하는 계약에 관한 법률」(지방계약법): 제16조, 제17조 및 제18조가 언급되었습니다.";
+    let mut r = ReadSet::default();
+    r.add_unit("지방자치단체를 당사자로 하는 계약에 관한 법률", "제16조");
+    assert_eq!(
+        check(listed, &r).unread,
+        vec!["지방자치단체를당사자로하는계약에관한법률 제17조".to_string(), "지방자치단체를당사자로하는계약에관한법률 제18조".to_string()]
+    );
+    r.add_unit("지방자치단체를 당사자로 하는 계약에 관한 법률", "제17조");
+    r.add_unit("지방자치단체를 당사자로 하는 계약에 관한 법률", "제18조");
+    assert!(check(listed, &r).ok);
+    let empty = ReadSet::default();
+    let pass = [
+        "처분서 제목은 「(통지)[과징금 부과]」로 시작하고 제3조를 인용합니다.",
+        "계약서 제5조는 해지 사유를 정합니다.",
+        "「▼▼군 수의계약 운영계획」의 제2항을 봅니다.",
+    ];
+    let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &empty).ok).collect();
+    assert_eq!(wrongly_blocked, Vec::<&str>::new());
+}

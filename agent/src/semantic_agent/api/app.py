@@ -161,6 +161,7 @@ async def record_upload(agent: Any, cfg: dict[str, Any], data: dict[str, Any]) -
             "revision_of": data.get("revision_of"),
             "outline": list(data.get("outline") or []),
             "path": path,
+            "chars": len(str(data.get("text", ""))),
         }
     )
     marker = HumanMessage(content=upload_line(data), additional_kwargs={"kind": UPLOAD_KIND})
