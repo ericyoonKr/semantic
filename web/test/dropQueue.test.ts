@@ -20,10 +20,14 @@ function harness() {
   const uploaded: string[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
-  const upload = (f: File) =>
+  const upload = (f: File, signal: AbortSignal) =>
     new Promise<UploadSummary>((resolve, reject) => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
+      signal.addEventListener("abort", () => {
+        inFlight -= 1;
+        reject(new DOMException("aborted", "AbortError"));
+      });
       started.push({
         name: f.name,
         release: () => {
@@ -189,6 +193,30 @@ describe("UploadQueue", () => {
     expect(h.snapshots.length).toBe(count);
     expect(h.uploaded).toEqual([]);
     expect(h.queue.offer([file("c.pdf")], false)).toBe("empty");
+  });
+});
+
+describe("UploadQueue cancel", () => {
+  it("stops the file being sent and drops a waiting one, then goes on with the rest", async () => {
+    const h = harness();
+    h.queue.offer([file("a.pdf"), file("b.pdf"), file("c.pdf")], false);
+    await tick();
+    const [a, b, c] = h.queue.snapshot();
+    h.queue.cancel(b?.id ?? 0);
+    h.queue.cancel(a?.id ?? 0);
+    await tick();
+    expect(h.queue.snapshot().map((i) => [i.name, i.state])).toEqual([
+      ["a.pdf", "canceled"],
+      ["b.pdf", "canceled"],
+      ["c.pdf", "uploading"],
+    ]);
+    h.started.find((g) => g.name === "c.pdf")?.release();
+    await h.queue.idle();
+    expect(h.uploaded).toEqual(["c.pdf"]);
+    expect(h.started.map((g) => g.name)).toEqual(["a.pdf", "c.pdf"]);
+    h.queue.dismiss(c?.id ?? 0);
+    h.queue.dismiss(a?.id ?? 0);
+    expect(h.queue.snapshot().map((i) => i.name)).toEqual(["b.pdf"]);
   });
 });
 

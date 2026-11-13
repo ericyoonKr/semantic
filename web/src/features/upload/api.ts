@@ -48,10 +48,10 @@ export function toSummary(body: unknown): UploadSummary {
   };
 }
 
-export async function uploadFile(client: ApiClient, sessionId: string, file: File): Promise<UploadSummary> {
+export async function uploadFile(client: ApiClient, sessionId: string, file: File, signal?: AbortSignal): Promise<UploadSummary> {
   const form = new FormData();
   form.append("file", file, file.name);
-  return toSummary(await client.json<unknown>("POST", `/session/${encodeURIComponent(sessionId)}/upload`, { form }));
+  return toSummary(await client.json<unknown>("POST", `/session/${encodeURIComponent(sessionId)}/upload`, signal ? { form, signal } : { form }));
 }
 
 export const UPLOAD_PREFIX = "[업로드] ";

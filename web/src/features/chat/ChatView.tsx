@@ -96,7 +96,7 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
             onAsk={c.submit}
             above={
               <>
-                <FileChips items={files.items} onDismiss={files.dismiss} />
+                <FileChips items={files.items} onDismiss={files.dismiss} onCancel={files.cancel} />
                 {files.notice ? (
                   <p className="notice notice-warn composer-notice" role="alert">
                     {files.notice}

@@ -1460,6 +1460,23 @@ textarea {
   height: 26px;
 }
 
+.file-chip-cancel {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--ink-600);
+  font-size: 0.82em;
+  cursor: pointer;
+}
+
+.file-chip-cancel:hover,
+.file-chip-cancel:focus-visible {
+  border-color: var(--red-ink);
+  color: var(--red-ink);
+}
+
 .file-chip-bar {
   position: absolute;
   right: 0;

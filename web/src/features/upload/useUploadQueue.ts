@@ -9,6 +9,7 @@ export type UploadQueueState = {
   notice: string | null;
   offer: (files: readonly File[]) => void;
   dismiss: (id: number) => void;
+  cancel: (id: number) => void;
 };
 
 export function useUploadQueue(client: ApiClient, sessionId: string, blocked: boolean, onUploaded: (summary: UploadSummary) => void): UploadQueueState {
@@ -23,7 +24,7 @@ export function useUploadQueue(client: ApiClient, sessionId: string, blocked: bo
   }, [onUploaded]);
 
   useEffect(() => {
-    const q = new UploadQueue((file) => uploadFile(client, sessionId, file), {
+    const q = new UploadQueue((file, signal) => uploadFile(client, sessionId, file, signal), {
       change: setItems,
       busy: setBusy,
       uploaded: (summary) => uploaded.current(summary),
@@ -56,5 +57,9 @@ export function useUploadQueue(client: ApiClient, sessionId: string, blocked: bo
     queue.current?.dismiss(id);
   }, []);
 
-  return { items, busy, notice, offer, dismiss };
+  const cancel = useCallback((id: number) => {
+    queue.current?.cancel(id);
+  }, []);
+
+  return { items, busy, notice, offer, dismiss, cancel };
 }

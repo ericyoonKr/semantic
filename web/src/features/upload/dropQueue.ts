@@ -18,7 +18,7 @@ export function hasFiles(types: readonly string[] | DOMStringList | null | undef
   return Array.from(types as ArrayLike<string>).includes("Files");
 }
 
-export type QueueState = "waiting" | "uploading" | "done" | "failed" | "rejected";
+export type QueueState = "waiting" | "uploading" | "done" | "failed" | "rejected" | "canceled";
 
 export type QueueItem = {
   id: number;
@@ -38,16 +38,19 @@ export type QueueListener = {
 
 type Pending = { id: number; file: File };
 
+export type Uploader = (file: File, signal: AbortSignal) => Promise<UploadSummary>;
+
 export class UploadQueue {
-  private readonly upload: (file: File) => Promise<UploadSummary>;
+  private readonly upload: Uploader;
   private readonly listener: QueueListener;
   private items: QueueItem[] = [];
   private pending: Pending[] = [];
   private nextId = 1;
   private running: Promise<void> | null = null;
   private closed = false;
+  private current: { id: number; stop: AbortController } | null = null;
 
-  constructor(upload: (file: File) => Promise<UploadSummary>, listener: QueueListener) {
+  constructor(upload: Uploader, listener: QueueListener) {
     this.upload = upload;
     this.listener = listener;
   }
@@ -84,6 +87,17 @@ export class UploadQueue {
     this.emit();
   }
 
+  cancel(id: number): void {
+    if (this.pending.some((p) => p.id === id)) {
+      this.pending = this.pending.filter((p) => p.id !== id);
+      this.set(id, { state: "canceled", message: null });
+      return;
+    }
+    if (this.current?.id === id) {
+      this.current.stop.abort();
+    }
+  }
+
   snapshot(): QueueItem[] {
     return this.items;
   }
@@ -116,14 +130,18 @@ export class UploadQueue {
       let next = this.pending.shift();
       while (next && !this.closed) {
         this.set(next.id, { state: "uploading" });
+        const stop = new AbortController();
+        this.current = { id: next.id, stop };
         try {
-          const summary = await this.upload(next.file);
+          const summary = await this.upload(next.file, stop.signal);
           this.set(next.id, { state: "done", pages: summary.pages });
           if (!this.closed) {
             this.listener.uploaded(summary);
           }
         } catch (err) {
-          this.set(next.id, { state: "failed", message: messageOf(err) });
+          this.set(next.id, stop.signal.aborted ? { state: "canceled", message: null } : { state: "failed", message: messageOf(err) });
+        } finally {
+          this.current = null;
         }
         next = this.pending.shift();
       }
