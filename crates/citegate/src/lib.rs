@@ -35,6 +35,21 @@ pub fn compact(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+const SUBORDINATE: [&str; 2] = ["시행령", "시행규칙"];
+
+pub fn canonical(name: &str) -> String {
+    let short = compact(name);
+    if let Some(entry) = lawnames::lookup(&short) {
+        return compact(&entry.name);
+    }
+    for sub in SUBORDINATE {
+        if let Some(entry) = short.strip_suffix(sub).and_then(lawnames::lookup) {
+            return format!("{}{sub}", compact(&entry.name));
+        }
+    }
+    short
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Mention {
     Unit { law: Option<String>, unit: String, para: Option<u32> },
@@ -140,7 +155,7 @@ pub struct ReadSet {
 
 impl ReadSet {
     pub fn add_unit(&mut self, law: &str, unit: &str) {
-        self.units.entry((compact(law), compact(unit))).or_default();
+        self.units.entry((canonical(law), compact(unit))).or_default();
     }
 
     pub fn add_unit_body(&mut self, law: &str, unit: &str, body: &str) {
@@ -150,7 +165,7 @@ impl ReadSet {
             .map(|c| c as u32)
             .filter(|c| (CIRCLED_FIRST..CIRCLED_FIRST + CIRCLED_COUNT).contains(c))
             .map(|c| c - CIRCLED_FIRST + 1);
-        self.units.entry((compact(law), compact(unit))).or_default().extend(paras);
+        self.units.entry((canonical(law), compact(unit))).or_default().extend(paras);
     }
 
     pub fn add_case(&mut self, case_no: &str) {
@@ -161,7 +176,7 @@ impl ReadSet {
         for m in mentions(text) {
             match m {
                 Mention::Unit { law: Some(law), unit, para } => {
-                    self.units.entry((law, unit)).or_default().extend(para);
+                    self.units.entry((canonical(&law), unit)).or_default().extend(para);
                 }
                 Mention::Case(no) => self.add_case(&no),
                 Mention::Unit { law: None, .. } => {}
@@ -199,9 +214,10 @@ impl ReadSet {
     }
 
     fn matching(&self, law: Option<&str>, unit: &str) -> impl Iterator<Item = &HashSet<u32>> {
+        let law = law.map(canonical);
         self.units
             .iter()
-            .filter(move |((l, u), _)| u == unit && law.is_none_or(|w| l.ends_with(w) || w.ends_with(l.as_str())))
+            .filter(move |((l, u), _)| u == unit && law.as_deref().is_none_or(|w| l.ends_with(w) || w.ends_with(l.as_str())))
             .map(|(_, p)| p)
     }
 

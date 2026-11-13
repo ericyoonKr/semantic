@@ -186,3 +186,28 @@ fn articles_away_from_the_law_name_take_the_name_before_them() {
     let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &empty).ok).collect();
     assert_eq!(wrongly_blocked, Vec::<&str>::new());
 }
+
+#[test]
+fn short_names_count_as_the_law_that_was_read() -> Result<(), lawnames::Error> {
+    let entry = lawnames::Entry {
+        alias: "지방계약법".into(),
+        law_id: "010002".into(),
+        name: "지방자치단체를 당사자로 하는 계약에 관한 법률".into(),
+        source: "시험".into(),
+    };
+    lawnames::install(lawnames::Aliases::from_entries(vec![entry])?);
+    let mut r = ReadSet::default();
+    r.add_unit_body("지방자치단체를 당사자로 하는 계약에 관한 법률", "제16조", "① 감독하여야 한다.");
+    r.add_unit("지방자치단체를 당사자로 하는 계약에 관한 법률 시행령", "제64조");
+    let pass = [
+        "지방계약법 제16조에 따라 감독해야 합니다.",
+        "「지방계약법」 제16조 제1항이 근거입니다.",
+        "지방계약법 시행령 제64조에 따릅니다.",
+    ];
+    let block = ["지방계약법 제18조에 따라 대가를 지급합니다.", "지방계약법 제16조 제2항이 근거입니다."];
+    let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &r).ok).collect();
+    let let_through: Vec<&str> = block.iter().copied().filter(|s| check(s, &r).ok).collect();
+    assert_eq!(wrongly_blocked, Vec::<&str>::new());
+    assert_eq!(let_through, Vec::<&str>::new());
+    Ok(())
+}
