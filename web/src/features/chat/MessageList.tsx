@@ -37,7 +37,7 @@ function Item({ item }: { item: HistoryItem }) {
       return (
         <AssistantRow>
           <h3 className="who">답변</h3>
-          <AnswerText text={item.text} />
+          <AnswerText text={item.text} sources={item.sources ?? []} />
         </AssistantRow>
       );
     case "verdict":

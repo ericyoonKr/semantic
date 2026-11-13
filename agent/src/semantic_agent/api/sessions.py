@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from semantic_agent.api.runlog import RunLog
+from semantic_agent.ledger import Ledger
 
 
 @dataclass
@@ -13,6 +14,8 @@ class SessionSlot:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     running_ask: asyncio.Task | None = None
     log: RunLog | None = None
+    ledger: Ledger = field(default_factory=Ledger)
+    ledger_loaded: bool = False
     last_used: float = field(default_factory=time.monotonic)
 
 

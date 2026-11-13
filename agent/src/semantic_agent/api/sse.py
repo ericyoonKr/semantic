@@ -12,9 +12,11 @@ from semantic_agent.agent.build import MAIN_AGENT
 from semantic_agent.agent.injection import INJECTION_KIND
 from semantic_agent.api.answer_gate import SentenceGate, log_drop
 from semantic_agent.api.sources import build_sources
+from semantic_agent.api.emoji import strip_emoji
 from semantic_agent.api.thought import ThoughtFilter
+from semantic_agent.api.verify import verify_sources
 from semantic_agent.ledger import LEDGER, Ledger
-from semantic_agent.tools.client import REQUEST_ID, unwrap_material
+from semantic_agent.tools.client import REQUEST_ID, ToolClient, unwrap_material
 from semantic_agent.tools.judge import needed_asks, verdict_text
 from semantic_agent.turn import TURN, Turn
 
@@ -91,22 +93,32 @@ def usage_event(turn: Turn) -> str:
     return event("Usage", {"tokens": turn.tokens, "calls": turn.calls})
 
 
-def sources_event(gate: SentenceGate) -> list[str]:
+async def sources_event(gate: SentenceGate, client: ToolClient | None) -> list[str]:
     items = build_sources(gate.ledger, gate.cited)
-    return [event("Sources", {"items": items})] if items else []
+    if not items:
+        return []
+    return [event("Sources", {"items": await verify_sources(client, gate.ledger, items)})]
 
 
 def _limit_events(gate: SentenceGate, message: str) -> list[str]:
     out = [event("Token", {"text": piece}) for piece in gate.flush()]
     out.append(event("Token", {"text": f"\n\n{message}"}))
     out.append(event("Warning", {"kind": "limit", "message": message}))
-    return out + sources_event(gate)
+    return out
 
 
-async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: float) -> AsyncIterator[str]:
+async def to_sse(
+    agent: Any,
+    question: str,
+    cfg: dict[str, Any],
+    timeout_s: float,
+    client: ToolClient | None = None,
+    ledger: Ledger | None = None,
+) -> AsyncIterator[str]:
     request_id = str(cfg.get("configurable", {}).get("request_id", "-"))
     REQUEST_ID.set(request_id)
-    ledger = Ledger()
+    ledger = ledger if ledger is not None else Ledger()
+    ledger.search_failed = False
     LEDGER.set(ledger)
     turn = Turn()
     TURN.set(turn)
@@ -123,7 +135,7 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
                 if mode == "messages":
                     chunk, metadata = payload
                     if _is_main_token(chunk, metadata):
-                        text = thought.push(_chunk_text(chunk))
+                        text = strip_emoji(thought.push(_chunk_text(chunk)))
                         for piece in gate.push(text) if text else []:
                             yield event("Token", {"text": piece})
                 elif mode == "updates":
@@ -131,18 +143,24 @@ async def to_sse(agent: Any, question: str, cfg: dict[str, Any], timeout_s: floa
                         yield item
                 for item in turn_events(turn):
                     yield item
-        for piece in [*gate.push(thought.flush()), *gate.flush()]:
+        for piece in [*gate.push(strip_emoji(thought.flush())), *gate.flush()]:
             yield event("Token", {"text": piece})
-        for item in sources_event(gate):
+        for item in await sources_event(gate, client):
             yield item
     except GraphRecursionError:
         for item in _limit_events(gate, LIMIT_STEPS):
             yield item
+        for item in await sources_event(gate, client):
+            yield item
     except BudgetExceeded as exc:
         for item in _limit_events(gate, f"{LIMIT_HEAD}: {exc.device}"):
             yield item
+        for item in await sources_event(gate, client):
+            yield item
     except TimeoutError:
         for item in _limit_events(gate, LIMIT_TIME):
+            yield item
+        for item in await sources_event(gate, client):
             yield item
     except asyncio.CancelledError:
         raise

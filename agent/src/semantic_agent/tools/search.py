@@ -315,7 +315,7 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
         )
         if err:
             return case_failed(err) or err
-        text = f"{ref_line(current_ledger().add_case(data).ref)}\n{format_case(data)}"
+        text = f"{ref_line(current_ledger().add_case(data, decision_id).ref)}\n{format_case(data)}"
         return material(f"판례 {decision_id}", text)
 
     @tool("case_citations", description="판례가 인용한 조문, 또는 조문(law+unit)을 인용한 판례를 찾는다.")

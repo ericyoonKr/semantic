@@ -42,6 +42,10 @@ function SourcePanel({ source, close }: { source: Source; close: () => void }) {
         <span className="source-kind">{source.kind === "law" ? "법령" : "판례"}</span>
         <strong>{source.label}</strong>
         {source.note ? <span className="source-note">{source.note}</span> : null}
+        <span className={source.verified ? "source-check is-ok" : "source-check is-bad"}>
+          {source.verified ? "DB 대조 확인" : "DB 대조 실패" + (source.verifyNote ? ": " + source.verifyNote : "")}
+          {source.id ? " · ID " + source.id : ""}
+        </span>
         <button type="button" className="source-close" onClick={close} aria-label="닫기">
           ×
         </button>
@@ -77,6 +81,35 @@ export function AnswerText({ text, streaming = false, sources = [] }: Props) {
               );
             case "rule":
               return <hr key={i} className="answer-rule" />;
+            case "table":
+              return (
+                <div key={i} className="answer-table-wrap">
+                  <table className="answer-table">
+                    {b.header ? (
+                      <thead>
+                        <tr>
+                          {b.header.map((c, j) => (
+                            <th key={j} scope="col">
+                              <Line text={c} names={names} open={setShown} />
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                    ) : null}
+                    <tbody>
+                      {b.rows.map((row, r) => (
+                        <tr key={r}>
+                          {row.map((c, j) => (
+                            <td key={j}>
+                              <Line text={c} names={names} open={setShown} />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
             case "list":
               return (
                 <ul key={i}>
@@ -94,7 +127,8 @@ export function AnswerText({ text, streaming = false, sources = [] }: Props) {
         <div className="source-list" aria-label="근거">
           <span className="source-list-title">근거</span>
           {sources.map((s, i) => (
-            <button key={i} type="button" className={"source-chip" + (shown === i ? " is-open" : "")} onClick={() => setShown(shown === i ? null : i)}>
+            <button key={i} type="button" className={"source-chip" + (shown === i ? " is-open" : "") + (s.verified ? "" : " is-unverified")} onClick={() => setShown(shown === i ? null : i)}>
+              <span aria-label={s.verified ? "DB 대조 확인" : "DB 대조 실패"}>{s.verified ? "✓ " : "! "}</span>
               {s.label}
               {s.note ? <small> {s.note}</small> : null}
             </button>

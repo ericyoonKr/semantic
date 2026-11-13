@@ -9,6 +9,9 @@ export type Source = {
   displays: string[];
   body: string;
   spans: [number, number][];
+  id: string;
+  verified: boolean;
+  verifyNote: string;
 };
 
 export type ChatEvent =
@@ -66,6 +69,9 @@ export function toSource(value: unknown): Source | null {
     displays: strings(v.displays),
     body,
     spans: spans(v.spans, [...body].length),
+    id: typeof v.id === "string" ? v.id : "",
+    verified: v.verified === true,
+    verifyNote: typeof v.verify_note === "string" ? v.verify_note : "",
   };
 }
 

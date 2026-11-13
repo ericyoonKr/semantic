@@ -1,4 +1,6 @@
 import asyncio
+import contextlib
+import logging
 import secrets
 import uuid
 from contextlib import asynccontextmanager
@@ -20,7 +22,17 @@ from semantic_agent.agent.build import build_agent, load_catalogs
 from semantic_agent.agent.research import ResearchOptions
 from semantic_agent.agent.model import build_model
 from semantic_agent.api.sessions import SessionRegistry, run_ask, run_upload
+from semantic_agent.api.answers import (
+    delete_answers,
+    delete_ledger,
+    last_answer_id,
+    load_ledger,
+    save_answer,
+    save_ledger,
+    saved_answers,
+)
 from semantic_agent.api.runlog import RunLog
+from semantic_agent.ledger import Ledger
 from semantic_agent.api.sse import event, to_sse
 from semantic_agent.config import Settings
 from semantic_agent.logs import setup_logging
@@ -32,6 +44,8 @@ from semantic_agent.tools.judge import UPLOAD_KIND, is_upload_line, verdict_text
 BIND_HOST = "127.0.0.1"
 BIND_PORT = 8000
 UPLOAD_FAIL = "업로드 실패"
+
+log = logging.getLogger(__name__)
 
 
 class AskBody(BaseModel):
@@ -78,8 +92,9 @@ def _config(settings: Settings, session_id: str, user_id: str) -> dict[str, Any]
     }
 
 
-def history_items(messages: list[Any]) -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
+def history_items(messages: list[Any], saved: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    saved = saved or {}
+    items: list[dict[str, Any]] = []
     for message in messages:
         if is_upload_line(message):
             items.append({"role": "upload", "text": str(message.content)})
@@ -90,7 +105,11 @@ def history_items(messages: list[Any]) -> list[dict[str, str]]:
             if text:
                 items.append({"role": "verdict", "text": text})
         elif isinstance(message, AIMessage) and not message.tool_calls and message.text:
-            items.append({"role": "assistant", "text": message.text})
+            kept = saved.get(message.id or "")
+            if kept:
+                items.append({"role": "assistant", "text": kept["text"], "sources": kept.get("sources", [])})
+            else:
+                items.append({"role": "assistant", "text": message.text})
     return items
 
 
@@ -123,6 +142,23 @@ async def record_upload(agent: Any, cfg: dict[str, Any], data: dict[str, Any]) -
         {"files": {path: create_file_data(str(data.get("text", "")))}, "uploads": uploads, "messages": [marker]},
         as_node="model",
     )
+
+
+async def keep_answer(state: "AppState", cfg: dict[str, Any], user_id: str, sid: str, items: list[str]) -> None:
+    try:
+        snapshot = await state.agent.aget_state(cfg)
+        message_id = last_answer_id(list(snapshot.values.get("messages", [])))
+        if message_id:
+            await save_answer(state.store, user_id, sid, message_id, items)
+    except Exception as exc:
+        log.warning("answer not kept type=%s", type(exc).__name__)
+
+
+async def keep_ledger(state: "AppState", user_id: str, sid: str, ledger: Ledger) -> None:
+    try:
+        await save_ledger(state.store, user_id, sid, ledger)
+    except Exception as exc:
+        log.warning("ledger not kept type=%s", type(exc).__name__)
 
 
 def create_app(
@@ -221,9 +257,15 @@ def create_app(
 
         async def produce() -> None:
             slot.log = log
+            if not slot.ledger_loaded:
+                with contextlib.suppress(Exception):
+                    slot.ledger = await load_ledger(state.store, user_id, sid)
+                slot.ledger_loaded = True
             try:
-                async for item in to_sse(state.agent, body.question, cfg, settings.ask_timeout_s):
+                async for item in to_sse(state.agent, body.question, cfg, settings.ask_timeout_s, state.client, slot.ledger):
                     log.add(item)
+                await keep_answer(state, cfg, user_id, sid, log.items)
+                await keep_ledger(state, user_id, sid, slot.ledger)
             except asyncio.CancelledError:
                 log.add(event("Error", {"message": "질문이 중단되었습니다", "request_id": request_id}))
                 raise
@@ -251,14 +293,18 @@ def create_app(
     @app.get("/session/{session_id}/history")
     async def history(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> dict[str, Any]:
         sid = _session(session_id)
-        snapshot = await rt(request).agent.aget_state(_config(settings, sid, user_id))
-        return {"messages": history_items(list(snapshot.values.get("messages", [])))}
+        state = rt(request)
+        snapshot = await state.agent.aget_state(_config(settings, sid, user_id))
+        saved = await saved_answers(state.store, user_id, sid)
+        return {"messages": history_items(list(snapshot.values.get("messages", [])), saved)}
 
     @app.delete("/session/{session_id}", status_code=204)
     async def remove_session(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
         sid = _session(session_id)
         state = rt(request)
         await delete_session(state.saver, sid)
+        await delete_answers(state.store, user_id, sid)
+        await delete_ledger(state.store, user_id, sid)
         _, err = await state.client.fetch("DELETE", f"/sessions/{sid}", kind="search", fail="세션 삭제 실패")
         state.registry.drop(sid)
         if err is not None:

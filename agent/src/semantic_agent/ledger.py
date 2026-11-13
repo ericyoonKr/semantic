@@ -41,6 +41,10 @@ class Authority:
     paragraphs: frozenset[int] = frozenset()
     court: str = ""
     case_no: str = ""
+    law_id: str = ""
+    unit_key: str = ""
+    enforced: str = ""
+    source_id: str = ""
 
     def display(self, paragraph: int | None = None) -> str:
         label = f"{self.label} 제{paragraph}항" if paragraph is not None else self.label
@@ -49,6 +53,10 @@ class Authority:
     def has_quote(self, quote: str) -> bool:
         wanted = compact(quote)
         return bool(wanted) and wanted in compact(self.body)
+
+
+def _clean(value: Any) -> Any:
+    return value.replace("\x00", "") if isinstance(value, str) else value
 
 
 @dataclass
@@ -60,6 +68,26 @@ class Ledger:
     search_failed: bool = False
     case_data_missing: str | None = None
     delegations: dict[str, str] = field(default_factory=dict)
+
+    def dump(self) -> dict[str, Any]:
+        items = []
+        for item in self.items.values():
+            row = {k: _clean(getattr(item, k)) for k in Authority.__dataclass_fields__}
+            row["paragraphs"] = sorted(item.paragraphs)
+            items.append(row)
+        return {"items": items, "keys": [[k.split("\x00"), v] for k, v in self.keys.items()], "trusted": list(self.trusted)}
+
+    @classmethod
+    def load(cls, data: dict[str, Any]) -> "Ledger":
+        ledger = cls()
+        for row in data.get("items") or []:
+            values = {k: row[k] for k in Authority.__dataclass_fields__ if k in row}
+            values["paragraphs"] = frozenset(int(p) for p in row.get("paragraphs") or [])
+            item = Authority(**values)
+            ledger.items[item.ref] = item
+        ledger.keys = {"\x00".join(str(p) for p in parts): int(v) for parts, v in data.get("keys") or [] if int(v) in ledger.items}
+        ledger.trusted = [str(t) for t in data.get("trusted") or []]
+        return ledger
 
     def _add(self, key: str, build: Any) -> Authority:
         ref = self.keys.get(key)
@@ -90,10 +118,14 @@ class Ledger:
                 law_name=compact(law_name),
                 article=article_key(unit_key),
                 paragraphs=paragraph_numbers(body),
+                law_id=str(data.get("law_id") or ""),
+                unit_key=unit_key,
+                enforced=enforced,
+                source_id=str((data.get("version") or {}).get("version_id") or ""),
             ),
         )
 
-    def add_case(self, data: dict[str, Any]) -> Authority:
+    def add_case(self, data: dict[str, Any], decision_id: str = "") -> Authority:
         court = str(data.get("court") or "").strip()
         case_no = str(data.get("case_no") or "").strip()
         decided = str(data.get("decided_on") or "").strip()
@@ -105,7 +137,14 @@ class Ledger:
         return self._add(
             key,
             lambda ref: Authority(
-                ref=ref, kind="case", label=label, note=note, body=body, court=compact(court), case_no=compact(case_no)
+                ref=ref,
+                kind="case",
+                label=label,
+                note=note,
+                body=body,
+                court=compact(court),
+                case_no=compact(case_no),
+                source_id=decision_id,
             ),
         )
 

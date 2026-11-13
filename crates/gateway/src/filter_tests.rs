@@ -98,6 +98,9 @@ fn sources_pass_with_checked_spans_and_drop_bad_items() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["spans"], serde_json::json!([[1, 3]]));
     assert_eq!(items[0]["displays"][0], "정부조직법 제1조(시행 2021-12-30)");
+    assert_eq!(items[0]["verified"], false);
+    let checked = f.push(&ev("Sources", r#"{"items":[{"kind":"case","label":"대법원 2020두1 판결","body":"본문","id":"77","verified":true}]}"#));
+    assert!(checked[0].contains(r#""verified":true"#) && checked[0].contains(r#""id":"77""#));
     assert!(f.push(&ev("Sources", r#"{"items":[]}"#)).is_empty());
 }
 

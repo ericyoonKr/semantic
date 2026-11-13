@@ -961,6 +961,55 @@ textarea {
   background: var(--blue-100);
 }
 
+.answer-table-wrap {
+  margin: 0 0 10px;
+  overflow-x: auto;
+}
+
+.answer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93em;
+}
+
+.answer-table th,
+.answer-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--ink-200);
+  text-align: left;
+  vertical-align: top;
+}
+
+.answer-table th {
+  background: var(--ink-100);
+  font-weight: 700;
+}
+
+.answer-table tbody tr:nth-child(even) td {
+  background: var(--ink-50);
+}
+
+.source-check {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8em;
+}
+
+.source-check.is-ok {
+  background: var(--green-bg);
+  color: var(--green-ink);
+}
+
+.source-check.is-bad {
+  background: var(--red-bg);
+  color: var(--red-ink);
+}
+
+.source-chip.is-unverified {
+  border-color: var(--red-line);
+  color: var(--red-ink);
+}
+
 .source-list {
   display: flex;
   flex-wrap: wrap;

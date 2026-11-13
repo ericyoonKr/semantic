@@ -52,6 +52,9 @@ fn source_item(v: &Value) -> Option<Value> {
         "displays": displays,
         "body": body,
         "spans": spans,
+        "id": text("id").unwrap_or_default(),
+        "verified": v.get("verified").and_then(Value::as_bool).unwrap_or(false),
+        "verify_note": text("verify_note").unwrap_or_default(),
     }))
 }
 

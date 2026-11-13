@@ -71,6 +71,7 @@ def _item(item: Authority, cites: list[tuple[int | None, str]]) -> dict[str, Any
         "displays": list(dict.fromkeys([item.display(p) for p, _ in cites if p is not None] + [item.display(), item.label])),
         "body": body,
         "spans": [list(s) for s in spans],
+        "id": item.source_id,
     }
 
 

@@ -21,6 +21,15 @@ describe("rich answer text", () => {
     ]);
   });
 
+  it("groups table rows across blank lines and takes the header from the separator", () => {
+    const text = ["요약하자면", "", "| 구분 | 법적 쟁점 |", "", "| :--- | :--- |", "", "| 저작권 측면 | **이용 허락** 초과 |", "", "| 계약 측면 | 채무불이행 |", "", "결론적으로"].join(String.fromCharCode(10));
+    expect(toBlocks(text)).toEqual([
+      { kind: "para", text: "요약하자면" },
+      { kind: "table", header: ["구분", "법적 쟁점"], rows: [["저작권 측면", "**이용 허락** 초과"], ["계약 측면", "채무불이행"]] },
+      { kind: "para", text: "결론적으로" },
+    ]);
+  });
+
   it("marks bold pairs and leaves an unmatched star pair as text", () => {
     expect(toSegments("**목적**: 정함", [])).toEqual([
       { text: "목적", bold: true, source: null },
@@ -51,6 +60,6 @@ describe("rich answer text", () => {
       event: "Sources",
       data: JSON.stringify({ items: [{ kind: "law", label: "법 제1조", note: "", displays: ["법 제1조"], body: "본문", spans: [[0, 2], [1, 5]] }, { kind: "x" }] }),
     } as never);
-    expect(ev).toEqual({ kind: "sources", items: [{ kind: "law", label: "법 제1조", note: "", displays: ["법 제1조"], body: "본문", spans: [[0, 2]] }] });
+    expect(ev).toEqual({ kind: "sources", items: [{ kind: "law", label: "법 제1조", note: "", displays: ["법 제1조"], body: "본문", spans: [[0, 2]], id: "", verified: false, verifyNote: "" }] });
   });
 });

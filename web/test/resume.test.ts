@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toChatEvent } from "../src/features/chat/events";
-import { dropPending } from "../src/features/chat/history";
+import { dropPending, toHistory } from "../src/features/chat/history";
 
 describe("resuming a running answer", () => {
   it("reads the Resume event", () => {
@@ -16,5 +16,16 @@ describe("resuming a running answer", () => {
     ];
     expect(dropPending(items, "요건은?")).toEqual(items.slice(0, 2));
     expect(dropPending(items.slice(0, 2), "요건은?")).toEqual(items.slice(0, 2));
+  });
+
+  it("keeps saved sources on assistant history items", () => {
+    const items = toHistory({
+      messages: [
+        { role: "user", text: "질문" },
+        { role: "assistant", text: "답", sources: [{ kind: "law", label: "법 제1조", note: "", displays: [], body: "본문", spans: [[0, 2]] }, { kind: "x" }] },
+      ],
+    });
+    expect(items[1]?.sources?.length).toBe(1);
+    expect(items[0]?.sources).toBeUndefined();
   });
 });
