@@ -63,8 +63,11 @@ export function Workspace({ client, onStreaming, account }: Props) {
     (on: boolean) => {
       setLocked(on);
       onStreaming(on);
+      if (!on) {
+        refresh().catch(() => undefined);
+      }
     },
-    [onStreaming],
+    [onStreaming, refresh],
   );
 
   async function create() {

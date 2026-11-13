@@ -52,6 +52,15 @@ pub async fn list(State(state): State<AppState>, signed: Signed) -> Result<Json<
 
 pub const TITLE_MAX_CHARS: usize = 80;
 
+pub const AUTO_TITLE_CHARS: usize = 30;
+
+pub fn first_title(question: &str) -> Option<String> {
+    let flat: String = question.split_whitespace().collect::<Vec<_>>().join(" ");
+    let short: String = flat.chars().filter(|c| !c.is_control()).take(AUTO_TITLE_CHARS).collect();
+    let short = if flat.chars().count() > AUTO_TITLE_CHARS { format!("{}…", short.trim_end()) } else { short };
+    clean_title(&short)
+}
+
 pub fn clean_title(raw: &str) -> Option<String> {
     let title: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     (!title.is_empty() && title.chars().count() <= TITLE_MAX_CHARS && !title.chars().any(char::is_control)).then_some(title)
@@ -86,6 +95,9 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
     let id = owned(&state, &signed, &raw).await?;
     let question = body.get("question").and_then(Value::as_str).ok_or(GatewayError::BadRequest)?;
     let rid = request_id();
+    if let Some(title) = first_title(question) {
+        state.store.name_if_untitled(id, &title).await?;
+    }
     let permit = state.quota.acquire(signed.user_id, id).await?;
     let res = upstream(&state, reqwest::Method::POST, &format!("/session/{id}/ask"), signed.user_id, &rid)
         .timeout(state.cfg.ask_deadline)
@@ -240,7 +252,14 @@ pub async fn remove_prefs(State(state): State<AppState>, signed: Signed) -> Resu
 
 #[cfg(test)]
 mod title_tests {
-    use super::{TITLE_MAX_CHARS, clean_title, file_id_ok};
+    use super::{TITLE_MAX_CHARS, clean_title, file_id_ok, first_title};
+
+    #[test]
+    fn first_questions_become_short_titles() {
+        assert_eq!(first_title("  지방공무원법   해당 됨? ").as_deref(), Some("지방공무원법 해당 됨?"));
+        assert_eq!(first_title(&"가".repeat(40)).map(|t| t.chars().count()), Some(31));
+        assert_eq!(first_title("   "), None);
+    }
 
     #[test]
     fn file_ids_are_plain_tokens_only() {

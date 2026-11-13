@@ -19,6 +19,7 @@ pub struct UploadReply {
     pub text: String,
     pub warnings: Vec<String>,
     pub findings: Vec<Finding>,
+    pub processing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +33,8 @@ pub struct FileMeta {
     pub warnings: Vec<String>,
     pub findings_count: usize,
     pub uploaded_at: u64,
+    #[serde(default)]
+    pub processing: bool,
 }
 
 impl FileMeta {
@@ -46,6 +49,7 @@ impl FileMeta {
             warnings: reply.warnings.clone(),
             findings_count: reply.findings.len(),
             uploaded_at,
+            processing: reply.processing,
         }
     }
 }

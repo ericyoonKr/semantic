@@ -229,4 +229,14 @@ impl AuthStore {
             .map_err(db)?;
         Ok(done.rows_affected() == 1)
     }
+
+    pub async fn name_if_untitled(&self, thread_id: Uuid, title: &str) -> Result<(), GatewayError> {
+        sqlx::query(AssertSqlSafe(format!("UPDATE {}.thread_owner SET title = $2 WHERE thread_id = $1 AND title IS NULL", self.schema)))
+            .bind(thread_id)
+            .bind(title)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
 }

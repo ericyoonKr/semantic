@@ -58,33 +58,70 @@ pub async fn run(
         Parsed::Ready(doc, format, original) => (doc, format, original),
         Parsed::Pdf(bytes) => {
             let original = bytes.clone();
-            (
-                state.pdf.read(bytes, limits.guard.clone()).await?,
-                Format::Pdf,
-                original,
-            )
+            (state.pdf.read_quick(bytes, limits.guard.clone()).await?, Format::Pdf, original)
         }
     };
-    let prepared = tasks::cpu(&state.cpu, move || {
-        prepare(filename, doc, format, original, &limits)
-    })
-    .await??;
-    let db = state.db.clone();
-    let session = sid.as_str().to_string();
-    let prepared = tasks::blocking(move || {
-        db.put_upload(&session, &prepared.reply.file_id, &prepared.parts())
-            .map(|()| prepared)
-    })
-    .await??;
+    let pending = format == Format::Pdf && state.pdf.recognizes() && unextracted(&doc);
+    let uploaded_at = now_secs();
+    let later = pending.then(|| (filename.clone(), original.clone()));
+    let prepared = tasks::cpu(&state.cpu, move || prepare(filename, doc, format, original, &limits, pending, uploaded_at)).await??;
+    let prepared = store(state, sid.as_str(), prepared).await?;
     tracing::info!(
         file_id = %prepared.reply.file_id,
         format = %prepared.reply.format,
         bytes = size,
         pages = ?prepared.reply.pages,
         chars = prepared.reply.chars,
+        pending,
         "upload stored"
     );
+    if let Some((filename, original)) = later {
+        let state = state.clone();
+        let session = sid.as_str().to_string();
+        state.tracker.clone().spawn(async move { recognize_later(state, session, filename, original, uploaded_at).await });
+    }
     Ok(prepared.reply)
+}
+
+async fn store(state: &AppState, session: &str, prepared: Prepared) -> Result<Prepared, ApiError> {
+    let db = state.db.clone();
+    let session = session.to_string();
+    tasks::blocking(move || db.put_upload(&session, &prepared.reply.file_id, &prepared.parts()).map(|()| prepared)).await?.map_err(ApiError::from)
+}
+
+fn unextracted(doc: &Document) -> bool {
+    doc.warnings.iter().any(|w| matches!(w, docmodel::ExtractWarning::PagesUnextracted { .. }))
+}
+
+fn still_there(state: &AppState, session: &str, file_id: &str) -> bool {
+    sessdb::doc_key(session, file_id, sessdb::Part::Meta).ok().and_then(|key| state.db.get_state(&key).ok().flatten()).is_some()
+}
+
+async fn recognize_later(state: AppState, session: String, filename: String, original: Vec<u8>, uploaded_at: u64) {
+    let started = std::time::Instant::now();
+    let limits = state.cfg.limits.clone();
+    let doc = match state.pdf.read(original.clone(), limits.guard.clone()).await {
+        Ok(doc) => doc,
+        Err(error) => {
+            tracing::warn!(?error, "upload.recognize_failed");
+            return;
+        }
+    };
+    let prepared = match tasks::cpu(&state.cpu, move || prepare(filename, doc, Format::Pdf, original, &limits, false, uploaded_at)).await {
+        Ok(Ok(p)) => p,
+        _ => {
+            tracing::warn!("upload.recognize_prepare_failed");
+            return;
+        }
+    };
+    if !still_there(&state, &session, &prepared.reply.file_id) {
+        tracing::info!("upload.recognize_dropped session_gone");
+        return;
+    }
+    match store(&state, &session, prepared).await {
+        Ok(p) => tracing::info!(file_id = %p.reply.file_id, pages = ?p.reply.pages, chars = p.reply.chars, elapsed_ms = started.elapsed().as_millis() as u64, "upload recognized"),
+        Err(error) => tracing::warn!(?error, "upload.recognize_store_failed"),
+    }
 }
 
 enum Parsed {
@@ -111,6 +148,8 @@ fn prepare(
     format: Format,
     original: Vec<u8>,
     limits: &Limits,
+    processing: bool,
+    uploaded_at: u64,
 ) -> Result<Prepared, ApiError> {
     let (text, spans) = doc.render_paged();
     let findings: Vec<Finding> = findings::of(&doc);
@@ -124,10 +163,11 @@ fn prepare(
         text,
         warnings: doc.warnings.iter().map(describe_warning).collect(),
         findings,
+        processing,
     };
     let to_vec = |r: serde_json::Result<Vec<u8>>| r.map_err(|_| ApiError::internal());
     Ok(Prepared {
-        meta: to_vec(serde_json::to_vec(&FileMeta::of(&reply, now_secs())))?,
+        meta: to_vec(serde_json::to_vec(&FileMeta::of(&reply, uploaded_at)))?,
         model: to_vec(serde_json::to_vec(&doc))?,
         spans: to_vec(serde_json::to_vec(&spans))?,
         findings: to_vec(serde_json::to_vec(&reply.findings))?,

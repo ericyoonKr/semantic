@@ -127,6 +127,18 @@ impl PdfReader {
     }
 
     pub fn read(&self, bytes: &[u8], source: FileId) -> Result<Document, ParseError> {
+        self.read_with(bytes, source, true)
+    }
+
+    pub fn read_quick(&self, bytes: &[u8], source: FileId) -> Result<Document, ParseError> {
+        self.read_with(bytes, source, false)
+    }
+
+    pub fn can_recognize(&self) -> bool {
+        self.ocr.is_some()
+    }
+
+    fn read_with(&self, bytes: &[u8], source: FileId, recognize: bool) -> Result<Document, ParseError> {
         let doc = self.pdfium.load_pdf_from_byte_slice(bytes, None).map_err(|e| match e {
             PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => ParseError::Encrypted,
             _ => ParseError::Corrupted,
@@ -142,6 +154,7 @@ impl PdfReader {
             let input = PageInput { number, chars: page_chars(&page)?, segments: page_segments(&page) };
             let mut output = lay_out(input, &fact, &self.settings);
             if !output.has_text
+                && recognize
                 && let Some(ocr) = &self.ocr
             {
                 match ocr.read_page(&page) {
@@ -164,7 +177,7 @@ impl PdfReader {
             blocks.extend(output.blocks.into_iter().map(|(_, b)| b));
             warnings.extend(output.warnings);
         }
-        if total > 0 && empty.len() == usize::from(total) {
+        if recognize && total > 0 && empty.len() == usize::from(total) {
             return Err(ParseError::EmptyText);
         }
         warnings.extend(ranges(&empty).into_iter().map(|(from, to)| ExtractWarning::PagesUnextracted { from, to }));
