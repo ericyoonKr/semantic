@@ -14,3 +14,4 @@ __pycache__/
 *.db
 /web/node_modules/
 /web/dist/
+/web/src/wasm/

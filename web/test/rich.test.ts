@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { citeNames, markSpans, toBlocks, toSegments } from "../src/features/chat/rich";
+import { citeNames, toBlocks, toSegments } from "../src/features/chat/rich";
+import { markSpans } from "../src/shared/webtext";
 import { toChatEvent } from "../src/features/chat/events";
 
 describe("rich answer text", () => {

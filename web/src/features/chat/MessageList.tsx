@@ -22,7 +22,7 @@ export function AssistantRow({ children }: { children: ReactNode }) {
   return (
     <div className="assistant-row">
       <span className="assistant-mark" aria-hidden="true">
-        답
+        <Icon name="scale" />
       </span>
       <div className="assistant-body">{children}</div>
     </div>

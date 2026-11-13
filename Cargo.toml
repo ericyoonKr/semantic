@@ -16,6 +16,7 @@ members = [
     "crates/lawtime",
     "crates/lawnames",
     "crates/citegate",
+    "crates/webtext",
 ]
 
 [workspace.package]

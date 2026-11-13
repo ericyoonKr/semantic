@@ -135,7 +135,7 @@ export function Workspace({ client, onStreaming, account }: Props) {
       <aside id="sidebar" className="sidebar">
         <div className="brand-row">
           <span className="brand-mark" aria-hidden="true">
-            행
+            <Icon name="scale" />
           </span>
           <h1>법률 질의</h1>
           <button type="button" className="icon-button nav-close" aria-label="대화 목록 닫기" onClick={() => setNavOpen(false)}>

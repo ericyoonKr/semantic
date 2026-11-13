@@ -49,5 +49,5 @@ pub fn router(state: AppState) -> Router {
         .layer(header("x-content-type-options", "nosniff"))
         .layer(header("referrer-policy", "no-referrer"))
         .layer(default_header("x-frame-options", "DENY"))
-        .layer(default_header("content-security-policy", "default-src 'self'; frame-ancestors 'none'"))
+        .layer(default_header("content-security-policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; frame-ancestors 'none'"))
 }

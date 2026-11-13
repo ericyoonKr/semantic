@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { ApiClient } from "../../shared/api/client";
 import { messageOf } from "../../shared/api/errors";
 import { ErrorNote } from "../../shared/ui/ErrorNote";
+import { Icon } from "../../shared/ui/Icon";
 import { login } from "./api";
 
 type Props = {
@@ -39,7 +40,7 @@ export function LoginForm({ client, notice, onSignedIn }: Props) {
       <div className="login-card">
         <p className="login-product">
           <span className="brand-mark" aria-hidden="true">
-            행
+            <Icon name="scale" />
           </span>
           <span>법률 질의</span>
         </p>

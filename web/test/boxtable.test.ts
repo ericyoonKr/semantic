@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseBoxTable, splitBody } from "../src/features/chat/boxtable";
-import { plainMath, toBlocks } from "../src/features/chat/rich";
+import { toBlocks } from "../src/features/chat/rich";
+import { plainMath, splitBody } from "../src/shared/webtext";
 
 const BOX = [
   "┏━━━━━━━━┯━━━━━━┯━━━━━━━━━━━━━━━━━┓",
@@ -19,8 +19,12 @@ const BOX = [
 ];
 
 describe("상자 표", () => {
-  it("머리줄과 행을 칸으로 나눈다", () => {
-    const t = parseBoxTable(BOX);
+  it("머리줄과 행을 칸으로 나눈다(wasm)", () => {
+    const [piece] = splitBody(BOX.join("\n"));
+    if (piece?.kind !== "table") {
+      throw new Error("표로 나뉘지 않음");
+    }
+    const t = piece.table;
     expect(t.head).toEqual([
       ["위반사항", "근거 법령", "행정처분기준"],
       ["", "", "1차 위반", "2차 위반", "3차 위반"],

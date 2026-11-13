@@ -6,6 +6,10 @@ const PATHS = {
   menu: ["M4 7h16", "M4 12h16", "M4 17h16"],
   close: ["M6 6l12 12", "M18 6L6 18"],
   tray: ["M12 4v11", "M7 10l5 5 5-5", "M4 15v4h16v-4"],
+  check: ["M5 12.5l4.5 4.5L19 7.5"],
+  alert: ["M12 4l9 16H3z", "M12 10v4", "M12 17.2v.1"],
+  scale: ["M12 4v16", "M7 20h10", "M5 8h14", "M5 8l-3 6a3 3 0 0 0 6 0z", "M19 8l-3 6a3 3 0 0 0 6 0z"],
+  panel: ["M4 5h16v14H4z", "M15 5v14"],
 } as const;
 
 export type IconName = keyof typeof PATHS;

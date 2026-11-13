@@ -1,4 +1,4 @@
-import { type BoxTable, isBoxBottom, isBoxTop, parseBoxTable } from "./boxtable";
+import { type BoxTable, plainMath, splitBody } from "../../shared/webtext";
 
 export type Block =
   | { kind: "para"; text: string }
@@ -8,7 +8,7 @@ export type Block =
   | { kind: "table"; header: string[] | null; rows: string[][] }
   | ({ kind: "grid" } & BoxTable);
 
-export type Segment = { text: string; bold: boolean; source: number | null };
+export type Segment = { text: string; bold: boolean; source: number | null; doc?: string };
 
 const LIST_LINE = /^\s*[*\-•]\s+(.*)$/;
 const HEADING_LINE = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/;
@@ -36,49 +36,20 @@ function cells(line: string): string[] {
   return out;
 }
 
-const MATH_SYMBOLS: Record<string, string> = {
-  rightarrow: "→",
-  to: "→",
-  rarr: "→",
-  leftarrow: "←",
-  gets: "←",
-  Rightarrow: "⇒",
-  Leftarrow: "⇐",
-  leftrightarrow: "↔",
-  Leftrightarrow: "⇔",
-  times: "×",
-  cdot: "·",
-  le: "≤",
-  leq: "≤",
-  ge: "≥",
-  geq: "≥",
-  ne: "≠",
-  neq: "≠",
-  approx: "≈",
-  pm: "±",
-};
-
-export function plainMath(text: string): string {
-  return text
-    .replace(/\$\s*\\([A-Za-z]+)\s*\$/g, (whole, name: string) => MATH_SYMBOLS[name] ?? whole)
-    .replace(/\\([A-Za-z]+)(?![A-Za-z])/g, (whole, name: string) => MATH_SYMBOLS[name] ?? whole);
-}
-
 export function toBlocks(text: string): Block[] {
   const out: Block[] = [];
-  let box: string[] | null = null;
-  for (const line of plainMath(text).split("\n")) {
-    if (box === null && isBoxTop(line)) {
-      box = [];
+  for (const piece of splitBody(plainMath(text))) {
+    if (piece.kind === "table") {
+      out.push({ kind: "grid", ...piece.table });
+    } else {
+      textBlocks(piece.text, out);
     }
-    if (box !== null) {
-      box.push(line);
-      if (isBoxBottom(line)) {
-        out.push({ kind: "grid", ...parseBoxTable(box) });
-        box = null;
-      }
-      continue;
-    }
+  }
+  return out;
+}
+
+function textBlocks(text: string, out: Block[]): void {
+  for (const line of text.split("\n")) {
     const last = out[out.length - 1];
     if (TABLE_LINE.test(line)) {
       const row = cells(line);
@@ -118,10 +89,6 @@ export function toBlocks(text: string): Block[] {
       out.push({ kind: "para", text: line });
     }
   }
-  if (box !== null) {
-    out.push({ kind: "grid", ...parseBoxTable(box) });
-  }
-  return out;
 }
 
 function boldPieces(text: string): { text: string; bold: boolean }[] {
@@ -168,28 +135,21 @@ function citePieces(text: string, bold: boolean, names: { name: string; source: 
   return out;
 }
 
-export function toSegments(text: string, names: { name: string; source: number }[]): Segment[] {
-  return boldPieces(text).flatMap((p) => citePieces(p.text, p.bold, names));
+const DOC_REF = /\s*[「[]([^「」[\]\n]{1,200}?\.(?:pdf|docx|hwpx))\s*·\s*(\d[\d\-–~, ]*)쪽[」\]]/giu;
+
+function docPieces(text: string, bold: boolean, names: { name: string; source: number }[]): Segment[] {
+  const out: Segment[] = [];
+  let at = 0;
+  for (const m of text.matchAll(DOC_REF)) {
+    const start = m.index ?? 0;
+    out.push(...citePieces(text.slice(at, start), bold, names));
+    out.push({ text: (m[2] ?? "").trim() + "쪽", bold: false, source: null, doc: m[1] ?? "" });
+    at = start + m[0].length;
+  }
+  out.push(...citePieces(text.slice(at), bold, names));
+  return out.filter((s) => s.text !== "");
 }
 
-export type Marked = { text: string; marked: boolean };
-
-export function markSpans(body: string, spans: [number, number][]): Marked[] {
-  const chars = Array.from(body);
-  const out: Marked[] = [];
-  let at = 0;
-  for (const [start, end] of [...spans].sort((a, b) => a[0] - b[0])) {
-    if (start < at || end > chars.length) {
-      continue;
-    }
-    if (start > at) {
-      out.push({ text: chars.slice(at, start).join(""), marked: false });
-    }
-    out.push({ text: chars.slice(start, end).join(""), marked: true });
-    at = end;
-  }
-  if (at < chars.length) {
-    out.push({ text: chars.slice(at).join(""), marked: false });
-  }
-  return out;
+export function toSegments(text: string, names: { name: string; source: number }[]): Segment[] {
+  return boldPieces(text).flatMap((p) => docPieces(p.text, p.bold, names));
 }
