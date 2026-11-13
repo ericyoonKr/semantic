@@ -86,10 +86,15 @@ impl Rendered {
 }
 
 pub struct Ocr {
-    _env: Environment,
     det: Detector,
     rec: Recognizer,
     options: OcrOptions,
+}
+
+static ENVIRONMENT: std::sync::OnceLock<Result<Environment, String>> = std::sync::OnceLock::new();
+
+fn environment() -> Result<&'static Environment, OcrError> {
+    ENVIRONMENT.get_or_init(|| ort::init().build().map_err(|e| e.to_string())).as_ref().map_err(error::environment)
 }
 
 fn session(env: &Environment, stage: Stage, path: &Path, threads: usize) -> Result<Session, OcrError> {
@@ -114,13 +119,10 @@ fn corners(b: &boxes::PixelBox) -> [u32; 4] {
 
 impl Ocr {
     pub fn load(dir: &Path, threads: usize) -> Result<Self, OcrError> {
-        let env = ort::init().build().map_err(error::environment)?;
-        let det = Detector::new(session(&env, Stage::Detection, &dir.join(DET_FILE), threads)?);
-        let rec = Recognizer::new(
-            session(&env, Stage::Recognition, &dir.join(REC_FILE), threads)?,
-            &dir.join(DICT_FILE),
-        )?;
-        Ok(Self { _env: env, det, rec, options: OcrOptions::default() })
+        let env = environment()?;
+        let det = Detector::new(session(env, Stage::Detection, &dir.join(DET_FILE), threads)?);
+        let rec = Recognizer::new(session(env, Stage::Recognition, &dir.join(REC_FILE), threads)?, &dir.join(DICT_FILE))?;
+        Ok(Self { det, rec, options: OcrOptions::default() })
     }
 
     pub fn with_det_max_side(mut self, side: u32) -> Self {
