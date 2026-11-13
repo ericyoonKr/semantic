@@ -207,6 +207,10 @@ pub async fn vector_candidates(
     Ok(out)
 }
 
+pub async fn law_names(pool: &PgPool) -> Result<Vec<String>, RetrievalError> {
+    Ok(sqlx::query_scalar::<_, String>("SELECT regexp_replace(name, '\\s', '', 'g') FROM law").fetch_all(pool).await?)
+}
+
 pub async fn resolve_law(pool: &PgPool, law: &str) -> Result<Option<(String, String, String)>, RetrievalError> {
     let law = law.trim();
     if law.is_empty() {

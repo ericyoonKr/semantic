@@ -153,6 +153,16 @@ def test_chips_come_from_the_server_citations_even_for_short_names() -> None:
     assert [(ref, para) for ref, para, _ in gate.cited] == [(1, 1)]
 
 
+def test_law_only_citations_point_at_the_read_articles_of_that_law() -> None:
+    from semantic_agent.api.answer_gate import server_cites
+
+    ledger = Ledger()
+    first = ledger.add_law({"law_name": "식품위생법", "unit_key": "제75조", "enforcement_date": "2024-01-01", "body": "① 영업정지"})
+    ledger.add_law({"law_name": "식품위생법 시행규칙", "unit_key": "별표 23", "enforcement_date": "2024-01-01", "body": "기준"})
+    assert server_cites(ledger, [{"law": "식품위생법", "unit": "", "para": None}]) == [(first.ref, None)]
+    assert server_cites(ledger, [{"law": "경범죄처벌법", "unit": "", "para": None}]) == []
+
+
 def _run_gate(gate: SentenceGate, pieces: list[str]) -> str:
     async def go() -> str:
         out: list[str] = []

@@ -180,6 +180,10 @@ class Ledger:
         pattern = re.compile((re.escape(law_name) if law_name else "") + re.escape(key) + r"(?!\d|의\d)")
         return any(pattern.search(text) for text in self.trusted)
 
+    def laws_named(self, law_name: str) -> list[Authority]:
+        wanted = compact(law_name)
+        return [item for item in self.items.values() if item.kind == "law" and item.law_name.endswith(wanted)]
+
     def laws_with_article(self, law_name: str | None, article: str) -> list[Authority]:
         return [
             item

@@ -1,33 +1,64 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use retrieval::Corpus;
+use tokio::sync::OnceCell;
 
 const MAX_NAMES: usize = 20_000;
 
 #[derive(Default)]
-pub struct KnownLaws(Mutex<HashMap<String, bool>>);
+pub struct KnownLaws {
+    names: OnceCell<HashSet<String>>,
+    cache: Mutex<HashMap<String, bool>>,
+}
 
 impl KnownLaws {
-    pub async fn in_corpus(&self, corpus: Option<&Corpus>, law: &str) -> bool {
-        let key = citegate::canonical(law);
-        if let Some(hit) = self.0.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
-            return *hit;
+    pub fn preset(names: &[&str]) -> Self {
+        let set: HashSet<String> = names.iter().map(|n| citegate::canonical(n)).collect();
+        Self { names: OnceCell::new_with(Some(set)), cache: Mutex::default() }
+    }
+
+    pub async fn load(&self, corpus: &Corpus) {
+        match retrieval::query::laws::law_names(corpus.pool()).await {
+            Ok(names) => {
+                let set: HashSet<String> = names.iter().map(|n| citegate::canonical(n)).collect();
+                tracing::info!(names = set.len(), "known_laws.loaded");
+                let _ = self.names.set(set);
+            }
+            Err(error) => tracing::warn!(%error, "known_laws.load_failed"),
         }
-        let Some(corpus) = corpus else { return true };
+    }
+
+    async fn lookup(&self, corpus: Option<&Corpus>, law: &str) -> Option<bool> {
+        let key = citegate::canonical(law);
+        if let Some(set) = self.names.get() {
+            return Some(set.contains(&key));
+        }
+        if let Some(hit) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            return Some(*hit);
+        }
+        let corpus = corpus?;
         let found = match retrieval::query::laws::resolve_law(corpus.pool(), &key).await {
             Ok(row) => row.is_some(),
             Err(error) => {
                 tracing::warn!(%error, "known_laws.lookup_failed");
-                return true;
+                return None;
             }
         };
-        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if map.len() >= MAX_NAMES {
             map.clear();
         }
         map.insert(key, found);
-        found
+        Some(found)
+    }
+
+    pub async fn in_corpus(&self, corpus: Option<&Corpus>, law: &str) -> bool {
+        self.lookup(corpus, law).await.unwrap_or(true)
+    }
+
+    pub async fn surely_in_corpus(&self, corpus: Option<&Corpus>, law: &str) -> bool {
+        self.lookup(corpus, law).await.unwrap_or(false)
     }
 }
 

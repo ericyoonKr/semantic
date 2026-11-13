@@ -11,6 +11,7 @@ pub const UNIT_NOT_READ: &str = "unit_not_read";
 pub const CASE_NOT_READ: &str = "case_not_read";
 pub const PARAGRAPH_NOT_READ: &str = "paragraph_not_read";
 pub const LAW_NOT_READ: &str = "law_not_read";
+pub const NAMED_NOT_READ: &str = "named_law_not_read";
 
 const SAME_LAW: [&str; 5] = ["동법", "같은법", "이법", "법", "같은 법"];
 const CASE_CODES: [&str; 45] = [
@@ -24,6 +25,16 @@ static ARTICLE: LazyLock<Regex> =
 static BARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*제\s*(\d+)\s*항)?").expect("bare article pattern"));
 static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"「([^」\n]{0,58}(?:법|법률|령|규칙|조례|규정))」(?:\s*(시행령|시행규칙))?").expect("quoted law pattern"));
+const PARTICLES: &str = "에서는|에서도|으로는|으로도|에서|에는|에도|으로|이라|이란|입니다|이다|까지|부터|처럼|이나|이고|에|을|를|은|는|이|가|의|과|와|도|로|상|나|만|고";
+static BARE_NAME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"([가-힣]*(?:법률|법|령|규칙))(?:{PARTICLES})*(?:[^가-힣]|$)")).expect("bare law name pattern")
+});
+const NAME_TAILS: [&str; 4] = ["법률", "법", "령", "규칙"];
+const NAME_WORDS: usize = 6;
+
+fn hangul(c: char) -> bool {
+    ('가'..='힣').contains(&c)
+}
 const CIRCLED_FIRST: u32 = 0x2460;
 const CIRCLED_COUNT: u32 = 20;
 static ANNEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -59,10 +70,47 @@ pub fn canonical(name: &str) -> String {
     short
 }
 
+pub fn suffixes(name: &str) -> Vec<String> {
+    let words: Vec<&str> = name.split_whitespace().collect();
+    let mut out: Vec<String> = Vec::new();
+    for start in 0..words.len() {
+        let joined: String = words[start..].concat();
+        let shorter = joined.strip_suffix("법령").map(|base| format!("{base}법"));
+        for candidate in [Some(joined), shorter].into_iter().flatten() {
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
+}
+
+fn hangul_word(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(hangul)
+}
+
+fn extend_name(sentence: &str, start: usize, covered: &[(usize, usize)]) -> usize {
+    let mut at = start;
+    for _ in 0..NAME_WORDS {
+        let before = sentence[..at].trim_end();
+        if before.len() == at {
+            break;
+        }
+        let word_start = before.char_indices().rev().find(|(_, c)| c.is_whitespace()).map_or(0, |(i, c)| i + c.len_utf8());
+        let word = &before[word_start..];
+        if !hangul_word(word) || NAME_TAILS.iter().any(|t| word.ends_with(t)) || covered.iter().any(|&(s, e)| word_start < e && s < at) {
+            break;
+        }
+        at = word_start;
+    }
+    at
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Mention {
     Unit { law: Option<String>, unit: String, para: Option<u32> },
     Law(String),
+    Named(String),
     Case(String),
 }
 
@@ -147,8 +195,22 @@ pub fn mentions(sentence: &str) -> Vec<Mention> {
         if covered.iter().any(|&(s, e)| whole.start() < e && s < whole.end()) {
             continue;
         }
+        covered.push((whole.start(), whole.end()));
         let sub = caps.get(2).map(|m| m.as_str()).unwrap_or("");
         out.push(Mention::Law(compact(&format!("{}{sub}", name.as_str()))));
+    }
+    for caps in BARE_NAME.captures_iter(sentence) {
+        let Some(tail) = caps.get(1) else { continue };
+        if sentence[..tail.start()].chars().next_back().is_some_and(hangul) || covered.iter().any(|&(s, e)| tail.start() < e && s < tail.end()) {
+            continue;
+        }
+        let start = extend_name(sentence, tail.start(), &covered);
+        let name: String = sentence[start..tail.end()].split_whitespace().collect::<Vec<_>>().join(" ");
+        let lone_tail = NAME_TAILS.contains(&tail.as_str());
+        if (lone_tail && (start == tail.start() || matches!(tail.as_str(), "법" | "령"))) || SAME_LAW.contains(&compact(&name).as_str()) {
+            continue;
+        }
+        out.push(Mention::Named(name));
     }
     for caps in CASE.captures_iter(sentence) {
         let Some(m) = caps.get(1) else { continue };
@@ -200,7 +262,7 @@ impl ReadSet {
                     self.units.entry((canonical(&law), unit)).or_default().extend(para);
                 }
                 Mention::Case(no) => self.add_case(&no),
-                Mention::Unit { law: None, .. } | Mention::Law(_) => {}
+                Mention::Unit { law: None, .. } | Mention::Law(_) | Mention::Named(_) => {}
             }
         }
     }
@@ -246,9 +308,18 @@ impl ReadSet {
         self.cases.contains(&compact(case_no))
     }
 
-    fn has_law(&self, law: &str) -> bool {
+    fn law_matching(&self, law: &str) -> Option<String> {
         let law = canonical(law);
-        self.units.keys().any(|(l, _)| l.ends_with(&law) || law.ends_with(l.as_str()))
+        self.units
+            .keys()
+            .map(|(l, _)| l)
+            .filter(|l| l.ends_with(&law) || law.ends_with(l.as_str()))
+            .min_by_key(|l| (*l != &law, l.len().abs_diff(law.len())))
+            .cloned()
+    }
+
+    fn has_law(&self, law: &str) -> bool {
+        self.law_matching(law).is_some()
     }
 }
 
@@ -264,13 +335,14 @@ pub struct Verdict {
     pub ok: bool,
     pub reasons: Vec<&'static str>,
     pub unread: Vec<String>,
+    pub named: Vec<String>,
     pub cites: Vec<Cite>,
 }
 
 fn label(m: &Mention) -> Option<String> {
     match m {
         Mention::Unit { law: Some(law), unit, .. } => Some(format!("{law} {unit}")),
-        Mention::Unit { law: None, .. } => None,
+        Mention::Unit { law: None, .. } | Mention::Named(_) => None,
         Mention::Law(law) => Some(law.clone()),
         Mention::Case(no) => Some(no.clone()),
     }
@@ -279,16 +351,31 @@ fn label(m: &Mention) -> Option<String> {
 fn cite(m: &Mention) -> Option<Cite> {
     match m {
         Mention::Unit { law: Some(law), unit, para } => Some(Cite { law: canonical(law), unit: unit.clone(), para: *para }),
+        Mention::Law(law) => Some(Cite { law: canonical(law), unit: String::new(), para: None }),
         Mention::Case(no) => Some(Cite { law: String::new(), unit: no.clone(), para: None }),
-        Mention::Unit { law: None, .. } | Mention::Law(_) => None,
+        Mention::Unit { law: None, .. } | Mention::Named(_) => None,
     }
 }
 
 pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
     let mut reasons: Vec<&'static str> = Vec::new();
     let mut unread: Vec<String> = Vec::new();
+    let mut named: Vec<String> = Vec::new();
     let mut cites: Vec<Cite> = Vec::new();
     for m in mentions(sentence) {
+        if let Mention::Named(name) = &m {
+            match suffixes(name).iter().find_map(|s| reads.law_matching(s)) {
+                Some(law) => {
+                    let c = Cite { law, unit: String::new(), para: None };
+                    if !cites.contains(&c) {
+                        cites.push(c);
+                    }
+                }
+                None if !named.contains(name) => named.push(name.clone()),
+                None => {}
+            }
+            continue;
+        }
         let missing = match &m {
             Mention::Unit { law, unit, para } => {
                 let mut found = reads.matching(law.as_deref(), unit).peekable();
@@ -300,6 +387,7 @@ pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
             }
             Mention::Law(law) => (!reads.has_law(law)).then_some(LAW_NOT_READ),
             Mention::Case(no) => (!reads.has_case(no)).then_some(CASE_NOT_READ),
+            Mention::Named(_) => None,
         };
         if matches!(missing, Some(UNIT_NOT_READ | CASE_NOT_READ | LAW_NOT_READ)) {
             unread.extend(label(&m).filter(|l| !unread.contains(l)));
@@ -311,7 +399,10 @@ pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
             reasons.push(r);
         }
     }
-    Verdict { ok: reasons.is_empty(), reasons, unread, cites }
+    if !named.is_empty() {
+        reasons.push(NAMED_NOT_READ);
+    }
+    Verdict { ok: reasons.is_empty(), reasons, unread, named, cites }
 }
 
 pub fn cut(buf: &str) -> Option<usize> {

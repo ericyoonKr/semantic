@@ -17,7 +17,7 @@ TOOL_LABELS = {
     "case_citations": "인용 관계", "kg_find": "지식그래프", "kg_expand": "지식그래프",
     "kg_write_state": "지식그래프", "kg_judge_tree": "지식그래프", "judge": "요건 판단",
     "resolve_version": "판본 결정", "resolve_citations": "인용 해소", "trace_judgment_versions": "판본 대조",
-    "task": "조사", "write_todos": "계획", "researcher": "조사",
+    "task": "조사", "write_todos": "계획", "researcher": "조사", "search_document": "문서 찾기",
 }
 _NAMES = "|".join(sorted(TOOL_LABELS, key=len, reverse=True))
 TOOL_TAG = re.compile(r"(?:^|\s+)[\[(（【`]\s*(?:" + _NAMES + r")(?:\s*[,·/]\s*(?:" + _NAMES + r"))*\s*[\])）】`]")
@@ -81,6 +81,8 @@ def server_cites(ledger: Ledger, cites: list[dict[str, Any]]) -> list[tuple[int,
         law, unit, para = str(c.get("law") or ""), str(c.get("unit") or ""), c.get("para")
         if not law:
             found = ledger.cases_numbered(unit)
+        elif not unit:
+            found = ledger.laws_named(law)
         elif unit.startswith(("별표", "서식")):
             found = ledger.annexes_named(law, compact(unit))
         else:

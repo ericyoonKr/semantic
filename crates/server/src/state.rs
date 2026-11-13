@@ -87,6 +87,12 @@ impl AppState {
             coverage: crate::funcall::coverage::Coverage::default(),
             known: crate::funcall::known::KnownLaws::default(),
         }));
+        let loader = state.clone();
+        state.tracker.spawn(async move {
+            if let Some(corpus) = loader.corpus.as_ref() {
+                loader.known.load(corpus).await;
+            }
+        });
         Ok(state)
     }
 }

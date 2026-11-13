@@ -1,4 +1,4 @@
-use super::{CASE_NOT_READ, Mention, PARAGRAPH_NOT_READ, ReadSet, UNIT_NOT_READ, check, cut, mentions};
+use super::{CASE_NOT_READ, Mention, NAMED_NOT_READ, PARAGRAPH_NOT_READ, ReadSet, UNIT_NOT_READ, check, cut, mentions, suffixes};
 
 const BODY_2: &str = "① 배상하여야 한다.\n② 구상할 수 있다.";
 
@@ -221,6 +221,42 @@ fn footnote_numbers_and_page_marks_do_not_change_the_law_name() {
     let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &r).ok).collect();
     assert_eq!(wrongly_blocked, Vec::<&str>::new());
     assert_eq!(super::clean("1)에서 2)로 바뀐다"), "1)에서 2)로 바뀐다");
+}
+
+fn named(sentence: &str) -> Vec<String> {
+    mentions(sentence).into_iter().filter_map(|m| if let Mention::Named(n) = m { Some(n) } else { None }).collect()
+}
+
+#[test]
+fn bare_law_names_are_found_with_the_words_before_them_but_not_inside_citations() {
+    let found = named("클럽이 식품위생법에 따라 영업정지를 받고 경범죄 처벌법으로도 처벌됩니다.");
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found[0], "클럽이 식품위생법");
+    assert!(found[1].ends_with("경범죄 처벌법"), "{found:?}");
+    assert_eq!(named("마약류 관리에 관한 법률에 따라 처벌합니다."), vec!["마약류 관리에 관한 법률".to_string()]);
+    assert!(named("「식품위생법」 제75조와 식품위생법 시행규칙 별표 23에 따릅니다.").is_empty());
+    assert!(named("같은 법에 따르고, 이 법 제3조와 동법 규정을 봅니다.").is_empty());
+    assert_eq!(named("관련 법령에 따라 처리합니다."), vec!["관련 법령".to_string()]);
+    assert!(named("법률 검토를 합니다.").is_empty());
+    let found = named("대법원 판결과 헌법재판소 결정, 불법행위와 방법을 봅니다.");
+    assert!(found.len() == 1 && found[0].ends_with("방법"), "{found:?}");
+    assert_eq!(suffixes("이 사건에서 경범죄 처벌법"), vec!["이사건에서경범죄처벌법", "사건에서경범죄처벌법", "경범죄처벌법", "처벌법"]);
+    assert_eq!(suffixes("식품위생법령"), vec!["식품위생법령", "식품위생법"]);
+}
+
+#[test]
+fn bare_names_of_read_laws_pass_with_a_law_cite_and_unread_ones_are_reported() {
+    let mut r = ReadSet::default();
+    r.add_unit_body("식품위생법", "제75조", "① 영업정지를 명할 수 있다.");
+    let v = check("클럽이 식품위생법에 따라 영업정지 처분을 받을 수 있습니다.", &r);
+    assert!(v.ok, "{v:?}");
+    assert_eq!(v.cites, vec![super::Cite { law: "식품위생법".into(), unit: String::new(), para: None }]);
+    let v = check("경범죄 처벌법으로도 처벌됩니다.", &r);
+    assert!(!v.ok && v.reasons == vec![NAMED_NOT_READ]);
+    assert_eq!(v.named, vec!["경범죄 처벌법".to_string()]);
+    let v = check("해결방법은 식품위생법령을 보는 것입니다.", &r);
+    assert_eq!(v.named, vec!["해결방법".to_string()]);
+    assert_eq!(v.cites.len(), 1);
 }
 
 #[test]
