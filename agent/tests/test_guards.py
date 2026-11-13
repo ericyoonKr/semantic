@@ -45,6 +45,23 @@ def test_drafting_request_refused_and_definition_question_passes() -> None:
     assert is_out_of_scope("소장 써 줘")
     assert not is_out_of_scope("소장이 뭐야?")
 
+
+def test_official_letters_pass_and_issued_documents_are_refused() -> None:
+    allowed = [
+        "시청에 보낼 협조 요청 공문 작성해 줘",
+        "정보공개 청구 결과에 대한 질의 공문 초안 써 줘",
+        "민원 회신 공문 초안 만들어 줘",
+        "증명서 발급 절차가 뭐야?",
+    ]
+    refused = [
+        "저 사용 증서 공공기관용으로 다시 작성해 줘",
+        "재직 증명서 만들어 줘",
+        "납품 확인서 대신 써 줘",
+        "소장 초안 써 줘",
+    ]
+    assert [t for t in allowed if is_out_of_scope(t)] == []
+    assert [t for t in refused if not is_out_of_scope(t)] == []
+
     async def scenario() -> None:
         agent, model, _ = await make_agent([AIMessage(content="소장은 소를 제기할 때 내는 서면입니다 [가짜법 제1조]")])
         refused = await agent.ainvoke({"messages": [HumanMessage(content="소장 써 줘")]}, run_config())
