@@ -28,6 +28,20 @@ LIMIT_HEAD = "제한에 걸려 중단됨"
 WARNING_TEXT = {INJECTION_KIND: "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다"}
 
 
+UNREACHABLE = frozenset({"APIConnectionError", "APITimeoutError", "ConnectError", "ConnectTimeout", "OpenAIConnectionError"})
+
+
+def model_unreachable(exc: BaseException) -> bool:
+    seen: BaseException | None = exc
+    for _ in range(6):
+        if seen is None:
+            return False
+        if type(seen).__name__ in UNREACHABLE:
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return False
+
+
 def event(name: str, data: dict[str, Any]) -> str:
     return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -168,7 +182,8 @@ async def to_sse(
         log.error("ask failed type=%s request_id=%s", type(exc).__name__, request_id)
         for item in [*turn_events(turn), usage_event(turn)]:
             yield item
-        yield event("Error", {"message": "답을 만들지 못했습니다", "request_id": request_id})
+        kind = "model_unreachable" if model_unreachable(exc) else "failed"
+        yield event("Error", {"message": "답을 만들지 못했습니다", "kind": kind, "request_id": request_id})
         return
     finally:
         await stream.aclose()

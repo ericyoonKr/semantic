@@ -125,3 +125,12 @@ fn resume_carries_the_running_question() {
     assert!(out[0].starts_with("event: Resume\n") && out[0].contains("국가배상 요건은?"));
     assert!(f.push(&ev("Resume", r#"{}"#)).is_empty());
 }
+
+#[test]
+fn model_down_error_says_why() {
+    let mut f = filter();
+    let out = f.push(&ev("Error", r#"{"message":"x","kind":"model_unreachable"}"#));
+    assert!(out[0].contains("모델 서버에 연결되지 않아"));
+    let out = f.push(&ev("Error", r#"{"message":"x","kind":"failed"}"#));
+    assert!(out[0].contains("답을 만들지 못했습니다. 잠시 뒤"));
+}

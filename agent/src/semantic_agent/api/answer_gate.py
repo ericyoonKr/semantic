@@ -23,7 +23,11 @@ TOOL_TAG = re.compile(r"(?:^|\s+)[\[(（【`]\s*(?:" + _NAMES + r")(?:\s*[,·/]\
 TOOL_BARE = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(n for n in TOOL_LABELS if "_" in n) + r")(?![A-Za-z0-9_])")
 
 
+INTERNAL_TAG = re.compile(r"\s*[\[(（【]\s*(?:하위\s*에이전트\s*결과|researcher\s*결과|조사\s*결과)\s*[\])）】]")
+
+
 def scrub_tools(text: str) -> str:
+    text = INTERNAL_TAG.sub("", text)
     text = TOOL_TAG.sub("", text)
     return TOOL_BARE.sub(lambda m: TOOL_LABELS[m.group(1)], text)
 MAX_SENTENCE = 400

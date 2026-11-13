@@ -104,18 +104,25 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
     state.audit.spawn(Event::new("ask").user(signed.user_id).thread(id).request(&rid));
     state.store.touch_thread(id).await?;
     let sides = SideSink { store: state.store.clone(), audit: state.audit.clone(), user: signed.user_id, thread: id, request_id: rid.clone() };
-    let start = AskStream { filter: SseFilter::new(rid, state.cfg.hidden_spans.clone()), sides, _permit: permit };
-    let stream = res.bytes_stream().scan(start, |st, chunk| {
-        let frames = match chunk {
-            Ok(bytes) => st.filter.push(&String::from_utf8_lossy(&bytes)),
-            Err(_) => st.filter.push(STREAM_BROKEN),
-        };
-        for side in st.filter.take_side() {
-            st.sides.handle(side);
+    let mut st = AskStream { filter: SseFilter::new(rid, state.cfg.hidden_spans.clone()), sides, _permit: permit };
+    let (tx, rx) = futures::channel::mpsc::unbounded::<Result<String, std::io::Error>>();
+    tokio::spawn(async move {
+        let mut upstream = res.bytes_stream();
+        let mut client_gone = false;
+        while let Some(chunk) = upstream.next().await {
+            let frames = match chunk {
+                Ok(bytes) => st.filter.push(&String::from_utf8_lossy(&bytes)),
+                Err(_) => st.filter.push(STREAM_BROKEN),
+            };
+            for side in st.filter.take_side() {
+                st.sides.handle(side);
+            }
+            if !client_gone && tx.unbounded_send(Ok(frames.concat())).is_err() {
+                client_gone = true;
+            }
         }
-        futures::future::ready(Some(Ok::<_, std::io::Error>(frames.concat())))
     });
-    let mut out = Response::new(Body::from_stream(stream));
+    let mut out = Response::new(Body::from_stream(rx));
     out.headers_mut().insert(CONTENT_TYPE, axum::http::HeaderValue::from_static("text/event-stream"));
     Ok(out)
 }

@@ -9,6 +9,7 @@ const WARN_EXTRACT: &str = "이 파일의 일부를 읽지 못했습니다";
 const WARN_LIMIT: &str = "제한에 걸려 답을 끝까지 쓰지 못했습니다";
 const WARN_INJECTION: &str = "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다";
 const ERROR_TEXT: &str = "답을 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요";
+const ERROR_MODEL_DOWN: &str = "모델 서버에 연결되지 않아 답을 만들지 못했습니다. 모델 서버가 다시 켜진 뒤 시도해 주세요";
 
 fn status_for(tool: &str) -> &'static str {
     match tool {
@@ -152,7 +153,13 @@ impl SseFilter {
                 let items: Vec<Value> = value.get("items")?.as_array()?.iter().filter_map(source_item).collect();
                 (!items.is_empty()).then(|| frame("Sources", json!({ "items": items })))
             }
-            "Error" => Some(frame("Error", json!({ "message": ERROR_TEXT, "request_id": self.request_id }))),
+            "Error" => {
+                let message = match value.get("kind").and_then(Value::as_str) {
+                    Some("model_unreachable") => ERROR_MODEL_DOWN,
+                    _ => ERROR_TEXT,
+                };
+                Some(frame("Error", json!({ "message": message, "request_id": self.request_id })))
+            }
             "Done" => Some(frame("Done", json!({}))),
             "Usage" => {
                 let tokens = value.get("tokens").and_then(Value::as_i64)?;

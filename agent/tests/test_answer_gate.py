@@ -218,3 +218,10 @@ def test_material_wrapper_marks_do_not_reach_the_answer() -> None:
     text = "".join(out)
     assert "<자료" not in text and "</자료>" not in text
     assert "판단할 수 없습니다." in text and "끝입니다." in text
+
+
+def test_internal_result_tags_are_removed() -> None:
+    from semantic_agent.api.answer_gate import scrub_tools
+
+    assert scrub_tools("판례는 확인되지 않았습니다. [하위 에이전트 결과]") == "판례는 확인되지 않았습니다."
+    assert scrub_tools("내용 (조사 결과) 끝") == "내용 끝"
