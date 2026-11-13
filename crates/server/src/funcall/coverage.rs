@@ -9,20 +9,25 @@ use crate::http::middleware::REQUEST_ID;
 
 pub const LAW: &str = "law";
 pub const CASE: &str = "case";
+pub const NAMED_LAW: &str = "law:";
+pub const LAW_MIN: u32 = 3;
+pub const CASE_MIN: u32 = 1;
 const KEEP: Duration = Duration::from_secs(3600);
 const MAX_REQUESTS: usize = 10_000;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Tally {
     pub laws: u32,
     pub cases: u32,
+    pub read: Vec<String>,
+    pub required: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CoverageReply {
     pub laws: u32,
     pub cases: u32,
-    pub missing: Vec<&'static str>,
+    pub missing: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,23 +43,28 @@ fn request_of(headers: &HeaderMap) -> Option<String> {
     (!raw.is_empty()).then(|| raw.to_string())
 }
 
-pub const LAW_MIN: u32 = 3;
-pub const CASE_MIN: u32 = 1;
+fn same_law(a: &str, b: &str) -> bool {
+    a.ends_with(b) || b.ends_with(a)
+}
 
-pub fn missing(t: Tally) -> Vec<&'static str> {
+pub fn missing(t: &Tally) -> Vec<String> {
     let mut out = Vec::new();
     if t.laws < LAW_MIN {
-        out.push(LAW);
+        out.push(LAW.to_string());
     }
     if t.cases < CASE_MIN {
-        out.push(CASE);
+        out.push(CASE.to_string());
+    }
+    for law in &t.required {
+        if !t.read.iter().any(|r| same_law(r, law)) {
+            out.push(format!("{NAMED_LAW}{law}"));
+        }
     }
     out
 }
 
 impl Coverage {
-    fn bump(&self, headers: &HeaderMap, add: impl FnOnce(&mut Tally)) {
-        let Some(request) = request_of(headers) else { return };
+    fn with(&self, request: String, change: impl FnOnce(&mut Tally)) {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         if map.len() >= MAX_REQUESTS {
@@ -62,21 +72,43 @@ impl Coverage {
         }
         let entry = map.entry(request).or_insert((now, Tally::default()));
         entry.0 = now;
-        add(&mut entry.1);
+        change(&mut entry.1);
     }
 
-    pub fn law(&self, headers: &HeaderMap) {
-        self.bump(headers, |t| t.laws += 1);
+    pub fn law(&self, headers: &HeaderMap, law_name: &str) {
+        let Some(request) = request_of(headers) else { return };
+        let name = citegate::canonical(law_name);
+        self.with(request, |t| {
+            t.laws += 1;
+            if !t.read.contains(&name) {
+                t.read.push(name);
+            }
+        });
     }
 
     pub fn case(&self, headers: &HeaderMap) {
-        self.bump(headers, |t| t.cases += 1);
+        let Some(request) = request_of(headers) else { return };
+        self.with(request, |t| t.cases += 1);
+    }
+
+    pub fn require(&self, request: &str, laws: &[String]) {
+        if request.trim().is_empty() || laws.is_empty() {
+            return;
+        }
+        self.with(request.trim().to_string(), |t| {
+            for law in laws {
+                let name = citegate::canonical(law);
+                if !t.required.contains(&name) {
+                    t.required.push(name);
+                }
+            }
+        });
     }
 
     pub fn reply(&self, request: &str) -> CoverageReply {
         let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let t = map.get(request.trim()).map(|(_, t)| *t).unwrap_or_default();
-        CoverageReply { laws: t.laws, cases: t.cases, missing: missing(t) }
+        let t = map.get(request.trim()).map(|(_, t)| t.clone()).unwrap_or_default();
+        CoverageReply { laws: t.laws, cases: t.cases, missing: missing(&t) }
     }
 }
 
@@ -92,16 +124,31 @@ mod tests {
         let mut a = HeaderMap::new();
         a.insert(REQUEST_ID, HeaderValue::from_static("req-a"));
         assert_eq!(c.reply("req-a").missing, vec![LAW, CASE]);
-        c.law(&a);
-        c.law(&a);
+        c.law(&a, "지방자치단체를 당사자로 하는 계약에 관한 법률");
+        c.law(&a, "지방자치단체를 당사자로 하는 계약에 관한 법률");
         assert_eq!(c.reply("req-a").missing, vec![LAW, CASE]);
-        c.law(&a);
+        c.law(&a, "지방자치단체를 당사자로 하는 계약에 관한 법률");
         assert_eq!(c.reply("req-a").missing, vec![CASE]);
         c.case(&a);
         let r = c.reply("req-a");
         assert_eq!((r.laws, r.cases, r.missing.len()), (3, 1, 0));
         assert_eq!(c.reply("req-b").missing, vec![LAW, CASE]);
-        c.law(&HeaderMap::new());
+        c.law(&HeaderMap::new(), "민법");
         assert_eq!(c.reply("").laws, 0);
+    }
+
+    #[test]
+    fn laws_named_in_the_question_must_be_read() {
+        let c = Coverage::default();
+        let mut a = HeaderMap::new();
+        a.insert(REQUEST_ID, HeaderValue::from_static("req-a"));
+        c.require("req-a", &["지방공무원법".to_string()]);
+        for _ in 0..3 {
+            c.law(&a, "지방자치단체를 당사자로 하는 계약에 관한 법률");
+        }
+        c.case(&a);
+        assert_eq!(c.reply("req-a").missing, vec!["law:지방공무원법".to_string()]);
+        c.law(&a, "지방공무원법");
+        assert!(c.reply("req-a").missing.is_empty());
     }
 }

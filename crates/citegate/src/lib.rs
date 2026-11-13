@@ -10,6 +10,7 @@ pub const NOTICE: &str = "확인하지 못한 근거를 든 문장을 뺐습니�
 pub const UNIT_NOT_READ: &str = "unit_not_read";
 pub const CASE_NOT_READ: &str = "case_not_read";
 pub const PARAGRAPH_NOT_READ: &str = "paragraph_not_read";
+pub const LAW_NOT_READ: &str = "law_not_read";
 
 const SAME_LAW: [&str; 5] = ["동법", "같은법", "이법", "법", "같은 법"];
 const CASE_CODES: [&str; 45] = [
@@ -61,6 +62,7 @@ pub fn canonical(name: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Mention {
     Unit { law: Option<String>, unit: String, para: Option<u32> },
+    Law(String),
     Case(String),
 }
 
@@ -133,11 +135,20 @@ pub fn mentions(sentence: &str) -> Vec<Mention> {
         if digit_at(sentence, whole.end()) {
             continue;
         }
+        covered.push((whole.start(), whole.end()));
         let unit = match caps.get(6) {
             Some(b) => format!("{}{}의{}", kind.as_str(), no.as_str(), b.as_str()),
             None => format!("{}{}", kind.as_str(), no.as_str()),
         };
         out.push(Mention::Unit { law: law_of(&caps), unit, para: None });
+    }
+    for caps in QUOTED.captures_iter(sentence) {
+        let (Some(whole), Some(name)) = (caps.get(0), caps.get(1)) else { continue };
+        if covered.iter().any(|&(s, e)| whole.start() < e && s < whole.end()) {
+            continue;
+        }
+        let sub = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        out.push(Mention::Law(compact(&format!("{}{sub}", name.as_str()))));
     }
     for caps in CASE.captures_iter(sentence) {
         let Some(m) = caps.get(1) else { continue };
@@ -189,7 +200,7 @@ impl ReadSet {
                     self.units.entry((canonical(&law), unit)).or_default().extend(para);
                 }
                 Mention::Case(no) => self.add_case(&no),
-                Mention::Unit { law: None, .. } => {}
+                Mention::Unit { law: None, .. } | Mention::Law(_) => {}
             }
         }
     }
@@ -234,6 +245,18 @@ impl ReadSet {
     fn has_case(&self, case_no: &str) -> bool {
         self.cases.contains(&compact(case_no))
     }
+
+    fn has_law(&self, law: &str) -> bool {
+        let law = canonical(law);
+        self.units.keys().any(|(l, _)| l.ends_with(&law) || law.ends_with(l.as_str()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Cite {
+    pub law: String,
+    pub unit: String,
+    pub para: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -241,19 +264,30 @@ pub struct Verdict {
     pub ok: bool,
     pub reasons: Vec<&'static str>,
     pub unread: Vec<String>,
+    pub cites: Vec<Cite>,
 }
 
 fn label(m: &Mention) -> Option<String> {
     match m {
         Mention::Unit { law: Some(law), unit, .. } => Some(format!("{law} {unit}")),
         Mention::Unit { law: None, .. } => None,
+        Mention::Law(law) => Some(law.clone()),
         Mention::Case(no) => Some(no.clone()),
+    }
+}
+
+fn cite(m: &Mention) -> Option<Cite> {
+    match m {
+        Mention::Unit { law: Some(law), unit, para } => Some(Cite { law: canonical(law), unit: unit.clone(), para: *para }),
+        Mention::Case(no) => Some(Cite { law: String::new(), unit: no.clone(), para: None }),
+        Mention::Unit { law: None, .. } | Mention::Law(_) => None,
     }
 }
 
 pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
     let mut reasons: Vec<&'static str> = Vec::new();
     let mut unread: Vec<String> = Vec::new();
+    let mut cites: Vec<Cite> = Vec::new();
     for m in mentions(sentence) {
         let missing = match &m {
             Mention::Unit { law, unit, para } => {
@@ -264,16 +298,20 @@ pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
                     para.filter(|p| !found.any(|ps| ps.contains(p))).map(|_| PARAGRAPH_NOT_READ)
                 }
             }
+            Mention::Law(law) => (!reads.has_law(law)).then_some(LAW_NOT_READ),
             Mention::Case(no) => (!reads.has_case(no)).then_some(CASE_NOT_READ),
         };
-        if missing == Some(UNIT_NOT_READ) || missing == Some(CASE_NOT_READ) {
+        if matches!(missing, Some(UNIT_NOT_READ | CASE_NOT_READ | LAW_NOT_READ)) {
             unread.extend(label(&m).filter(|l| !unread.contains(l)));
+        }
+        if missing.is_none() {
+            cites.extend(cite(&m).filter(|c| !cites.contains(c)));
         }
         if let Some(r) = missing.filter(|r| !reasons.contains(r)) {
             reasons.push(r);
         }
     }
-    Verdict { ok: reasons.is_empty(), reasons, unread }
+    Verdict { ok: reasons.is_empty(), reasons, unread, cites }
 }
 
 pub fn cut(buf: &str) -> Option<usize> {

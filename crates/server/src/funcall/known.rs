@@ -31,7 +31,28 @@ impl KnownLaws {
     }
 }
 
+const LAW_ENDINGS: [&str; 6] = ["법", "법률", "령", "규칙", "조례", "규정"];
+
+pub fn names_a_law(word: &str) -> bool {
+    LAW_ENDINGS.iter().any(|e| word.ends_with(e))
+}
+
 pub fn law_of_label(label: &str) -> Option<&str> {
-    let (law, unit) = label.rsplit_once(' ')?;
-    (unit.starts_with('제') || unit.starts_with("별표") || unit.starts_with("서식")).then_some(law)
+    match label.rsplit_once(' ') {
+        Some((law, unit)) => (unit.starts_with('제') || unit.starts_with("별표") || unit.starts_with("서식")).then_some(law),
+        None => names_a_law(label).then_some(label),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::law_of_label;
+
+    #[test]
+    fn labels_give_their_law_names() {
+        assert_eq!(law_of_label("지방공무원법 제48조"), Some("지방공무원법"));
+        assert_eq!(law_of_label("식품위생법시행규칙 별표23"), Some("식품위생법시행규칙"));
+        assert_eq!(law_of_label("지방공무원법"), Some("지방공무원법"));
+        assert_eq!(law_of_label("2024두35989"), None);
+    }
 }

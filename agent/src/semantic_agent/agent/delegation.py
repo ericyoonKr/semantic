@@ -17,6 +17,7 @@ from semantic_agent.agent.intent import IntentScope
 from semantic_agent.agent.issues import flag, parse_issues, render_issues
 from semantic_agent.agent.prompts import (
     ADVERSE_NOTE,
+    COVERAGE_NAMED_LAW,
     COVERAGE_NOTE,
     COVERAGE_STEPS,
     MUST_READ_NOTE,
@@ -39,6 +40,19 @@ NO_SEARCH_RETRIES = 1
 MUST_READ_RETRIES = 1
 COVERAGE_RETRIES = 1
 EXCERPT_HEAD = "올린 문서에서 법령이 적힌 줄:"
+
+
+NAMED_LAW = "law:"
+
+
+def coverage_steps(lack: list[str]) -> list[str]:
+    out: list[str] = []
+    for kind in lack:
+        if kind.startswith(NAMED_LAW):
+            out.append(COVERAGE_NAMED_LAW.format(law=kind[len(NAMED_LAW) :]))
+        elif kind in COVERAGE_STEPS:
+            out.append(COVERAGE_STEPS[kind])
+    return out
 
 
 def excerpt_of(description: str) -> list[str]:
@@ -323,7 +337,7 @@ class SubagentGate(AgentMiddleware):
                 ):
                     covered += 1
                     log.info("subagent research incomplete name=%s missing=%s", name, ",".join(lack))
-                    note = "\n".join([COVERAGE_NOTE, *(COVERAGE_STEPS[k] for k in lack if k in COVERAGE_STEPS)])
+                    note = "\n".join([COVERAGE_NOTE, *coverage_steps(lack)])
                 elif name == RESEARCHER:
                     findings = check_research(findings, ledger)
                     if brief.purpose == JUDGE_PURPOSE and not reverse_ok(findings, ledger.queries[start:]):

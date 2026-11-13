@@ -63,7 +63,7 @@ pub async fn lookup(
     };
     let c = corpus(&state)?;
     let out = run(&state, retrieval::annex_lookup(c.pool(), &q)).await?;
-    state.coverage.law(&headers);
+    state.coverage.law(&headers, &out.annex.law_name);
     if let Some(thread) = crate::funcall::readlog::thread_of(&headers) {
         state.reads.record(&thread, |r| r.add_unit(&out.annex.law_name, &out.annex.annex_label));
     }

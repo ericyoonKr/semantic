@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 use citegate::Mention;
 use serde::{Deserialize, Serialize};
 
+use super::known::names_a_law;
+
 pub const WHOLE_READ_CHARS: u64 = 20_000;
 pub const WHOLE_READ_LINES: u32 = 2_000;
 pub const EXCERPT_CHARS: usize = 1_500;
@@ -12,6 +14,8 @@ pub const ISSUE_HEAD: &str = "쟁점:";
 pub const PURPOSE_HEAD: &str = "목적:";
 pub const FIRST_PURPOSE: &str = "조회";
 pub const EXCERPT_HEAD: &str = "올린 문서에서 법령이 적힌 줄:";
+pub const QUESTION_LAWS_HEAD: &str = "질문에 나온 법령(먼저 쟁점 조문을 찾아 읽는다):";
+const LAW_NAME_MIN: usize = 3;
 pub const RESEARCHER: &str = "researcher";
 const KEYWORD_MIN: usize = 2;
 const KEEP: Duration = Duration::from_secs(24 * 3600);
@@ -61,7 +65,7 @@ struct Progress {
 }
 
 pub fn reread_brief(question: &str, unread: &[String]) -> String {
-    format!("{}\n{MUST_READ_HEAD} {}", brief(question, ""), unread.join(", "))
+    format!("{}\n{MUST_READ_HEAD} {}", brief(question, &[], ""), unread.join(", "))
 }
 
 #[derive(Default)]
@@ -114,9 +118,44 @@ pub fn law_lines(docs: &[Doc]) -> String {
     out.join("\n")
 }
 
-pub fn brief(question: &str, excerpt: &str) -> String {
+pub fn question_laws(question: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |name: String| {
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    };
+    for m in citegate::mentions(question) {
+        if let Mention::Law(law) | Mention::Unit { law: Some(law), .. } = m {
+            push(law);
+        }
+    }
+    let mut outside = String::new();
+    let mut depth = 0usize;
+    for c in question.chars() {
+        match c {
+            '「' => depth += 1,
+            '」' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => outside.push(c),
+            _ => {}
+        }
+    }
+    for word in outside.split_whitespace() {
+        let word = strip_particle(word.trim_matches(STRIP));
+        let word = word.strip_suffix("상").unwrap_or(word);
+        if word.chars().count() >= LAW_NAME_MIN && names_a_law(word) {
+            push(citegate::compact(word));
+        }
+    }
+    out
+}
+
+pub fn brief(question: &str, laws: &[String], excerpt: &str) -> String {
     let issue = question.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut out = format!("{ISSUE_HEAD} {issue}\n{PURPOSE_HEAD} {FIRST_PURPOSE}");
+    if !laws.is_empty() {
+        out.push_str(&format!("\n{QUESTION_LAWS_HEAD} {}", laws.join(", ")));
+    }
     if !excerpt.is_empty() {
         out.push_str(&format!("\n{EXCERPT_HEAD}\n{excerpt}"));
     }
@@ -152,7 +191,7 @@ impl StepLog {
         map.get(thread).is_none_or(|p| p.turn != request_id)
     }
 
-    pub fn next(&self, thread: &str, req: &StepRequest, legal: bool, docs: &[Doc]) -> Step {
+    pub fn next(&self, thread: &str, req: &StepRequest, legal: bool, docs: &[Doc], laws: &[String]) -> Step {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         if map.len() >= MAX_THREADS {
@@ -179,7 +218,7 @@ impl StepLog {
             return doc_step(doc, &word);
         }
         progress.done = true;
-        Step::Task { description: brief(&req.question, &law_lines(docs)), subagent_type: RESEARCHER.into() }
+        Step::Task { description: brief(&req.question, laws, &law_lines(docs)), subagent_type: RESEARCHER.into() }
     }
 }
 

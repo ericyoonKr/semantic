@@ -208,7 +208,7 @@ pub async fn law_unit(
     let c = corpus(&state)?;
     let out = run(&state, retrieval::read_law_unit(c.pool(), &p.law, &p.unit, p.as_of)).await?;
     if !out.deleted {
-        state.coverage.law(&headers);
+        state.coverage.law(&headers, &out.law_name);
     }
     if let Some(thread) = thread_of(&headers)
         && !out.deleted

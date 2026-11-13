@@ -140,7 +140,7 @@ async def to_sse(
     turn = Turn()
     TURN.set(turn)
     THREAD_ID.set(str(cfg.get("configurable", {}).get("thread_id", "")))
-    gate = SentenceGate(ledger, log_drop(request_id, turn), ReadCheck(client).read)
+    gate = SentenceGate(ledger, log_drop(request_id, turn), ReadCheck(client).verdicts)
     thought = ThoughtFilter()
     stream = agent.astream(
         {"messages": [HumanMessage(content=question)]},

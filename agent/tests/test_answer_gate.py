@@ -137,8 +137,20 @@ def test_ref_tags_are_checked_here_and_reads_are_left_to_the_search_server() -> 
 UNREAD = ("민법 제750조", "헌법 제10조")
 
 
-async def _fake_reads(pieces: list[str]) -> list[bool]:
-    return [not any(u in p for u in UNREAD) for p in pieces]
+async def _fake_reads(pieces: list[str]) -> list[dict]:
+    return [{"ok": not any(u in p for u in UNREAD), "cites": []} for p in pieces]
+
+
+def test_chips_come_from_the_server_citations_even_for_short_names() -> None:
+    ledger = Ledger()
+    ledger.add_law({"law_name": "지방자치단체를 당사자로 하는 계약에 관한 법률", "unit_key": "제16조", "enforcement_date": "2021-12-30", "body": "① 감독한다."})
+
+    async def server(pieces: list[str]) -> list[dict]:
+        return [{"ok": True, "cites": [{"law": "지방자치단체를당사자로하는계약에관한법률", "unit": "제16조", "para": 1}]} for _ in pieces]
+
+    gate = SentenceGate(ledger, checker=server)
+    _run_gate(gate, ["지방계약법 제16조 제1항에 따라 감독해야 합니다.\n"])
+    assert [(ref, para) for ref, para, _ in gate.cited] == [(1, 1)]
 
 
 def _run_gate(gate: SentenceGate, pieces: list[str]) -> str:

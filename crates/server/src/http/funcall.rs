@@ -6,7 +6,7 @@ use crate::error::ApiError;
 use crate::funcall::check::{CheckReply, CheckRequest, MAX_SENTENCES, UnreadReply, UnreadRequest, check_sentences, unread_in_corpus};
 use crate::funcall::coverage::{CoverageParams, CoverageReply};
 use crate::funcall::docs::session_docs;
-use crate::funcall::next_step::{Step, StepRequest, keyword};
+use crate::funcall::next_step::{Step, StepRequest, keyword, question_laws};
 use crate::funcall::route::is_legal;
 use crate::session::SessionId;
 use crate::state::AppState;
@@ -45,7 +45,14 @@ pub async fn next_step(
         legal = is_legal(&parts.llm, &req.question, !docs.is_empty()).await.unwrap_or(true);
         tracing::info!(legal, "route.legal");
     }
-    Ok(Json(state.steps.next(sid.as_str(), &req, legal, &docs)))
+    let mut laws = Vec::new();
+    for name in question_laws(&req.question) {
+        if state.known.in_corpus(state.corpus.as_ref(), &name).await {
+            laws.push(name);
+        }
+    }
+    state.coverage.require(&req.request_id, &laws);
+    Ok(Json(state.steps.next(sid.as_str(), &req, legal, &docs, &laws)))
 }
 
 pub async fn answer_check(

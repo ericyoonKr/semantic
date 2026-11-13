@@ -60,6 +60,8 @@ MUST_READ_NOTE = """올린 문서에 적힌 다음 조문·판례를 아직 읽�
 
 COVERAGE_NOTE = """이번 조사에서 아직 읽지 않은 근거 종류가 있다. 다음을 지금 하고, 읽은 근거를 넣어 정해진 JSON 형식으로 다시 돌려준다. 찾아도 맞는 것이 없으면 not_found에 적는다:"""
 
+COVERAGE_NAMED_LAW = "질문에 나온 {law}에서 쟁점의 의무·요건·효과 조문을 search_laws로 찾아 read_law로 읽는다."
+
 COVERAGE_STEPS = {
     "law": "search_laws로 쟁점의 의무·요건·효과 조문을 찾아 맞는 조문을 3개 이상 read_law로 읽는다.",
     "case": 'search_cases로 쟁점의 판례를 찾아 맞는 판례 1~2건을 read_case(decision_id, sections=["holding_issue", "holding_summary"])로 읽는다.',

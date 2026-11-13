@@ -188,6 +188,27 @@ fn articles_away_from_the_law_name_take_the_name_before_them() {
 }
 
 #[test]
+fn naming_a_law_needs_some_of_it_read_and_passing_sentences_carry_their_citations() {
+    let mut r = ReadSet::default();
+    r.add_unit_body("지방자치단체를 당사자로 하는 계약에 관한 법률", "제16조", "① 감독한다.");
+    r.add_case("2024두35989");
+    let v = check("「지방공무원법」상 성실 의무 위반에 해당할 수 있습니다.", &r);
+    assert!(!v.ok && v.reasons.contains(&super::LAW_NOT_READ));
+    assert_eq!(v.unread, vec!["지방공무원법".to_string()]);
+    assert!(check("「지방자치단체를 당사자로 하는 계약에 관한 법률」에 따른 감독입니다.", &r).ok);
+    let v = check("「지방자치단체를 당사자로 하는 계약에 관한 법률」 제16조 제1항과 대법원 2024두35989 판결", &r);
+    assert!(v.ok);
+    assert_eq!(
+        v.cites,
+        vec![
+            super::Cite { law: "지방자치단체를당사자로하는계약에관한법률".into(), unit: "제16조".into(), para: Some(1) },
+            super::Cite { law: String::new(), unit: "2024두35989".into(), para: None },
+        ]
+    );
+    assert!(check("「▼▼군 수의계약 운영계획」에 따른다.", &ReadSet::default()).ok);
+}
+
+#[test]
 fn footnote_numbers_and_page_marks_do_not_change_the_law_name() {
     let mut r = ReadSet::default();
     r.add_unit("공무원 행동강령", "제2조");

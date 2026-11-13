@@ -1,4 +1,4 @@
-use citegate::{UNIT_NOT_READ, Verdict};
+use citegate::{LAW_NOT_READ, UNIT_NOT_READ, Verdict};
 use serde::{Deserialize, Serialize};
 
 use super::docs::session_docs;
@@ -57,7 +57,7 @@ async fn outside_corpus(state: &AppState, label: &str) -> bool {
 }
 
 async fn settle(state: &AppState, docs: &str, mut verdict: Verdict) -> Verdict {
-    if verdict.ok || !verdict.reasons.iter().all(|r| *r == UNIT_NOT_READ) {
+    if verdict.ok || !verdict.reasons.iter().all(|r| *r == UNIT_NOT_READ || *r == LAW_NOT_READ) {
         return verdict;
     }
     let mut kept = Vec::new();
