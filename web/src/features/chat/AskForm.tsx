@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "../../shared/ui/Icon";
+import { readDraft, writeDraft } from "./drafts";
 
 type Props = {
   sessionId: string;
@@ -15,7 +16,12 @@ export function sendsOnKey(key: string, shift: boolean, composing: boolean): boo
 }
 
 export function AskForm({ sessionId, disabled, waitText, onAsk, above, tools }: Props) {
-  const [question, setQuestion] = useState("");
+  const [question, setQuestionState] = useState(() => readDraft(sessionId));
+
+  function setQuestion(text: string) {
+    setQuestionState(text);
+    writeDraft(sessionId, text);
+  }
 
   function send() {
     const q = question.trim();
