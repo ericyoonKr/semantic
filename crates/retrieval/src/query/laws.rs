@@ -207,6 +207,10 @@ pub async fn vector_candidates(
     Ok(out)
 }
 
+pub async fn law_kinds(pool: &PgPool) -> Result<Vec<(String, i64)>, RetrievalError> {
+    Ok(sqlx::query_as::<_, (String, i64)>("SELECT kind, count(*) FROM law GROUP BY kind").fetch_all(pool).await?)
+}
+
 pub async fn law_names(pool: &PgPool) -> Result<Vec<String>, RetrievalError> {
     Ok(sqlx::query_scalar::<_, String>("SELECT regexp_replace(name, '\\s', '', 'g') FROM law").fetch_all(pool).await?)
 }

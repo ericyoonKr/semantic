@@ -7,7 +7,8 @@ use crate::funcall::check::{CheckReply, CheckRequest, MAX_SENTENCES, UnreadReply
 use crate::funcall::coverage::{CoverageParams, CoverageReply};
 use crate::funcall::docindex::{DocSearchReply, DocSearchRequest, search};
 use crate::funcall::docs::session_docs;
-use crate::funcall::next_step::{Context, Step, StepRequest, asks_for_law, keyword, question_laws};
+use crate::funcall::holdings::{notes_for, scope_for};
+use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_law, keyword, question_laws};
 use crate::funcall::route::is_legal;
 use crate::session::SessionId;
 use crate::state::AppState;
@@ -37,16 +38,24 @@ pub async fn next_step(
     State(state): State<AppState>,
     Path(sid): Path<String>,
     body: Result<Json<StepRequest>, JsonRejection>,
-) -> Result<Json<Step>, ApiError> {
+) -> Result<Json<StepReply>, ApiError> {
     let sid = SessionId::parse(&sid)?;
     let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: request_id·question"))?;
-    let ctx = Context::new(&req, &state.reads.snapshot(sid.as_str()));
+    let notes = notes_for(&req.question, state.holdings.get());
+    let mut ctx = Context::new(&req, &state.reads.snapshot(sid.as_str()));
+    ctx.scope = scope_for(&notes);
     if let Some(text) = req.answer.as_deref() {
         let ask = UnreadRequest { thread_id: sid.as_str().to_string(), text: text.to_string() };
-        let unread = unread_in_corpus(&state, &ask).await.unread;
-        let step = state.steps.after_answer(sid.as_str(), &req, &unread, &ctx);
-        tracing::info!(unread = unread.len(), reread = matches!(step, Step::Task { .. }), "next_step.after_answer");
-        return Ok(Json(step));
+        let found = unread_in_corpus(&state, &ask).await;
+        let step = state.steps.after_answer(sid.as_str(), &req, &found.unread, &found.uncited, found.cites, &ctx);
+        tracing::info!(
+            unread = found.unread.len(),
+            uncited = found.uncited.len(),
+            cites = found.cites,
+            reread = matches!(step, Step::Task { .. }),
+            "next_step.after_answer"
+        );
+        return Ok(Json(StepReply { step, notes }));
     }
     let db = state.db.clone();
     let session = sid.as_str().to_string();
@@ -69,9 +78,9 @@ pub async fn next_step(
     state.coverage.require(&req.request_id, &laws);
     let step = state.steps.next(sid.as_str(), &req, legal, &docs, &laws, &ctx);
     if let Step::Task { description, .. } = &step {
-        tracing::info!(history = ctx.history.len(), read = ctx.read.len(), chars = description.chars().count(), "next_step.task");
+        tracing::info!(history = ctx.history.len(), read = ctx.read.len(), notes = notes.len(), chars = description.chars().count(), "next_step.task");
     }
-    Ok(Json(step))
+    Ok(Json(StepReply { step, notes }))
 }
 
 pub async fn answer_check(

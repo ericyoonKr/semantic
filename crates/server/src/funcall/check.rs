@@ -3,6 +3,7 @@ use retrieval::Corpus;
 use serde::{Deserialize, Serialize};
 
 use super::docs::session_docs;
+use super::holdings::NO_ORDINANCE_NOTE;
 use super::known::{KnownLaws, law_of_label};
 use crate::state::AppState;
 
@@ -28,7 +29,13 @@ pub struct UnreadRequest {
 #[derive(Debug, Serialize)]
 pub struct UnreadReply {
     pub unread: Vec<String>,
+    pub uncited: Vec<String>,
+    pub cites: u32,
 }
+
+pub const UNCITED_MAX: usize = 6;
+const UNCITED_CHARS: usize = 120;
+const REF_TAG: &str = "[근거";
 
 pub fn split(text: &str) -> Vec<String> {
     let mut rest = text.to_string();
@@ -102,10 +109,15 @@ async fn settle(state: &AppState, docs: &str, verdict: Verdict) -> Verdict {
     settle_with(verdict, named, kept)
 }
 
+fn passed() -> Verdict {
+    Verdict { ok: true, reasons: Vec::new(), unread: Vec::new(), named: Vec::new(), cites: Vec::new() }
+}
+
 pub async fn check_sentences(state: &AppState, req: &CheckRequest) -> CheckReply {
     let thread = req.thread_id.trim();
     let set = state.reads.snapshot(thread);
-    let verdicts: Vec<Verdict> = req.sentences.iter().map(|s| citegate::check(s, &set)).collect();
+    let verdicts: Vec<Verdict> =
+        req.sentences.iter().map(|s| if s.trim() == NO_ORDINANCE_NOTE { passed() } else { citegate::check(s, &set) }).collect();
     if verdicts.iter().all(|v| v.ok) {
         return CheckReply { results: verdicts };
     }
@@ -121,8 +133,15 @@ pub async fn unread_in_corpus(state: &AppState, req: &UnreadRequest) -> UnreadRe
     let thread = req.thread_id.trim();
     let set = state.reads.snapshot(thread);
     let mut unread: Vec<String> = Vec::new();
+    let mut uncited: Vec<String> = Vec::new();
+    let mut cites = 0u32;
     for sentence in split(&req.text) {
+        let tagged = sentence.contains(REF_TAG);
         let verdict = citegate::check(&sentence, &set);
+        cites += verdict.cites.len() as u32 + u32::from(tagged);
+        if !tagged && verdict.cites.is_empty() && uncited.len() < UNCITED_MAX && citegate::asserts_law(&sentence) {
+            uncited.push(sentence.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(UNCITED_CHARS).collect());
+        }
         let named = real_laws(&state.known, state.corpus.as_ref(), verdict.named).await;
         for label in verdict.unread.into_iter().chain(named) {
             if unread.contains(&label) || outside_corpus(state, &label).await {
@@ -131,7 +150,7 @@ pub async fn unread_in_corpus(state: &AppState, req: &UnreadRequest) -> UnreadRe
             unread.push(label);
         }
     }
-    UnreadReply { unread }
+    UnreadReply { unread, uncited, cites }
 }
 
 #[cfg(test)]

@@ -152,6 +152,7 @@ class SentenceGate:
     checker: Checker = unreachable
     buf: str = ""
     dropped_last: bool = False
+    noticed: bool = False
     check_failed: bool = False
     drops: list[tuple[str, ...]] = field(default_factory=list)
     cited: list[tuple[int, int | None, str]] = field(default_factory=list)
@@ -177,9 +178,11 @@ class SentenceGate:
             return [checked.text]
         self.drops.append(reasons)
         self.on_drop(reasons, tuple(dict.fromkeys(int(m.group(1)) for m in TAG.finditer(piece))))
-        if self.dropped_last:
+        if self.dropped_last or self.noticed:
+            self.dropped_last = True
             return [_trailing_space(piece)] if _trailing_space(piece) else []
         self.dropped_last = True
+        self.noticed = True
         notice = NOTICE_SEARCH if self.ledger.search_failed or self.check_failed else NOTICE
         return [notice + (_trailing_space(piece) or " ")]
 

@@ -55,6 +55,13 @@ pub enum Step {
     Task { description: String, subagent_type: String },
 }
 
+#[derive(Debug, Serialize)]
+pub struct StepReply {
+    #[serde(flatten)]
+    pub step: Step,
+    pub notes: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct StepRequest {
     pub request_id: String,
@@ -126,8 +133,17 @@ struct Progress {
     reread: bool,
 }
 
-pub fn reread_brief(question: &str, unread: &[String], ctx: &Context) -> String {
-    format!("{}\n{MUST_READ_HEAD} {}", brief(question, &[], "", ctx), unread.join(", "))
+pub const UNCITED_HEAD: &str = "근거 없이 쓴 문장(조문·판례를 찾아 붙이거나 뺀다):";
+
+pub fn reread_brief(question: &str, unread: &[String], uncited: &[String], ctx: &Context) -> String {
+    let mut out = brief(question, &[], "", ctx);
+    if !unread.is_empty() {
+        out.push_str(&format!("\n{MUST_READ_HEAD} {}", unread.join(", ")));
+    }
+    if !uncited.is_empty() {
+        out.push_str(&format!("\n{UNCITED_HEAD}\n{}", uncited.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")));
+    }
+    out
 }
 
 #[derive(Default)]
@@ -229,7 +245,7 @@ fn readable_whole(doc: &Doc) -> bool {
 }
 
 impl StepLog {
-    pub fn after_answer(&self, thread: &str, req: &StepRequest, unread: &[String], ctx: &Context) -> Step {
+    pub fn after_answer(&self, thread: &str, req: &StepRequest, unread: &[String], uncited: &[String], cites: u32, ctx: &Context) -> Step {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let progress = map.entry(thread.to_string()).or_default();
         if progress.turn != req.request_id {
@@ -237,11 +253,12 @@ impl StepLog {
             progress.done = true;
             progress.reread = false;
         }
-        if unread.is_empty() || progress.reread {
+        let fine = unread.is_empty() && (cites > 0 || uncited.is_empty());
+        if fine || progress.reread {
             return Step::Model;
         }
         progress.reread = true;
-        Step::Task { description: reread_brief(&req.question, unread, ctx), subagent_type: RESEARCHER.into() }
+        Step::Task { description: reread_brief(&req.question, unread, uncited, ctx), subagent_type: RESEARCHER.into() }
     }
 
     pub fn new_turn(&self, thread: &str, request_id: &str) -> bool {

@@ -191,6 +191,14 @@ def test_stream_releases_sentences_and_notice_once() -> None:
     assert len(gate.drops) == 2
 
 
+def test_notice_appears_once_per_answer_even_for_separated_drops() -> None:
+    gate = SentenceGate(_ledger(), checker=_fake_reads)
+    text = _run_gate(gate, ["민법 제750조가 적용됩니다. 국가가 배상합니다 [근거 1]. 헌법 제10조도 봅니다. 끝입니다."])
+    assert text.count(NOTICE) == 1, text
+    assert "국가배상법 제2조" in text and "끝입니다." in text
+    assert len(gate.drops) == 2
+
+
 def test_long_sentence_is_checked_at_limit() -> None:
     gate = SentenceGate(_ledger(), checker=_fake_reads)
     out = asyncio.run(gate.push("가" * 450))

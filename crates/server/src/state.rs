@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use kg::{KgConfig, KgSet};
 use sessdb::SessDb;
-use tokio::sync::Semaphore;
+use tokio::sync::{OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -37,6 +37,7 @@ pub struct Inner {
     pub steps: crate::funcall::next_step::StepLog,
     pub coverage: crate::funcall::coverage::Coverage,
     pub known: crate::funcall::known::KnownLaws,
+    pub holdings: OnceCell<crate::funcall::holdings::Holdings>,
 }
 
 #[derive(Clone)]
@@ -86,11 +87,15 @@ impl AppState {
             steps: crate::funcall::next_step::StepLog::default(),
             coverage: crate::funcall::coverage::Coverage::default(),
             known: crate::funcall::known::KnownLaws::default(),
+            holdings: OnceCell::new(),
         }));
         let loader = state.clone();
         state.tracker.spawn(async move {
             if let Some(corpus) = loader.corpus.as_ref() {
                 loader.known.load(corpus).await;
+                if let Some(holdings) = crate::funcall::holdings::Holdings::load(corpus).await {
+                    let _ = loader.holdings.set(holdings);
+                }
             }
         });
         Ok(state)

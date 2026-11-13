@@ -34,10 +34,22 @@ fn an_answer_citing_unread_articles_is_sent_back_to_read_them_once() {
     let q = ask("r1", "지방공무원법 해당 됨?");
     let unread = vec!["지방공무원법 제48조".to_string(), "지방공무원법 제55조".to_string()];
     let want = "쟁점: 지방공무원법 해당 됨?\n목적: 조회\n먼저 읽을 조문: 지방공무원법 제48조, 지방공무원법 제55조";
-    assert_eq!(log.after_answer("t", &q, &unread, &no_ctx()), Step::Task { description: want.into(), subagent_type: "researcher".into() });
-    assert_eq!(log.after_answer("t", &q, &unread, &no_ctx()), Step::Model);
-    assert_eq!(log.after_answer("t", &ask("r2", "또?"), &[], &no_ctx()), Step::Model);
-    assert!(matches!(log.after_answer("t", &ask("r3", "또?"), &unread, &no_ctx()), Step::Task { .. }));
+    assert_eq!(log.after_answer("t", &q, &unread, &[], 0, &no_ctx()), Step::Task { description: want.into(), subagent_type: "researcher".into() });
+    assert_eq!(log.after_answer("t", &q, &unread, &[], 0, &no_ctx()), Step::Model);
+    assert_eq!(log.after_answer("t", &ask("r2", "또?"), &[], &[], 0, &no_ctx()), Step::Model);
+    assert!(matches!(log.after_answer("t", &ask("r3", "또?"), &unread, &[], 0, &no_ctx()), Step::Task { .. }));
+}
+
+#[test]
+fn an_answer_with_no_citation_but_legal_claims_is_sent_back_once_with_the_claims() {
+    let log = StepLog::default();
+    let claims = vec!["식품위생법에 따라 영업정지 처분을 받을 수 있습니다.".to_string(), "그런 조례는 존재하지 않습니다.".to_string()];
+    let want = format!("쟁점: 무슨 법?\n목적: 조회\n{}\n- 식품위생법에 따라 영업정지 처분을 받을 수 있습니다.\n- 그런 조례는 존재하지 않습니다.", super::UNCITED_HEAD);
+    assert_eq!(log.after_answer("t", &ask("r1", "무슨 법?"), &[], &claims, 0, &no_ctx()), Step::Task { description: want, subagent_type: "researcher".into() });
+    assert_eq!(log.after_answer("t", &ask("r1", "무슨 법?"), &[], &claims, 0, &no_ctx()), Step::Model);
+    assert_eq!(log.after_answer("t", &ask("r2", "무슨 법?"), &[], &claims, 2, &no_ctx()), Step::Model);
+    let both = super::reread_brief("무슨 법?", &["식품위생법 제75조".to_string()], &claims[..1], &no_ctx());
+    assert!(both.contains("먼저 읽을 조문: 식품위생법 제75조\n근거 없이 쓴 문장"), "{both}");
 }
 
 #[test]
@@ -80,6 +92,19 @@ fn earlier_questions_the_last_answer_and_read_items_go_into_the_brief() {
     assert_eq!(ctx.history, (3..8).map(|i| format!("질문{i}")).collect::<Vec<_>>());
     assert_eq!(ctx.last_answer.as_ref().map(|a| a.chars().count()), Some(1500));
     assert_eq!(Context::new(&ask("r3", "야"), &citegate::ReadSet::default()), Context::default());
+}
+
+#[test]
+fn the_reply_carries_the_step_and_the_notes_side_by_side() {
+    let reply = super::StepReply { step: Step::Model, notes: vec!["조례는 자료에 없음".into()] };
+    assert_eq!(serde_json::to_value(&reply).ok(), serde_json::json!({"tool": "model", "notes": ["조례는 자료에 없음"]}).into());
+    let task = super::StepReply { step: Step::Task { description: "쟁점: x".into(), subagent_type: "researcher".into() }, notes: vec![] };
+    let value = serde_json::to_value(&task).unwrap_or_default();
+    assert_eq!(value["tool"], "task");
+    assert_eq!(value["args"]["subagent_type"], "researcher");
+    assert_eq!(value["notes"], serde_json::json!([]));
+    let ctx = Context { scope: vec!["자료 범위: 자치법규는 자료에 없음".into()], ..Context::default() };
+    assert_eq!(brief("무슨 조례?", &[], "", &ctx), "쟁점: 무슨 조례?\n목적: 조회\n자료 범위: 자치법규는 자료에 없음");
 }
 
 #[test]

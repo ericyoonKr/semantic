@@ -1,4 +1,4 @@
-use super::{CASE_NOT_READ, Mention, NAMED_NOT_READ, PARAGRAPH_NOT_READ, ReadSet, UNIT_NOT_READ, check, cut, mentions, suffixes};
+use super::{CASE_NOT_READ, Mention, NAMED_NOT_READ, ORDINANCE_NOT_READ, PARAGRAPH_NOT_READ, ReadSet, UNIT_NOT_READ, check, cut, mentions, suffixes};
 
 const BODY_2: &str = "① 배상하여야 한다.\n② 구상할 수 있다.";
 
@@ -242,6 +242,115 @@ fn bare_law_names_are_found_with_the_words_before_them_but_not_inside_citations(
     assert!(found.len() == 1 && found[0].ends_with("방법"), "{found:?}");
     assert_eq!(suffixes("이 사건에서 경범죄 처벌법"), vec!["이사건에서경범죄처벌법", "사건에서경범죄처벌법", "경범죄처벌법", "처벌법"]);
     assert_eq!(suffixes("식품위생법령"), vec!["식품위생법령", "식품위생법"]);
+}
+
+#[test]
+fn ordinances_named_with_a_region_are_blocked_unless_the_sentence_says_they_are_not_held() {
+    let mut r = ReadSet::default();
+    r.add_unit_body("지방자치법", "제28조", "① 조례를 제정할 수 있다.");
+    let pass = [
+        "조례(자치법규)는 이 서비스의 자료에 없어 확인하지 못했습니다.",
+        "강남구 조례는 자료에 없어 확인하지 못했습니다.",
+        "조례 제정 권한은 지방자치단체에 있습니다.",
+        "지방자치단체의 조례로 정한다.",
+        "관련 조례에 따릅니다.",
+        "식품위생 관련 조례 유형은 다음과 같습니다.",
+        "자치법규 체계를 설명합니다.",
+        "지방자치법 제28조에 따라 조례를 정합니다.",
+        "구청장은 조례를 집행합니다.",
+        "서울특별시 조례는 확인하지 못했습니다.",
+    ];
+    let block = [
+        "강남구 조례 제5조에 따라 영업정지합니다.",
+        "서울특별시 식품위생 조례는 영업정지를 정합니다.",
+        "강남구 자치법규에 따릅니다.",
+        "경기도 조례로 과태료를 부과합니다.",
+        "해운대구 유흥주점 관리 조례가 적용됩니다.",
+        "부산광역시 조례에 근거합니다.",
+        "서울시 조례상 의무입니다.",
+        "성남시 단란주점 조례를 위반했습니다.",
+        "강남구 조례(식품위생)에 따릅니다.",
+        "제주특별자치도 조례가 근거입니다.",
+    ];
+    let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &r).ok).collect();
+    let let_through: Vec<&str> = block.iter().filter(|s| !check(s, &r).reasons.contains(&ORDINANCE_NOT_READ)).copied().collect();
+    assert_eq!(wrongly_blocked, Vec::<&str>::new());
+    assert_eq!(let_through, Vec::<&str>::new());
+}
+
+const PLAIN: [&str; 30] = [
+    "어느 지역인지 알려 주시겠어요?",
+    "업소가 위치한 지역을 알려 주세요.",
+    "조례는 우리 자료에 없어 확인하지 못했습니다.",
+    "정리하자면 다음과 같습니다.",
+    "업종이 무엇인가요?",
+    "클럽은 서울 강남구에 있습니다.",
+    "사건은 2024년 5월에 일어났습니다.",
+    "아래에서 차례로 설명합니다.",
+    "먼저 사실관계를 정리합니다.",
+    "두 가지 길이 있습니다.",
+    "신고는 구청 위생과에 합니다.",
+    "질문의 취지를 이렇게 이해했습니다.",
+    "근거 원문은 오른쪽에서 볼 수 있습니다.",
+    "추가로 확인할 사실이 있습니다.",
+    "답변을 짧게 줄였습니다.",
+    "이 답은 올린 문서를 바탕으로 합니다.",
+    "날짜를 알려 주시면 더 정확히 볼 수 있습니다.",
+    "처분서를 받으셨나요?",
+    "과태료 통지를 받으신 날짜가 언제인가요?",
+    "필요한 서류는 세 가지입니다.",
+    "요약하면 이렇습니다.",
+    "표로 정리하면 다음과 같습니다.",
+    "감사합니다.",
+    "네, 말씀하세요.",
+    "이 대화에서 읽은 근거는 두 개입니다.",
+    "판례는 우리 자료에 없어 확인하지 못했습니다.",
+    "상황을 조금 더 설명해 주세요.",
+    "다음 단계로 넘어가겠습니다.",
+    "앞서 드린 답을 다시 정리합니다.",
+    "이 부분은 사실 확인이 먼저입니다.",
+];
+
+const CLAIMS: [&str; 30] = [
+    "식품위생법에 따라 영업정지 처분을 받을 수 있습니다.",
+    "업주는 관리 의무를 위반했습니다.",
+    "방조죄로 처벌될 수 있습니다.",
+    "과태료가 부과됩니다.",
+    "허가가 취소될 수 있습니다.",
+    "조례는 법률의 위임이 있어야 합니다.",
+    "그런 조례는 존재하지 않습니다.",
+    "이 경우 형사 처벌 대상입니다.",
+    "업소에 과징금이 부과될 수 있습니다.",
+    "영업자에게는 안전 관리 의무가 있습니다.",
+    "해당 행위는 위반에 해당합니다.",
+    "이 조항이 적용됩니다.",
+    "업주에게 손해배상 책임이 있습니다.",
+    "출입 금지 명령이 내려질 수 있습니다.",
+    "벌금형이 선고될 수 있습니다.",
+    "허가 없이 영업하면 처벌받습니다.",
+    "영업정지 15일 처분이 기준입니다.",
+    "위반 횟수에 따라 처분이 무거워집니다.",
+    "신고 의무를 다하지 않으면 과태료입니다.",
+    "청소년 출입은 금지됩니다.",
+    "관리 책임을 물을 수 있습니다.",
+    "이 사안에는 형법이 적용됩니다.",
+    "업소 폐쇄 처분도 가능합니다.",
+    "방치는 묵인으로 보아 처벌됩니다.",
+    "구청장은 영업 허가를 취소할 수 있습니다.",
+    "위반 사실이 확인되면 처분합니다.",
+    "그 조례는 존재하지 않는다고 봅니다.",
+    "책임은 업주에게 있습니다.",
+    "2차 위반이면 영업정지 기간이 늘어납니다.",
+    "불법 행위를 방치한 책임을 집니다.",
+];
+
+#[test]
+fn legal_effect_claims_are_told_apart_from_plain_sentences() {
+    let false_alarms: Vec<&str> = PLAIN.iter().copied().filter(|s| super::asserts_law(s)).collect();
+    let missed: Vec<&str> = CLAIMS.iter().copied().filter(|s| !super::asserts_law(s)).collect();
+    println!("plain_sample={} false_alarms={} claim_sample={} missed={}", PLAIN.len(), false_alarms.len(), CLAIMS.len(), missed.len());
+    assert!(false_alarms.len() <= 2, "{false_alarms:?}");
+    assert!(missed.len() <= 2, "{missed:?}");
 }
 
 #[test]

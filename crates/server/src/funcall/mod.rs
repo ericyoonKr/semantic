@@ -3,6 +3,7 @@ pub mod coverage;
 pub mod docindex;
 pub mod docs;
 pub mod docsearch;
+pub mod holdings;
 pub mod known;
 pub mod next_step;
 pub mod readlog;

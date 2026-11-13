@@ -12,6 +12,7 @@ pub const CASE_NOT_READ: &str = "case_not_read";
 pub const PARAGRAPH_NOT_READ: &str = "paragraph_not_read";
 pub const LAW_NOT_READ: &str = "law_not_read";
 pub const NAMED_NOT_READ: &str = "named_law_not_read";
+pub const ORDINANCE_NOT_READ: &str = "ordinance_not_read";
 
 const SAME_LAW: [&str; 5] = ["동법", "같은법", "이법", "법", "같은 법"];
 const CASE_CODES: [&str; 45] = [
@@ -29,8 +30,31 @@ const PARTICLES: &str = "에서는|에서도|으로는|으로도|에서|에는|�
 static BARE_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"([가-힣]*(?:법률|법|령|규칙))(?:{PARTICLES})*(?:[^가-힣]|$)")).expect("bare law name pattern")
 });
+static ORDINANCE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"([가-힣]*(?:조례|자치법규))(?:{PARTICLES})*(?:[^가-힣]|$)")).expect("ordinance name pattern"));
 const NAME_TAILS: [&str; 4] = ["법률", "법", "령", "규칙"];
 const NAME_WORDS: usize = 6;
+const REGION_TAILS: [&str; 8] = ["특별자치시", "특별자치도", "특별시", "광역시", "시", "도", "군", "구"];
+const NOT_HELD: [&str; 2] = ["자료에 없", "확인하지 못"];
+
+const EFFECT_WORDS: [&str; 16] =
+    ["처벌", "처분", "영업정지", "과태료", "과징금", "위반", "의무", "허가", "취소", "위임", "적용", "해당", "책임", "존재하지 않", "금지", "벌금"];
+
+pub fn asserts_law(sentence: &str) -> bool {
+    let s = sentence.trim();
+    if s.ends_with('?') || s.ends_with('？') || NOT_HELD.iter().any(|p| s.contains(p)) {
+        return false;
+    }
+    EFFECT_WORDS.iter().any(|w| s.contains(w))
+}
+
+fn is_ordinance(name: &str) -> bool {
+    name.ends_with("조례") || name.ends_with("자치법규")
+}
+
+fn names_a_region(name: &str) -> bool {
+    name.split_whitespace().rev().skip(1).any(|w| REGION_TAILS.iter().any(|t| w.ends_with(t)))
+}
 
 fn hangul(c: char) -> bool {
     ('가'..='힣').contains(&c)
@@ -212,6 +236,17 @@ pub fn mentions(sentence: &str) -> Vec<Mention> {
         }
         out.push(Mention::Named(name));
     }
+    for caps in ORDINANCE.captures_iter(sentence) {
+        let Some(tail) = caps.get(1) else { continue };
+        if sentence[..tail.start()].chars().next_back().is_some_and(hangul) || covered.iter().any(|&(s, e)| tail.start() < e && s < tail.end()) {
+            continue;
+        }
+        let start = extend_name(sentence, tail.start(), &covered);
+        let name: String = sentence[start..tail.end()].split_whitespace().collect::<Vec<_>>().join(" ");
+        if start < tail.start() && names_a_region(&name) {
+            out.push(Mention::Named(name));
+        }
+    }
     for caps in CASE.captures_iter(sentence) {
         let Some(m) = caps.get(1) else { continue };
         if digit_before(sentence, m.start()) || digit_at(sentence, m.end()) {
@@ -362,8 +397,15 @@ pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
     let mut unread: Vec<String> = Vec::new();
     let mut named: Vec<String> = Vec::new();
     let mut cites: Vec<Cite> = Vec::new();
+    let not_held = NOT_HELD.iter().any(|p| sentence.contains(p));
     for m in mentions(sentence) {
         if let Mention::Named(name) = &m {
+            if is_ordinance(name) {
+                if !not_held && !reasons.contains(&ORDINANCE_NOT_READ) {
+                    reasons.push(ORDINANCE_NOT_READ);
+                }
+                continue;
+            }
             match suffixes(name).iter().find_map(|s| reads.law_matching(s)) {
                 Some(law) => {
                     let c = Cite { law, unit: String::new(), para: None };
