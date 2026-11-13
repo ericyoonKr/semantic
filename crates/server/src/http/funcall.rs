@@ -1,14 +1,23 @@
 use axum::Json;
-use axum::extract::rejection::JsonRejection;
-use axum::extract::{Path, State};
+use axum::extract::rejection::{JsonRejection, QueryRejection};
+use axum::extract::{Path, Query, State};
 
 use crate::error::ApiError;
 use crate::funcall::check::{CheckReply, CheckRequest, MAX_SENTENCES, check_sentences};
+use crate::funcall::coverage::{CoverageParams, CoverageReply};
 use crate::funcall::docs::session_docs;
 use crate::funcall::next_step::{Step, StepRequest, keyword};
 use crate::funcall::route::is_legal;
 use crate::session::SessionId;
 use crate::state::AppState;
+
+pub async fn research_coverage(
+    State(state): State<AppState>,
+    params: Result<Query<CoverageParams>, QueryRejection>,
+) -> Result<Json<CoverageReply>, ApiError> {
+    let Query(p) = params.map_err(|_| ApiError::bad_request("인자 오류: request_id"))?;
+    Ok(Json(state.coverage.reply(&p.request_id)))
+}
 
 pub async fn next_step(
     State(state): State<AppState>,

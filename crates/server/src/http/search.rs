@@ -207,6 +207,9 @@ pub async fn law_unit(
     let p = query_params(params)?;
     let c = corpus(&state)?;
     let out = run(&state, retrieval::read_law_unit(c.pool(), &p.law, &p.unit, p.as_of)).await?;
+    if !out.deleted {
+        state.coverage.law(&headers);
+    }
     if let Some(thread) = thread_of(&headers)
         && !out.deleted
     {
@@ -261,6 +264,7 @@ pub async fn case(
     let c = corpus(&state)?;
     let minority = p.include_minority.unwrap_or(false);
     let out = run(&state, retrieval::read_case(c.pool(), id, sections.as_deref(), minority)).await?;
+    state.coverage.case(&headers);
     if let Some(thread) = thread_of(&headers) {
         state.reads.record(&thread, |r| r.add_case(&out.case_no));
     }

@@ -15,7 +15,14 @@ from semantic_agent.agent.citations import Finding, Findings, check_research
 from semantic_agent.agent.guards import result_text
 from semantic_agent.agent.intent import IntentScope
 from semantic_agent.agent.issues import flag, parse_issues, render_issues
-from semantic_agent.agent.prompts import ADVERSE_NOTE, MUST_READ_NOTE, NO_SEARCH_NOTE, RETRY_NOTE
+from semantic_agent.agent.prompts import (
+    ADVERSE_NOTE,
+    COVERAGE_NOTE,
+    COVERAGE_STEPS,
+    MUST_READ_NOTE,
+    NO_SEARCH_NOTE,
+    RETRY_NOTE,
+)
 from semantic_agent.agent.prompts_research import INTENT_NOTE
 from semantic_agent.agent.subagents import LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
 from semantic_agent.ledger import Ledger, current_ledger, normalize
@@ -30,6 +37,7 @@ RESEARCH_FAIL = "자료 조사 실패"
 ADVERSE_RETRIES = 2
 NO_SEARCH_RETRIES = 1
 MUST_READ_RETRIES = 1
+COVERAGE_RETRIES = 1
 EXCERPT_HEAD = "올린 문서에서 법령이 적힌 줄:"
 
 
@@ -183,9 +191,11 @@ class SubagentGate(AgentMiddleware):
         routes: Mapping[str, Sequence[str]] | None = None,
         scope: IntentScope | None = None,
         unread: Callable[[list[str]], Awaitable[list[str]]] | None = None,
+        coverage: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> None:
         super().__init__()
         self._unread = unread
+        self._coverage = coverage
         self._names = frozenset(names)
         self._limit = limit
         self._deadline_s = deadline_s
@@ -269,6 +279,7 @@ class SubagentGate(AgentMiddleware):
         reads_start = len(ledger.items)
         searchless = 0
         must_read = 0
+        covered = 0
         doc_lines = excerpt_of(str(args.get("description", "")))
         while True:
             result = await self._run_once(attempt, handler)
@@ -304,6 +315,15 @@ class SubagentGate(AgentMiddleware):
                     must_read += 1
                     log.info("subagent left document articles unread name=%s count=%d", name, len(missing))
                     note = f"{MUST_READ_NOTE} {', '.join(missing)}"
+                elif (
+                    name == RESEARCHER
+                    and self._coverage is not None
+                    and covered < COVERAGE_RETRIES
+                    and (lack := await self._coverage())
+                ):
+                    covered += 1
+                    log.info("subagent research incomplete name=%s missing=%s", name, ",".join(lack))
+                    note = "\n".join([COVERAGE_NOTE, *(COVERAGE_STEPS[k] for k in lack if k in COVERAGE_STEPS)])
                 elif name == RESEARCHER:
                     findings = check_research(findings, ledger)
                     if brief.purpose == JUDGE_PURPOSE and not reverse_ok(findings, ledger.queries[start:]):

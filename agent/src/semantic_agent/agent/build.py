@@ -147,6 +147,7 @@ def build_agent(
                 routes=catalogs.routes,
                 scope=IntentScope(client) if research.intent_scope else None,
                 unread=ReadCheck(client).unread,
+                coverage=ReadCheck(client).research_missing if research.first else None,
             ),
         ],
         subagents=subagents,

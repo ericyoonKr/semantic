@@ -35,6 +35,7 @@ pub struct Inner {
     pub tracker: TaskTracker,
     pub reads: crate::funcall::readlog::ReadLog,
     pub steps: crate::funcall::next_step::StepLog,
+    pub coverage: crate::funcall::coverage::Coverage,
 }
 
 #[derive(Clone)]
@@ -82,6 +83,7 @@ impl AppState {
             tracker: TaskTracker::new(),
             reads,
             steps: crate::funcall::next_step::StepLog::default(),
+            coverage: crate::funcall::coverage::Coverage::default(),
         })))
     }
 }

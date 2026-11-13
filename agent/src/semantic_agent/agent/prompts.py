@@ -58,6 +58,13 @@ NO_SEARCH_NOTE = """앞서 검색도 읽기도 하지 않고 결과를 돌려줬
 
 MUST_READ_NOTE = """올린 문서에 적힌 다음 조문·판례를 아직 읽지 않았다. 각각 read_law 또는 read_case로 지금 읽고, 읽은 근거를 넣어 정해진 JSON 형식으로 다시 돌려준다:"""
 
+COVERAGE_NOTE = """이번 조사에서 아직 읽지 않은 근거 종류가 있다. 다음을 지금 하고, 읽은 근거를 넣어 정해진 JSON 형식으로 다시 돌려준다. 찾아도 맞는 것이 없으면 not_found에 적는다:"""
+
+COVERAGE_STEPS = {
+    "law": "search_laws로 쟁점의 조문을 찾아 맞는 조문을 read_law로 읽는다.",
+    "case": 'search_cases로 쟁점의 판례를 찾아 맞는 판례 1~2건을 read_case(decision_id, sections=["holding_issue", "holding_summary"])로 읽는다.',
+}
+
 RETRY_NOTE = """앞서 돌려준 결과가 정해진 형식에 맞지 않았다. 정해진 JSON 형식 하나만 돌려준다."""
 
 ADVERSE_NOTE = """앞서 돌려준 reverse_query가 실제로 부른 검색어와 같지 않다. 반대 결론 쪽 검색어로 search_laws 또는 search_cases를 지금 실제로 한 번 부르고, 그 호출에 넣은 검색어를 글자 그대로 reverse_query에 적어 다시 돌려준다. 호출 없이 칸만 채우지 않는다."""

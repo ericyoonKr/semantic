@@ -5,7 +5,7 @@ from typing import Any
 from conftest import answer, call, make_agent, run_config
 from langchain_core.messages import AIMessage, ToolMessage
 
-from semantic_agent.agent.prompts import MUST_READ_NOTE, NO_SEARCH_NOTE
+from semantic_agent.agent.prompts import COVERAGE_NOTE, MUST_READ_NOTE, NO_SEARCH_NOTE
 from semantic_agent.agent.research import ResearchOptions
 from semantic_agent.api.sse import to_sse
 from semantic_agent.tools.fake import FakeClient
@@ -87,6 +87,33 @@ def test_articles_named_in_the_document_must_be_read() -> None:
     _, model = asyncio.run(_ask(script, "무슨 법?", client))
     assert client.checked and client.checked[0] == ["「가짜법」 제2조를 어겼다."]
     assert any(MUST_READ_NOTE in str(m.content) and "가짜법 제2조" in str(m.content) for seen in model.seen for m in seen)
+    assert model.calls == 5
+
+
+class CaseMissingOnce(FakeClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.asked = 0
+
+    async def fetch(self, method: str, path: str, **kw: Any) -> tuple[Any, str | None]:
+        if path == "/research/coverage":
+            self.asked += 1
+            return {"laws": 1, "cases": 0 if self.asked == 1 else 1, "missing": ["case"] if self.asked == 1 else []}, None
+        return await super().fetch(method, path, **kw)
+
+
+def test_research_without_a_case_is_sent_back_to_read_one() -> None:
+    client = CaseMissingOnce()
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+        call("read_case", {"decision_id": "1"}, "k1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+        AIMessage(content="끝.\n"),
+    ]
+    _, model = asyncio.run(_ask(script, "가짜법 제1조가 뭐야?", client))
+    assert client.asked == 1
+    assert any(COVERAGE_NOTE in str(m.content) and "search_cases" in str(m.content) for seen in model.seen for m in seen)
     assert model.calls == 5
 
 

@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from typing import Any
 
-from semantic_agent.tools.client import SEARCH_FAIL, THREAD_ID, ToolClient
+from semantic_agent.tools.client import REQUEST_ID, SEARCH_FAIL, THREAD_ID, ToolClient
 
 CHECK_PATH = "/answer/check"
+COVERAGE_PATH = "/research/coverage"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,14 @@ class ReadCheck:
     async def read(self, sentences: list[str]) -> list[bool] | None:
         got = await self.verdicts(sentences)
         return None if got is None else [bool(r.get("ok")) for r in got]
+
+    async def research_missing(self) -> list[str]:
+        if self.client is None:
+            return []
+        params = {"request_id": REQUEST_ID.get()}
+        data, err = await self.client.fetch("GET", COVERAGE_PATH, kind="search", fail=SEARCH_FAIL, params=params)
+        missing = data.get("missing") if isinstance(data, dict) and not err else None
+        return [str(m) for m in missing] if isinstance(missing, list) else []
 
     async def unread(self, sentences: list[str]) -> list[str]:
         got = await self.verdicts(sentences) or []
