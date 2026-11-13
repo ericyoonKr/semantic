@@ -1,9 +1,12 @@
+import { type BoxTable, isBoxBottom, isBoxTop, parseBoxTable } from "./boxtable";
+
 export type Block =
   | { kind: "para"; text: string }
   | { kind: "list"; items: string[] }
   | { kind: "heading"; level: number; text: string }
   | { kind: "rule" }
-  | { kind: "table"; header: string[] | null; rows: string[][] };
+  | { kind: "table"; header: string[] | null; rows: string[][] }
+  | ({ kind: "grid" } & BoxTable);
 
 export type Segment = { text: string; bold: boolean; source: number | null };
 
@@ -33,9 +36,49 @@ function cells(line: string): string[] {
   return out;
 }
 
+const MATH_SYMBOLS: Record<string, string> = {
+  rightarrow: "→",
+  to: "→",
+  rarr: "→",
+  leftarrow: "←",
+  gets: "←",
+  Rightarrow: "⇒",
+  Leftarrow: "⇐",
+  leftrightarrow: "↔",
+  Leftrightarrow: "⇔",
+  times: "×",
+  cdot: "·",
+  le: "≤",
+  leq: "≤",
+  ge: "≥",
+  geq: "≥",
+  ne: "≠",
+  neq: "≠",
+  approx: "≈",
+  pm: "±",
+};
+
+export function plainMath(text: string): string {
+  return text
+    .replace(/\$\s*\\([A-Za-z]+)\s*\$/g, (whole, name: string) => MATH_SYMBOLS[name] ?? whole)
+    .replace(/\\([A-Za-z]+)(?![A-Za-z])/g, (whole, name: string) => MATH_SYMBOLS[name] ?? whole);
+}
+
 export function toBlocks(text: string): Block[] {
   const out: Block[] = [];
-  for (const line of text.split("\n")) {
+  let box: string[] | null = null;
+  for (const line of plainMath(text).split("\n")) {
+    if (box === null && isBoxTop(line)) {
+      box = [];
+    }
+    if (box !== null) {
+      box.push(line);
+      if (isBoxBottom(line)) {
+        out.push({ kind: "grid", ...parseBoxTable(box) });
+        box = null;
+      }
+      continue;
+    }
     const last = out[out.length - 1];
     if (TABLE_LINE.test(line)) {
       const row = cells(line);
@@ -74,6 +117,9 @@ export function toBlocks(text: string): Block[] {
     } else if (line.trim() !== "") {
       out.push({ kind: "para", text: line });
     }
+  }
+  if (box !== null) {
+    out.push({ kind: "grid", ...parseBoxTable(box) });
   }
   return out;
 }

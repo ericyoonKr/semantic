@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Fold } from "../../shared/ui/Fold";
 import type { Source } from "./events";
+import { type BoxTable, splitBody, tableWidth } from "./boxtable";
 import { citeNames, markSpans, toBlocks, toSegments } from "./rich";
 
 export const LONG_ANSWER_CHARS = 1500;
@@ -32,6 +33,84 @@ function Line({ text, names, open }: LineProps) {
         return s.bold ? <strong key={i}>{body}</strong> : <span key={i}>{body}</span>;
       })}
     </>
+  );
+}
+
+function GridRow({ row, width, head }: { row: string[]; width: number; head: boolean }) {
+  return (
+    <tr>
+      {row.map((c, j) => {
+        const span = j === row.length - 1 ? width - row.length + 1 : 1;
+        return head ? (
+          <th key={j} scope="col" colSpan={span}>
+            {c}
+          </th>
+        ) : (
+          <td key={j} colSpan={span}>
+            {c}
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+function GridTable({ table, marked = false }: { table: BoxTable; marked?: boolean }) {
+  const width = tableWidth(table);
+  return (
+    <div className={"answer-table-wrap grid-table-wrap" + (marked ? " is-marked" : "")}>
+      <table className="answer-table grid-table">
+        {table.head.length > 0 ? (
+          <thead>
+            {table.head.map((row, r) => (
+              <GridRow key={r} row={row} width={width} head />
+            ))}
+          </thead>
+        ) : null}
+        <tbody>
+          {table.rows.map((row, r) => (
+            <GridRow key={r} row={row} width={width} head={false} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BodyText({ text, spans, markRef }: { text: string; spans: [number, number][]; markRef: RefObject<HTMLElement | null> }) {
+  return (
+    <pre className="source-body">
+      {markSpans(text, spans).map((m, i) =>
+        m.marked ? (
+          <mark key={i} ref={markRef}>
+            {m.text}
+          </mark>
+        ) : (
+          <span key={i}>{m.text}</span>
+        ),
+      )}
+    </pre>
+  );
+}
+
+function SourceBody({ body, spans, markRef }: { body: string; spans: [number, number][]; markRef: RefObject<HTMLElement | null> }) {
+  return (
+    <div className="source-body-wrap">
+      {splitBody(body).map((p, i) => {
+        const inside = spans.filter(([s, e]) => s < p.end && e > p.start);
+        if (p.kind === "table") {
+          return inside.length > 0 ? (
+            <div key={i} ref={markRef as RefObject<HTMLDivElement>}>
+              <GridTable table={p.table} marked />
+            </div>
+          ) : (
+            <GridTable key={i} table={p.table} />
+          );
+        }
+        const local = inside.map(([s, e]): [number, number] => [Math.max(s, p.start) - p.start, Math.min(e, p.end) - p.start]);
+        return <BodyText key={i} text={p.text} spans={local} markRef={markRef} />;
+      })}
+    </div>
   );
 }
 
@@ -93,6 +172,8 @@ export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps)
               </table>
             </div>
           );
+        case "grid":
+          return <GridTable key={i} table={b} />;
         case "list":
           return (
             <ul key={i}>
@@ -139,17 +220,7 @@ function SourcePanel({ source, close }: { source: Source; close: () => void }) {
         </button>
       </header>
       {source.spans.length === 0 ? <p className="source-hint">답에 쓴 부분을 원문에서 짚지 못했습니다.</p> : null}
-      <pre className="source-body">
-        {markSpans(source.body, source.spans).map((m, i) =>
-          m.marked ? (
-            <mark key={i} ref={mark}>
-              {m.text}
-            </mark>
-          ) : (
-            <span key={i}>{m.text}</span>
-          ),
-        )}
-      </pre>
+      <SourceBody body={source.body} spans={source.spans} markRef={mark} />
     </aside>
     </div>
   );

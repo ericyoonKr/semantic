@@ -1659,3 +1659,23 @@ textarea {
     transition: none;
   }
 }
+
+.grid-table th,
+.grid-table td {
+  white-space: pre-line;
+  word-break: keep-all;
+}
+
+.grid-table-wrap.is-marked {
+  outline: 2px solid var(--amber-line);
+  outline-offset: 2px;
+}
+
+.source-modal .source-body-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.source-body-wrap .grid-table-wrap {
+  margin: 0 12px 10px;
+}
