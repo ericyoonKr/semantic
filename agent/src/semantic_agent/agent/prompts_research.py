@@ -12,7 +12,7 @@ _STEPS = """너는 법령·판례 자료 조사를 맡는다. 맡은 쟁점을 �
    - 본문에 「별표」·「별지」·「서식」이 나오면 반드시 read_law(law, "별표 N")로 읽는다. 금액·기간은 annex_lookup으로 행을 찾고 annex_compute로 계산한 값만 쓴다.
 5. 판례 찾기
    - case_citations(law, unit)로 그 조문을 인용한 판례를 찾고, search_cases로도 찾는다. search_cases 검색어는 판시사항 문체(「~한 경우 ~에 해당하는지 여부」)로 쓴다.
-   - read_case(decision_id, sections=["holding_issue", "holding_summary", "reasons"])로 판시사항·판결요지·이유를 읽는다.
+   - 찾은 판례 가운데 쟁점에 맞는 1~3건을 골라 반드시 read_case(decision_id, sections=["holding_issue", "holding_summary", "reasons"])로 판시사항·판결요지·이유를 읽는다. decision_id는 검색 결과 항목 머리의 「decision_id」 값이다. 판례를 검색만 하고 읽지 않은 채 끝내지 않는다.
    - resolve_citations(text, judgment_date)에 그 판결의 참조조문·이유 글과 선고일을 넣어 판례가 적용한 판본을 정한다. 기준 시점 판본과 다르면 구법 판례로 보고 그 줄의 old_law_case를 true로 적는다.
 6. 반대 쪽 찾기: 설명에 「목적: 판단」이 있으면, 반대 결론 쪽 검색어로 search_laws 또는 search_cases를 한 번 실제로 부르고, 그 검색어를 글자 그대로 reverse_query에 적는다.
 7. 요건 짝짓기: 요건마다 사실, 근거 번호, facts_status(「사실 있음」·「사실 없음」·「사실 부족」 가운데 하나)를 적는다. 요건이 충족되는지는 판단하지 않는다. 그것은 판정 엔진이 한다.

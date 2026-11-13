@@ -1,4 +1,6 @@
-from semantic_agent.tools.search import format_case, format_cases, format_citations
+from semantic_agent.agent.prompts import RESEARCHER_PROMPT
+from semantic_agent.agent.prompts_research import RESEARCHER_STEPS_PROMPT
+from semantic_agent.tools.search import CASE_EXCERPT_NOTE, format_case, format_cases, format_citations
 
 HIT = {
     "decision_id": 13,
@@ -69,3 +71,23 @@ def test_citations_name_law_version_and_citing_cases() -> None:
                     "unit_key": "제2조제1항", "relation": "cites"}]}
     )
     assert citing == "- 서울고등법원 2022누2222 · 2023-05-06 · decision_id 11 · 인용 제2조제1항"
+
+
+def test_case_hits_end_with_read_case_note_and_show_decision_id() -> None:
+    text = format_cases({"hits": [HIT]})
+    assert text.endswith(CASE_EXCERPT_NOTE)
+    assert "read_case(decision_id)" in CASE_EXCERPT_NOTE
+    assert "decision_id 13" in text
+    assert CASE_EXCERPT_NOTE not in format_cases({"hits": []})
+
+
+def test_researcher_prompts_require_reading_searched_cases() -> None:
+    for prompt in (RESEARCHER_PROMPT, RESEARCHER_STEPS_PROMPT):
+        assert "read_case(decision_id, sections=" in prompt
+        assert "검색만 하고 읽지 않은 채 끝내지 않는다" in prompt
+
+
+def test_base_researcher_prompt_asks_for_law_and_case_lines_with_short_case_reads() -> None:
+    assert "search_laws와 search_cases를 함께 부른다" in RESEARCHER_PROMPT
+    assert "조문 근거 줄과 판례 근거 줄을 각각 1줄 이상" in RESEARCHER_PROMPT
+    assert "판시사항·판결요지 두 절만" in RESEARCHER_PROMPT and "3건까지만" in RESEARCHER_PROMPT

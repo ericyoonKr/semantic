@@ -12,6 +12,7 @@ SNIPPET_CHARS = 300
 MAX_QUERIES = 6
 Queries = Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1, max_length=MAX_QUERIES)]
 EXCERPT_NOTE = "발췌라 인용할 수 없음 — 인용하려면 read_law·read_case로 본문을 읽는다"
+CASE_EXCERPT_NOTE = "발췌라 인용할 수 없음 — 쟁점에 맞는 판례 1~2건을 read_case(decision_id)로 읽어야 근거로 들 수 있다. decision_id는 항목 머리의 값이다"
 
 
 CASE_DATA_MISSING = "판례 자료가 아직"
@@ -130,7 +131,7 @@ def format_cases(data: dict[str, Any]) -> str:
     if not data.get("hits"):
         lines.append("찾은 판례 없음")
     else:
-        lines.append(EXCERPT_NOTE)
+        lines.append(CASE_EXCERPT_NOTE)
     return "\n\n".join(lines)
 
 
@@ -302,7 +303,8 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
     @tool(
         "read_case",
         description=(
-            "판례를 절 단위로 읽는다. sections를 주면 그 절만 읽는다. 기본은 다수의견 절만 읽는다."
+            "판례를 절 단위로 읽는다. decision_id는 search_cases·case_citations 결과 항목의 decision_id 값이다."
+            " 읽은 결과에 근거 번호가 붙어 인용할 수 있다. sections를 주면 그 절만 읽는다. 기본은 다수의견 절만 읽는다."
             " include_minority가 참이면 반대·별개·보충의견 절도 읽고, 절마다 의견 종류가 붙는다."
         ),
     )
