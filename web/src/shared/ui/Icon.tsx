@@ -10,6 +10,8 @@ const PATHS = {
   alert: ["M12 4l9 16H3z", "M12 10v4", "M12 17.2v.1"],
   scale: ["M12 4v16", "M7 20h10", "M5 8h14", "M5 8l-3 6a3 3 0 0 0 6 0z", "M19 8l-3 6a3 3 0 0 0 6 0z"],
   panel: ["M4 5h16v14H4z", "M15 5v14"],
+  pen: ["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
+  trash: ["M5 7h14", "M9 7V5h6v2", "M7 7l1 12h8l1-12", "M10.5 11v5", "M13.5 11v5"],
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -538,10 +538,20 @@ button:disabled {
   opacity: 1;
 }
 
-.session-rename:hover,
-.session-delete:hover {
+.session-rename .icon,
+.session-delete .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.session-rename:hover {
   background: var(--fill-3);
   color: var(--ink-1);
+}
+
+.session-delete:hover {
+  background: var(--bad-soft);
+  color: var(--bad);
 }
 
 .session-title-input {

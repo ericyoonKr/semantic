@@ -95,11 +95,11 @@ export function SessionList({ sessions, selected, locked, busy, onSelect, onCrea
                       <span className="session-dot" aria-hidden="true" />
                       <span className="session-title">{title}</span>
                     </button>
-                    <button type="button" className="session-rename" aria-label={title + " 이름 바꾸기"} onClick={() => setEditing(s.id)} disabled={busy}>
-                      이름
+                    <button type="button" className="session-rename" aria-label={title + " 이름 바꾸기"} title="이름 바꾸기" onClick={() => setEditing(s.id)} disabled={busy}>
+                      <Icon name="pen" />
                     </button>
-                    <button type="button" className="session-delete" aria-label={title + " 지우기"} onClick={() => onDelete(s)} disabled={locked || busy}>
-                      지우기
+                    <button type="button" className="session-delete" aria-label={title + " 지우기"} title="지우기" onClick={() => onDelete(s)} disabled={locked || busy}>
+                      <Icon name="trash" />
                     </button>
                   </>
                 )}
