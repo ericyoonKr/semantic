@@ -22,9 +22,10 @@ from semantic_agent.turn import TURN, Turn
 
 log = logging.getLogger(__name__)
 
-LIMIT_STEPS = "제한에 걸려 중단됨: 최대 단계"
-LIMIT_TIME = "제한에 걸려 중단됨: 질문 시간"
-LIMIT_HEAD = "제한에 걸려 중단됨"
+LIMIT_STEPS = "최대 단계"
+LIMIT_TIME = "질문 시간"
+MAX_ROUNDS = 3
+WRAP_UP_S = 90.0
 WARNING_TEXT = {INJECTION_KIND: "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다"}
 
 
@@ -117,11 +118,25 @@ async def sources_event(gate: SentenceGate, client: ToolClient | None) -> list[s
     return [event("Sources", {"items": await verify_sources(client, gate.ledger, items)})]
 
 
-async def _limit_events(gate: SentenceGate, message: str) -> list[str]:
-    out = [event("Token", {"text": piece}) for piece in await gate.flush()]
-    out.append(event("Token", {"text": f"\n\n{message}"}))
-    out.append(event("Warning", {"kind": "limit", "message": message}))
-    return out
+def continue_round(turn: Turn, device: str, request_id: str, final: bool = False) -> bool:
+    if turn.wrap_up:
+        log.info("limit during wrap-up request_id=%s device=%s", request_id, device)
+        return False
+    turn.rounds += 1
+    turn.round_tokens = turn.tokens
+    turn.round_calls = turn.calls
+    turn.wrap_up = final or turn.rounds >= MAX_ROUNDS
+    log.info(
+        "continue request_id=%s round=%d device=%s wrap_up=%s tokens=%d calls=%d",
+        request_id,
+        turn.rounds,
+        device,
+        turn.wrap_up,
+        turn.tokens,
+        turn.calls,
+    )
+    turn.audit("continue", {"round": turn.rounds, "device": device, "wrap_up": turn.wrap_up})
+    return True
 
 
 async def to_sse(
@@ -142,52 +157,47 @@ async def to_sse(
     THREAD_ID.set(str(cfg.get("configurable", {}).get("thread_id", "")))
     gate = SentenceGate(ledger, log_drop(request_id, turn), ReadCheck(client).verdicts)
     thought = ThoughtFilter()
-    stream = agent.astream(
-        {"messages": [HumanMessage(content=question)]},
-        cfg,
-        stream_mode=["updates"],
-    )
-    try:
-        async with asyncio.timeout(timeout_s):
-            async for _mode, payload in stream:
-                for item in _update_events(payload):
-                    yield item
-                for answer in final_texts(payload):
-                    text = strip_emoji(thought.push(answer))
-                    for piece in await gate.push(text) if text else []:
-                        yield event("Token", {"text": piece})
-                for item in turn_events(turn):
-                    yield item
-        for piece in [*await gate.push(strip_emoji(thought.flush())), *await gate.flush()]:
-            yield event("Token", {"text": piece})
-        for item in await sources_event(gate, client):
-            yield item
-    except GraphRecursionError:
-        for item in await _limit_events(gate, LIMIT_STEPS):
-            yield item
-        for item in await sources_event(gate, client):
-            yield item
-    except BudgetExceeded as exc:
-        for item in await _limit_events(gate, f"{LIMIT_HEAD}: {exc.device}"):
-            yield item
-        for item in await sources_event(gate, client):
-            yield item
-    except TimeoutError:
-        for item in await _limit_events(gate, LIMIT_TIME):
-            yield item
-        for item in await sources_event(gate, client):
-            yield item
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        log.error("ask failed type=%s request_id=%s", type(exc).__name__, request_id)
-        for item in [*turn_events(turn), usage_event(turn)]:
-            yield item
-        kind = "model_unreachable" if model_unreachable(exc) else "failed"
-        yield event("Error", {"message": "답을 만들지 못했습니다", "kind": kind, "request_id": request_id})
-        return
-    finally:
-        await stream.aclose()
+    payload_in: Any = {"messages": [HumanMessage(content=question)]}
+    budget_s = timeout_s
+    while True:
+        stream = agent.astream(payload_in, cfg, stream_mode=["updates"])
+        try:
+            async with asyncio.timeout(budget_s):
+                async for _mode, payload in stream:
+                    for item in _update_events(payload):
+                        yield item
+                    for answer in final_texts(payload):
+                        text = strip_emoji(thought.push(answer))
+                        for piece in await gate.push(text) if text else []:
+                            yield event("Token", {"text": piece})
+                    for item in turn_events(turn):
+                        yield item
+            break
+        except (GraphRecursionError, BudgetExceeded) as exc:
+            device = exc.device if isinstance(exc, BudgetExceeded) else LIMIT_STEPS
+            if not continue_round(turn, device, request_id):
+                break
+            payload_in = None
+        except TimeoutError:
+            if not continue_round(turn, LIMIT_TIME, request_id, final=True):
+                break
+            payload_in = None
+            budget_s = WRAP_UP_S
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error("ask failed type=%s request_id=%s", type(exc).__name__, request_id)
+            for item in [*turn_events(turn), usage_event(turn)]:
+                yield item
+            kind = "model_unreachable" if model_unreachable(exc) else "failed"
+            yield event("Error", {"message": "답을 만들지 못했습니다", "kind": kind, "request_id": request_id})
+            return
+        finally:
+            await stream.aclose()
+    for piece in [*await gate.push(strip_emoji(thought.flush())), *await gate.flush()]:
+        yield event("Token", {"text": piece})
+    for item in await sources_event(gate, client):
+        yield item
     for item in [*turn_events(turn), usage_event(turn)]:
         yield item
     yield event("Done", {"request_id": request_id})

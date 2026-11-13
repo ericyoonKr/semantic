@@ -6,7 +6,6 @@ const STATUS_JUDGE: &str = "판단하는 중";
 const STATUS_WRITE: &str = "답을 쓰는 중";
 const WARN_DEGRADED: &str = "일부 자료를 찾지 못했습니다";
 const WARN_EXTRACT: &str = "이 파일의 일부를 읽지 못했습니다";
-const WARN_LIMIT: &str = "제한에 걸려 답을 끝까지 쓰지 못했습니다";
 const WARN_INJECTION: &str = "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다";
 const ERROR_TEXT: &str = "답을 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요";
 const ERROR_MODEL_DOWN: &str = "모델 서버에 연결되지 않아 답을 만들지 못했습니다. 모델 서버가 다시 켜진 뒤 시도해 주세요";
@@ -139,7 +138,6 @@ impl SseFilter {
                 let message = match value.get("kind").and_then(Value::as_str)? {
                     "degraded" => WARN_DEGRADED,
                     "extract" => WARN_EXTRACT,
-                    "limit" => WARN_LIMIT,
                     "injection" => WARN_INJECTION,
                     _ => return None,
                 };

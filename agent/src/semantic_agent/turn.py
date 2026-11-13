@@ -7,6 +7,11 @@ from typing import Any
 class Turn:
     tokens: int = 0
     calls: int = 0
+    round_tokens: int = 0
+    round_calls: int = 0
+    rounds: int = 0
+    wrap_up: bool = False
+    notes: list[str] = field(default_factory=list)
     warned: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
     audits: list[dict[str, Any]] = field(default_factory=list)

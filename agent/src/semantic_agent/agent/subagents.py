@@ -108,7 +108,7 @@ def make_subagents(
             "system_prompt": prompt,
             "tools": search_tools,
             "middleware": [
-                QuestionBudget(),
+                QuestionBudget(RESEARCHER, finish_note=WRAP_UP_PROMPT),
                 FilesystemMiddleware(backend=backend, tools=["read_file"], _permissions=NO_FILES),
                 ToolAllowlist([t.name for t in search_tools]),
                 ToolGuard(),

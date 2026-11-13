@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from conftest import answer, call, delegate, make_agent, run_config
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from semantic_agent.agent import delegation
 from semantic_agent.agent.budget import LIMIT_CALLS, BudgetExceeded, QuestionBudget
@@ -83,19 +83,76 @@ def test_dropped_sub_lines_and_sentences_are_audited_without_text(monkeypatch: p
     assert "지어낸" not in json.dumps(audits, ensure_ascii=False) and "750" not in json.dumps(audits)
 
 
-def test_token_budget_stops_question_inside_subagent() -> None:
+async def _run_with_model(script: list[AIMessage], recursion_limit: int = 60) -> tuple[list[tuple[str, dict[str, Any]]], Any]:
+    agent, model, client = await make_agent(script)
+    cfg = run_config(recursion_limit=recursion_limit)
+    events = _events([e async for e in to_sse(agent, "계약 기간이 얼마야?", cfg, timeout_s=60, client=client)])
+    return events, model
+
+
+def _continues(events: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
+    return [data["detail"] for name, data in events if name == "Audit" and data["kind"] == "continue"]
+
+
+def test_token_budget_inside_subagent_continues_from_the_checkpoint_without_system_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
     script = [
         _used(200_000, tool_calls=[{"name": "task", "args": {"description": "가짜 조사", "subagent_type": "researcher"}, "id": "t1"}]),
         _used(150_000, tool_calls=[{"name": "search_laws", "args": {"queries": ["가짜"]}, "id": "c1"}]),
         answer([]),
         AIMessage(content="끝"),
     ]
-    events = asyncio.run(_run(script))
+    events, model = asyncio.run(_run_with_model(script))
     texts = "".join(data.get("text", "") for name, data in events if name == "Token")
-    assert "제한에 걸려 중단됨: 토큰 예산" in texts
-    assert ("Warning", {"kind": "limit", "message": "제한에 걸려 중단됨: 토큰 예산"}) in events
+    assert "끝" in texts and "제한" not in texts
+    assert not [data for name, data in events if name == "Warning"]
     assert [name for name, _ in events][-2:] == ["Usage", "Done"]
-    assert events[-2][1] == {"tokens": 350_000, "calls": 2}
+    assert events[-2][1] == {"tokens": 350_000, "calls": 4}
+    assert _continues(events) == [{"round": 1, "device": "토큰 예산", "wrap_up": False}]
+    assert model.calls == 4
+    resumed = any(isinstance(m, ToolMessage) and m.name == "search_laws" for m in model.seen[2])
+    assert resumed, [type(m).__name__ for m in model.seen[2]]
+
+
+def test_step_limit_continues_from_the_checkpoint() -> None:
+    script = [
+        call("read_file", {"file_path": PATH}, "c1"),
+        call("read_file", {"file_path": PATH, "offset": 1}, "c2"),
+        call("read_file", {"file_path": PATH, "offset": 2}, "c3"),
+        AIMessage(content="끝"),
+    ]
+    events, model = asyncio.run(_run_with_model(script, recursion_limit=4))
+    texts = "".join(data.get("text", "") for name, data in events if name == "Token")
+    assert "끝" in texts and "제한" not in texts
+    assert events[-1][0] == "Done"
+    rounds = _continues(events)
+    assert rounds and all(c["device"] == "최대 단계" for c in rounds), rounds
+    assert model.calls == 4, (model.calls, rounds)
+
+
+def test_last_round_finishes_without_tools() -> None:
+    script = [
+        _used(300_000, tool_calls=[{"name": "read_file", "args": {"file_path": PATH}, "id": "c1"}]),
+        _used(300_000, tool_calls=[{"name": "read_file", "args": {"file_path": PATH, "offset": 1}, "id": "c2"}]),
+        _used(300_000, tool_calls=[{"name": "read_file", "args": {"file_path": PATH, "offset": 2}, "id": "c3"}]),
+        AIMessage(content="끝"),
+    ]
+    events, model = asyncio.run(_run_with_model(script))
+    texts = "".join(data.get("text", "") for name, data in events if name == "Token")
+    assert "끝" in texts and "제한" not in texts
+    assert [c["wrap_up"] for c in _continues(events)] == [False, False, True]
+    assert any("도구를 더 부르지 말고" in str(getattr(m, "content", "")) for m in model.seen[-1])
+    assert not any("도구를 더 부르지 말고" in str(getattr(m, "content", "")) for m in model.seen[-2])
+    assert events[-2][1] == {"tokens": 900_000, "calls": 4}
+
+
+def test_usage_log_counts_cached_input_separately() -> None:
+    from semantic_agent.agent.budget import usage_of
+
+    usage = {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150, "input_token_details": {"cache_read": 100}}
+    used = usage_of(AIMessage(content="x", usage_metadata=usage))
+    assert used == {"input": 120, "cache_read": 100, "output": 30, "total": 150}
+    assert usage_of(AIMessage(content="y")) == {"input": 0, "cache_read": 0, "output": 0, "total": 0}
 
 
 def test_call_limit_refuses_the_41st_model_call() -> None:

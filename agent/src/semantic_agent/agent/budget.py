@@ -5,6 +5,8 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage
 
+from semantic_agent.agent.context import append_system
+from semantic_agent.agent.prompts import FINISH_NOTE
 from semantic_agent.turn import Turn, current_turn
 
 log = logging.getLogger(__name__)
@@ -21,29 +23,42 @@ class BudgetExceeded(Exception):
         self.device = device
 
 
-def spent_tokens(response: Any) -> int:
+def usage_of(response: Any) -> dict[str, int]:
     messages = list(response.result) if isinstance(response, ModelResponse) else [response]
-    total = 0
+    out = {"input": 0, "cache_read": 0, "output": 0, "total": 0}
     for message in messages:
         usage = getattr(message, "usage_metadata", None) if isinstance(message, AIMessage) else None
-        if usage:
-            total += int(usage.get("total_tokens") or 0)
-    return total
+        if not usage:
+            continue
+        details = usage.get("input_token_details") or {}
+        out["input"] += int(usage.get("input_tokens") or 0)
+        out["cache_read"] += int(details.get("cache_read") or 0)
+        out["output"] += int(usage.get("output_tokens") or 0)
+        out["total"] += int(usage.get("total_tokens") or 0)
+    return out
+
+
+def spent_tokens(response: Any) -> int:
+    return usage_of(response)["total"]
 
 
 def over_budget(turn: Turn, tokens: int, calls: int) -> str | None:
-    if turn.calls >= calls:
+    if turn.calls - turn.round_calls >= calls:
         return LIMIT_CALLS
-    if turn.tokens >= tokens:
+    if turn.tokens - turn.round_tokens >= tokens:
         return LIMIT_TOKENS
     return None
 
 
 class QuestionBudget(AgentMiddleware):
-    def __init__(self, tokens: int = QUESTION_TOKENS, calls: int = QUESTION_CALLS) -> None:
+    def __init__(
+        self, name: str = "main", tokens: int = QUESTION_TOKENS, calls: int = QUESTION_CALLS, finish_note: str = FINISH_NOTE
+    ) -> None:
         super().__init__()
+        self._name = name
         self._tokens = tokens
         self._calls = calls
+        self._finish_note = finish_note
 
     async def awrap_model_call(
         self,
@@ -56,6 +71,19 @@ class QuestionBudget(AgentMiddleware):
             log.info("budget exceeded device=%s calls=%d tokens=%d", device, turn.calls, turn.tokens)
             raise BudgetExceeded(device)
         turn.calls += 1
+        if turn.wrap_up:
+            request = request.override(tools=[], system_message=append_system(request.system_message, self._finish_note))
         response = await handler(request)
-        turn.tokens += spent_tokens(response)
+        used = usage_of(response)
+        turn.tokens += used["total"]
+        log.info(
+            "model_call agent=%s call=%d input=%d cache_read=%d output=%d total=%d cumulative=%d",
+            self._name,
+            turn.calls,
+            used["input"],
+            used["cache_read"],
+            used["output"],
+            used["total"],
+            turn.tokens,
+        )
         return response
