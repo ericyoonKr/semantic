@@ -16,6 +16,7 @@ fn parts<'a>(meta: &'a [u8], vectors: Option<&'a [u8]>) -> UploadParts<'a> {
         span_map: b"[]",
         findings: b"[]",
         vectors,
+        original: b"%PDF-1.4 original",
     }
 }
 
@@ -75,6 +76,7 @@ fn put_upload_writes_every_part_together() -> TestResult {
         (Part::Spans, b"[]"),
         (Part::Findings, b"[]"),
         (Part::Vectors, b"vec"),
+        (Part::Original, b"%PDF-1.4 original"),
     ] {
         assert_eq!(
             db.get_state(&doc_key("s1", "f1", part)?)?.as_deref(),
@@ -133,6 +135,8 @@ fn delete_session_clears_state_but_not_others_or_leaf_cache() -> TestResult {
     db.put_leaf(b"k", b"leaf")?;
     db.delete_session("s1")?;
     assert!(db.list_files("s1")?.is_empty());
+    assert_eq!(db.get_state(&doc_key("s1", "fa", Part::Original)?)?, None);
+    assert!(db.get_state(&doc_key("s10", "fc", Part::Original)?)?.is_some());
     assert_eq!(db.get_state(&kg_ids_key("s1")?)?, None);
     assert_eq!(db.list_files("s10")?.len(), 1);
     assert_eq!(db.list_files("s0")?.len(), 1);

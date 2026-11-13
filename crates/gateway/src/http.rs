@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod chat;
+pub mod files;
 pub mod guard;
 pub mod sides;
 pub mod web;
@@ -17,6 +18,10 @@ fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<Hea
     SetResponseHeaderLayer::overriding(HeaderName::from_static(name), HeaderValue::from_static(value))
 }
 
+fn default_header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
+    SetResponseHeaderLayer::if_not_present(HeaderName::from_static(name), HeaderValue::from_static(value))
+}
+
 pub fn router(state: AppState) -> Router {
     let limit = state.cfg.upload_limit_bytes;
     let api = Router::new()
@@ -31,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/session/{id}/live", get(chat::live))
         .route("/session/{id}/files", get(chat::files))
         .route("/session/{id}/files/{file_id}", get(chat::file_text))
+        .route("/session/{id}/files/{file_id}/original", get(files::original))
         .route("/session/{id}", delete(chat::remove).patch(chat::rename))
         .route("/prefs", delete(chat::remove_prefs))
         .layer(DefaultBodyLimit::max(limit));
@@ -42,6 +48,6 @@ pub fn router(state: AppState) -> Router {
         .layer(CatchPanicLayer::new())
         .layer(header("x-content-type-options", "nosniff"))
         .layer(header("referrer-policy", "no-referrer"))
-        .layer(header("x-frame-options", "DENY"))
-        .layer(header("content-security-policy", "default-src 'self'; frame-ancestors 'none'"))
+        .layer(default_header("x-frame-options", "DENY"))
+        .layer(default_header("content-security-policy", "default-src 'self'; frame-ancestors 'none'"))
 }

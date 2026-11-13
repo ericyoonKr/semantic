@@ -30,6 +30,10 @@ pub fn router(state: AppState) -> Router {
             "/sessions/{sid}/files",
             post(files::upload).layer(upload_limit).get(files::list),
         )
+        .route(
+            "/sessions/{sid}/files/{file_id}/original",
+            get(files::original),
+        )
         .route("/sessions/{sid}", delete(sessions::delete))
         .route("/kg/catalog", get(catalog::kg_catalog))
         .route("/sessions/{sid}/kg/find", post(kg::find))

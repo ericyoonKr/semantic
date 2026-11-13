@@ -1,5 +1,7 @@
 from typing import Any
 
+import httpx
+
 LAWS = {
     "degraded": False,
     "hits": [
@@ -137,6 +139,8 @@ JUDGE = {
     "path": [{"node_id": "R1_가짜요건", "label": "가짜 요건", "gate": "AND"}],
 }
 
+ORIGINAL = b"%PDF-1.4 fake original"
+
 UPLOAD = {
     "file_id": "fake-file",
     "filename": "가짜문서.docx",
@@ -202,6 +206,13 @@ class FakeClient:
     ) -> tuple[Any, str | None]:
         self.calls.append((method, path))
         return _answer(method, path), None
+
+    async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None:
+        self.calls.append(("GET", path))
+        if not path.endswith(f"/files/{UPLOAD['file_id']}/original"):
+            return httpx.Response(404, json={"error": "파일이 없습니다"})
+        headers = {"content-type": "application/pdf", "x-file-name": "fake.pdf"}
+        return httpx.Response(200, content=ORIGINAL, headers=headers)
 
     async def aclose(self) -> None:
         return None

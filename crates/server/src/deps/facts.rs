@@ -178,6 +178,7 @@ mod tests {
             span_map: &serde_json::to_vec(&spans)?,
             findings: b"[]",
             vectors: None,
+            original: b"PK",
         };
         db.put_upload(session, "file-a", &parts)?;
         Ok(())

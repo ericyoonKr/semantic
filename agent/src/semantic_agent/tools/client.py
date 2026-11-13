@@ -65,6 +65,8 @@ class ToolClient(Protocol):
         headers: dict[str, str] | None = None,
     ) -> tuple[Any, str | None]: ...
 
+    async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None: ...
+
     async def aclose(self) -> None: ...
 
 
@@ -121,6 +123,16 @@ class RustClient:
             return response.json(), None
         except ValueError:
             return None, f"{fail}: 응답 형식 오류 (요청 ID {request_id})"
+
+    async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None:
+        request = self._http.build_request(
+            "GET", path, headers={"x-request-id": REQUEST_ID.get()}, timeout=self._timeouts[kind]
+        )
+        try:
+            return await self._http.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            log.warning("byte stream failed type=%s request_id=%s", type(exc).__name__, REQUEST_ID.get())
+            return None
 
     async def aclose(self) -> None:
         await self._http.aclose()

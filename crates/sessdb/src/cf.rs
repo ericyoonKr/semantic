@@ -15,6 +15,7 @@ pub enum Part {
     Spans,
     Findings,
     Vectors,
+    Original,
 }
 
 impl Part {
@@ -26,6 +27,7 @@ impl Part {
             Part::Spans => "spans",
             Part::Findings => "findings",
             Part::Vectors => "vectors",
+            Part::Original => "original",
         }
     }
 }

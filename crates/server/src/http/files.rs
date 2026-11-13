@@ -1,9 +1,12 @@
 use axum::Json;
 use axum::extract::multipart::{Field, MultipartError};
 use axum::extract::{Multipart, Path, State};
-use axum::http::StatusCode;
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use parsers::{ParseError, RESAVE_GUIDANCE};
 use serde::Serialize;
+use sessdb::{Part, doc_key};
 use tokio::sync::oneshot;
 
 use crate::error::ApiError;
@@ -116,4 +119,61 @@ pub async fn list(
             .then_with(|| a.file_id.cmp(&b.file_id))
     });
     Ok(Json(FileList { files }))
+}
+
+pub const FILE_NAME_HEADER: &str = "x-file-name";
+
+pub fn content_type_of(format: &str) -> &'static str {
+    match format {
+        "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "hwpx" => "application/hwp+zip",
+        _ => "application/octet-stream",
+    }
+}
+
+pub fn percent_encode(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for b in raw.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn not_found() -> ApiError {
+    ApiError::new(StatusCode::NOT_FOUND, "파일이 없습니다")
+}
+
+pub async fn original(
+    State(state): State<AppState>,
+    Path((sid, file_id)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let sid = SessionId::parse(&sid)?;
+    let db = state.db.clone();
+    let session = sid.as_str().to_string();
+    let (meta, bytes) = tasks::blocking(move || {
+        let meta = db.get_state(&doc_key(&session, &file_id, Part::Meta)?)?;
+        let bytes = db.get_state(&doc_key(&session, &file_id, Part::Original)?)?;
+        Ok::<_, sessdb::StorageError>((meta, bytes))
+    })
+    .await??;
+    let (Some(meta), Some(bytes)) = (meta, bytes) else {
+        return Err(not_found());
+    };
+    let meta: FileMeta = serde_json::from_slice(&meta).map_err(|_| ApiError::internal())?;
+    let name = HeaderValue::from_str(&percent_encode(&meta.filename))
+        .map_err(|_| ApiError::internal())?;
+    let mut res = bytes.into_response();
+    let headers = res.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static(content_type_of(&meta.format)),
+    );
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(HeaderName::from_static(FILE_NAME_HEADER), name);
+    Ok(res)
 }

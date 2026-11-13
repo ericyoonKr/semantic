@@ -153,3 +153,54 @@ async fn idle_actor_stops_and_a_new_one_takes_over() -> TestResult {
     assert_eq!(state.db.list_files(SID)?.len(), 2);
     Ok(())
 }
+
+async fn raw(
+    router: &axum::Router,
+    uri: &str,
+) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), Box<dyn std::error::Error>> {
+    let res = tower::ServiceExt::oneshot(router.clone(), request("GET", uri, Body::empty())?).await?;
+    let status = res.status();
+    let headers = res.headers().clone();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await?;
+    Ok((status, headers, bytes.to_vec()))
+}
+
+#[tokio::test]
+async fn original_bytes_come_back_with_type_and_name_until_deleted() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let (_state, router) = app(tmp.path()).await?;
+    let docx = tiny_docx("H", "original body")?;
+    let (status, body) = call(&router, upload_request(SID, "처분 통지서.docx", &docx)?).await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let file_id = body["file_id"].as_str().unwrap_or_default().to_string();
+    let uri = format!("/sessions/{SID}/files/{file_id}/original");
+    let (status, headers, bytes) = raw(&router, &uri).await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, docx);
+    assert_eq!(
+        headers.get("content-type").map(|v| v.as_bytes()),
+        Some(
+            b"application/vnd.openxmlformats-officedocument.wordprocessingml.document".as_slice()
+        )
+    );
+    assert_eq!(
+        headers.get("x-file-name").map(|v| v.as_bytes()),
+        Some(server::http::files::percent_encode("처분 통지서.docx").as_bytes())
+    );
+    let missing = format!("/sessions/{SID}/files/nope/original");
+    assert_eq!(raw(&router, &missing).await?.0, StatusCode::NOT_FOUND);
+    let del = request("DELETE", &format!("/sessions/{SID}"), Body::empty())?;
+    assert_eq!(call(&router, del).await?.0, StatusCode::NO_CONTENT);
+    assert_eq!(raw(&router, &uri).await?.0, StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+#[test]
+fn file_names_are_percent_encoded_and_types_follow_format() {
+    use server::http::files::{content_type_of, percent_encode};
+    assert_eq!(percent_encode("a b\"c.pdf"), "a%20b%22c.pdf");
+    assert_eq!(percent_encode("가.pdf"), "%EA%B0%80.pdf");
+    assert_eq!(content_type_of("pdf"), "application/pdf");
+    assert_eq!(content_type_of("hwpx"), "application/hwp+zip");
+    assert_eq!(content_type_of("x"), "application/octet-stream");
+}

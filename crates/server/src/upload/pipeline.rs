@@ -23,6 +23,7 @@ struct Prepared {
     model: Vec<u8>,
     spans: Vec<u8>,
     findings: Vec<u8>,
+    original: Vec<u8>,
 }
 
 impl Prepared {
@@ -34,6 +35,7 @@ impl Prepared {
             span_map: &self.spans,
             findings: &self.findings,
             vectors: None,
+            original: &self.original,
         }
     }
 }
@@ -52,15 +54,21 @@ pub async fn run(
     let size = file.bytes.len();
     let IncomingFile { filename, bytes } = file;
     let guard = limits.guard.clone();
-    let (doc, format) = match tasks::cpu(&state.cpu, move || parse(bytes, &guard)).await?? {
-        Parsed::Ready(doc, format) => (doc, format),
-        Parsed::Pdf(bytes) => (
-            state.pdf.read(bytes, limits.guard.clone()).await?,
-            Format::Pdf,
-        ),
+    let (doc, format, original) = match tasks::cpu(&state.cpu, move || parse(bytes, &guard)).await?? {
+        Parsed::Ready(doc, format, original) => (doc, format, original),
+        Parsed::Pdf(bytes) => {
+            let original = bytes.clone();
+            (
+                state.pdf.read(bytes, limits.guard.clone()).await?,
+                Format::Pdf,
+                original,
+            )
+        }
     };
-    let prepared =
-        tasks::cpu(&state.cpu, move || prepare(filename, doc, format, &limits)).await??;
+    let prepared = tasks::cpu(&state.cpu, move || {
+        prepare(filename, doc, format, original, &limits)
+    })
+    .await??;
     let db = state.db.clone();
     let session = sid.as_str().to_string();
     let prepared = tasks::blocking(move || {
@@ -80,13 +88,16 @@ pub async fn run(
 }
 
 enum Parsed {
-    Ready(Document, Format),
+    Ready(Document, Format, Vec<u8>),
     Pdf(Vec<u8>),
 }
 
 fn parse(bytes: Vec<u8>, guard: &GuardLimits) -> Result<Parsed, ApiError> {
     match parsers::parse(&bytes, guard) {
-        Ok(doc) => Ok(Parsed::Ready(doc, parsers::detect(&bytes)?)),
+        Ok(doc) => {
+            let format = parsers::detect(&bytes)?;
+            Ok(Parsed::Ready(doc, format, bytes))
+        }
         Err(ParseError::Unsupported(_)) if parsers::detect(&bytes) == Ok(Format::Pdf) => {
             Ok(Parsed::Pdf(bytes))
         }
@@ -98,6 +109,7 @@ fn prepare(
     filename: String,
     doc: Document,
     format: Format,
+    original: Vec<u8>,
     limits: &Limits,
 ) -> Result<Prepared, ApiError> {
     let (text, spans) = doc.render_paged();
@@ -119,6 +131,7 @@ fn prepare(
         model: to_vec(serde_json::to_vec(&doc))?,
         spans: to_vec(serde_json::to_vec(&spans))?,
         findings: to_vec(serde_json::to_vec(&reply.findings))?,
+        original,
         reply,
     })
 }

@@ -1,6 +1,6 @@
 import type { ApiClient } from "../../shared/api/client";
 
-export type StoredFile = { fileId: string; filename: string; pages: number };
+export type StoredFile = { fileId: string; filename: string; pages: number; format: string };
 
 export type FileText = StoredFile & { text: string };
 
@@ -12,7 +12,12 @@ function toStored(row: unknown): StoredFile | null {
   if (typeof r.file_id !== "string" || r.file_id === "") {
     return null;
   }
-  return { fileId: r.file_id, filename: typeof r.filename === "string" ? r.filename : r.file_id, pages: typeof r.pages === "number" ? r.pages : 0 };
+  return {
+    fileId: r.file_id,
+    filename: typeof r.filename === "string" ? r.filename : r.file_id,
+    pages: typeof r.pages === "number" ? r.pages : 0,
+    format: typeof r.format === "string" ? r.format.toLowerCase() : "",
+  };
 }
 
 export function toStoredFiles(body: unknown): StoredFile[] {
@@ -48,6 +53,14 @@ export function toPages(text: string): Page[] {
     out.push(current);
   }
   return out;
+}
+
+export function originalUrl(sessionId: string, fileId: string): string {
+  return `/session/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(fileId)}/original`;
+}
+
+export function showsOriginal(file: StoredFile): boolean {
+  return file.format === "pdf";
 }
 
 export async function listFiles(client: ApiClient, sessionId: string): Promise<StoredFile[]> {

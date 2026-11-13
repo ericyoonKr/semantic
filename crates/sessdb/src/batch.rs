@@ -12,6 +12,7 @@ pub struct UploadParts<'a> {
     pub span_map: &'a [u8],
     pub findings: &'a [u8],
     pub vectors: Option<&'a [u8]>,
+    pub original: &'a [u8],
 }
 
 impl SessDb {
@@ -34,6 +35,7 @@ impl SessDb {
         put(Part::Text, parts.paged_text)?;
         put(Part::Spans, parts.span_map)?;
         put(Part::Findings, parts.findings)?;
+        put(Part::Original, parts.original)?;
         if let Some(v) = parts.vectors {
             put(Part::Vectors, v)?;
         }

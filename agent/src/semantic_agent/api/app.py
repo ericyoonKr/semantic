@@ -13,6 +13,7 @@ import uvicorn
 from deepagents.backends.utils import create_file_data, file_data_to_string
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -126,6 +127,13 @@ FILE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 def uploaded_files(values: dict[str, Any]) -> list[dict[str, Any]]:
     keep = ("file_id", "filename", "format", "pages", "uploaded_at")
     return [{k: u.get(k) for k in keep} for u in values.get("uploads") or [] if isinstance(u, dict)]
+
+
+PASSED_HEADERS = ("content-type", "content-length", "x-file-name")
+
+
+def known_upload(values: dict[str, Any], file_id: str) -> bool:
+    return bool(FILE_ID.match(file_id)) and any(u.get("file_id") == file_id for u in uploaded_files(values))
 
 
 def uploaded_text(values: dict[str, Any], file_id: str) -> dict[str, Any] | None:
@@ -331,6 +339,23 @@ def create_app(
         if found is None:
             return JSONResponse(status_code=404, content={"message": "파일이 없습니다"})
         return JSONResponse(content=found)
+
+    @app.get("/session/{session_id}/files/{file_id}/original")
+    async def file_original(session_id: str, file_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
+        sid = _session(session_id)
+        state = rt(request)
+        snapshot = await state.agent.aget_state(_config(settings, sid, user_id))
+        if not known_upload(snapshot.values, file_id):
+            return JSONResponse(status_code=404, content={"message": "파일이 없습니다"})
+        upstream = await state.client.open_bytes(f"/sessions/{sid}/files/{file_id}/original", kind="search")
+        if upstream is None:
+            return JSONResponse(status_code=502, content={"message": "원본을 가져오지 못했습니다"})
+        if upstream.status_code != 200:
+            await upstream.aclose()
+            status = 404 if upstream.status_code == 404 else 502
+            return JSONResponse(status_code=status, content={"message": "원본을 가져오지 못했습니다"})
+        headers = {k: upstream.headers[k] for k in PASSED_HEADERS if k in upstream.headers}
+        return StreamingResponse(upstream.aiter_bytes(), headers=headers, background=BackgroundTask(upstream.aclose))
 
     @app.delete("/session/{session_id}", status_code=204)
     async def remove_session(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
