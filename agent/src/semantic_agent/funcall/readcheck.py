@@ -5,6 +5,7 @@ from semantic_agent.tools.client import REQUEST_ID, SEARCH_FAIL, THREAD_ID, Tool
 
 CHECK_PATH = "/answer/check"
 COVERAGE_PATH = "/research/coverage"
+REVIEW_PATH = "/research/review"
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,15 @@ class ReadCheck:
         data, err = await self.client.fetch("GET", COVERAGE_PATH, kind="search", fail=SEARCH_FAIL, params=params)
         missing = data.get("missing") if isinstance(data, dict) and not err else None
         return [str(m) for m in missing] if isinstance(missing, list) else []
+
+    async def review(self, searched: bool, doc_lines: list[str]) -> str | None:
+        thread_id = THREAD_ID.get()
+        if self.client is None or not thread_id:
+            return None
+        body = {"request_id": REQUEST_ID.get(), "thread_id": thread_id, "searched": searched, "doc_lines": doc_lines}
+        data, err = await self.client.fetch("POST", REVIEW_PATH, kind="search", fail=SEARCH_FAIL, json=body)
+        note = data.get("note") if isinstance(data, dict) and not err else None
+        return str(note) if note else None
 
     async def unread(self, sentences: list[str]) -> list[str]:
         got = await self.verdicts(sentences) or []

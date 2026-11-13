@@ -52,6 +52,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sessions/{sid}/next-step", post(funcall::next_step))
         .route("/sessions/{sid}/docs/search", post(funcall::docs_search))
         .route("/research/coverage", get(funcall::research_coverage))
+        .route("/research/review", post(funcall::research_review))
         .route("/laws/scope", post(scope::law_scope))
         .route("/cases/{decision_id}", get(search::case))
         .route("/citations", get(search::citations))

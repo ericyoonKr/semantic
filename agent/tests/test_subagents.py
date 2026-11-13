@@ -268,7 +268,6 @@ class ConcurrencyModel(BaseChatModel):
 
 @pytest.mark.parametrize(("limit", "expected_peak"), [(None, 2), (3, 3)])
 def test_third_concurrent_subagent_waits(monkeypatch: pytest.MonkeyPatch, limit: int | None, expected_peak: int) -> None:
-    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
     if limit is not None:
         monkeypatch.setattr(build, "SubagentGate", lambda names, **kw: SubagentGate(names, limit=limit, **kw))
     three = AIMessage(

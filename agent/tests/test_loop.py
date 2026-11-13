@@ -41,7 +41,7 @@ def test_question_picks_expected_fake_tool(question: str, tool: str, args: dict,
         assert messages[-1].text == "가짜 답변 [가짜법 제1조]"
         assert model.calls == len(script)
         if path is not None:
-            assert client.calls == [("POST", path)]
+            assert [c for c in client.calls if c[1] != "/research/review"] == [("POST", path)]
 
     asyncio.run(scenario())
 

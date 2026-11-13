@@ -14,6 +14,8 @@ from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import append_system
 from semantic_agent.agent.guards import ToolGuard
 from semantic_agent.agent.prompts import RESEARCHER_PROMPT, WRAP_UP_PROMPT
+from semantic_agent.funcall.research_gate import ResearchGate
+from semantic_agent.tools.client import ToolClient
 
 RESEARCHER = "researcher"
 SUBAGENT_NAMES = (RESEARCHER,)
@@ -100,6 +102,7 @@ def make_subagents(
     search_tools: list[BaseTool],
     prompt: str = RESEARCHER_PROMPT,
     deadline_s: float = SUB_DEADLINE_S,
+    client: ToolClient | None = None,
 ) -> list[SubAgent]:
     return [
         {
@@ -112,6 +115,7 @@ def make_subagents(
                 FilesystemMiddleware(backend=backend, tools=["read_file"], _permissions=NO_FILES),
                 ToolAllowlist([t.name for t in search_tools]),
                 ToolGuard(),
+                ResearchGate(client, LIMIT_MARK),
                 SubagentLimit(deadline_s=deadline_s),
             ],
             "permissions": NO_FILES,

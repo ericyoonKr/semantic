@@ -249,6 +249,8 @@ class FakeClient:
             return _fake_check(json), None
         if path.endswith("/next-step"):
             return self._next_step(json or {}), None
+        if path == "/research/review":
+            return {"note": None}, None
         return _answer(method, path), None
 
     async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None:

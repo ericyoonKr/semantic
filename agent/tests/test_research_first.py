@@ -5,7 +5,6 @@ from typing import Any
 from conftest import answer, call, make_agent, run_config
 from langchain_core.messages import AIMessage, ToolMessage
 
-from semantic_agent.agent.prompts import COVERAGE_NOTE, MUST_READ_NOTE, NO_SEARCH_NOTE
 from semantic_agent.agent.research import ResearchOptions
 from semantic_agent.api.sse import to_sse
 from semantic_agent.tools.fake import FakeClient
@@ -99,23 +98,16 @@ def test_earlier_questions_and_the_last_answer_go_to_the_search_server() -> None
     assert second and second[0]["history"] == ["야"] and second[0]["last_answer"] == "네, 말씀하세요."
 
 
-def test_research_without_any_search_is_sent_back_once() -> None:
-    script = [
-        answer([], ["찾지 못함"]),
-        call("search_laws", {"queries": ["가짜법 목적"]}, "s1"),
-        answer([], ["찾지 못함"]),
-        AIMessage(content="조사한 자료로는 확인되지 않습니다.\n"),
-    ]
-    events, model = asyncio.run(_ask(script, "가짜법이 뭐야?"))
-    assert model.calls == 4
-    assert any(NO_SEARCH_NOTE in str(m.content) for seen in model.seen for m in seen)
-    assert _tokens(events).strip() == "조사한 자료로는 확인되지 않습니다."
+NO_SEARCH_NOTE = "앞서 검색도 읽기도 하지 않고 결과를 돌려줬다."
+MUST_READ_NOTE = "올린 문서에 적힌 다음 조문·판례를 아직 읽지 않았다."
+COVERAGE_NOTE = "이번 조사에서 아직 읽지 않은 근거 종류가 있다."
 
 
-class DocumentClient(FakeClient):
-    def __init__(self) -> None:
+class ReviewingClient(FakeClient):
+    def __init__(self, notes: list[str]) -> None:
         super().__init__()
-        self.checked: list[list[str]] = []
+        self.notes = list(notes)
+        self.reviews: list[dict[str, Any]] = []
 
     def _next_step(self, body: dict[str, Any]) -> dict[str, Any]:
         step = super()._next_step(body)
@@ -124,15 +116,31 @@ class DocumentClient(FakeClient):
         return step
 
     async def fetch(self, method: str, path: str, **kw: Any) -> tuple[Any, str | None]:
-        if path == "/answer/check" and any("제2조" in s for s in kw["json"]["sentences"]):
-            self.checked.append(kw["json"]["sentences"])
-            unread = ["가짜법 제2조"] if len(self.checked) == 1 else []
-            return {"results": [{"ok": not unread, "reasons": [], "unread": unread} for _ in kw["json"]["sentences"]]}, None
+        if path == "/research/review":
+            self.reviews.append(dict(kw["json"]))
+            return {"note": self.notes.pop(0) if self.notes else None}, None
         return await super().fetch(method, path, **kw)
 
 
+def test_research_without_any_search_is_sent_back_inside_the_same_run() -> None:
+    client = ReviewingClient([NO_SEARCH_NOTE])
+    script = [
+        answer([], ["찾지 못함"]),
+        call("search_laws", {"queries": ["가짜법 목적"]}, "s1"),
+        answer([], ["찾지 못함"]),
+        AIMessage(content="조사한 자료로는 확인되지 않습니다.\n"),
+    ]
+    events, model = asyncio.run(_ask(script, "가짜법이 뭐야?", client))
+    assert model.calls == 4
+    assert [r["searched"] for r in client.reviews] == [False, True]
+    assert client.reviews[0]["doc_lines"] == ["「가짜법」 제2조를 어겼다."]
+    assert any(NO_SEARCH_NOTE in str(m.content) for m in model.seen[1])
+    assert any(isinstance(m, ToolMessage) and m.name == "search_laws" for m in model.seen[2])
+    assert _tokens(events).strip() == "조사한 자료로는 확인되지 않습니다."
+
+
 def test_articles_named_in_the_document_must_be_read() -> None:
-    client = DocumentClient()
+    client = ReviewingClient([f"{MUST_READ_NOTE} 가짜법 제2조"])
     script = [
         call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
         answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
@@ -141,25 +149,13 @@ def test_articles_named_in_the_document_must_be_read() -> None:
         AIMessage(content="끝.\n"),
     ]
     _, model = asyncio.run(_ask(script, "무슨 법?", client))
-    assert client.checked and client.checked[0] == ["「가짜법」 제2조를 어겼다."]
-    assert any(MUST_READ_NOTE in str(m.content) and "가짜법 제2조" in str(m.content) for seen in model.seen for m in seen)
+    assert any(MUST_READ_NOTE in str(m.content) and "가짜법 제2조" in str(m.content) for m in model.seen[2])
+    assert any(isinstance(m, ToolMessage) and m.name == "read_law" for m in model.seen[3])
     assert model.calls == 5
 
 
-class CaseMissingOnce(FakeClient):
-    def __init__(self) -> None:
-        super().__init__()
-        self.asked = 0
-
-    async def fetch(self, method: str, path: str, **kw: Any) -> tuple[Any, str | None]:
-        if path == "/research/coverage":
-            self.asked += 1
-            return {"laws": 1, "cases": 0 if self.asked == 1 else 1, "missing": ["case"] if self.asked == 1 else []}, None
-        return await super().fetch(method, path, **kw)
-
-
 def test_research_without_a_case_is_sent_back_to_read_one() -> None:
-    client = CaseMissingOnce()
+    client = ReviewingClient([f"{COVERAGE_NOTE}\nsearch_cases로 쟁점의 판례를 찾아 읽는다."])
     script = [
         call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
         answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
@@ -168,8 +164,8 @@ def test_research_without_a_case_is_sent_back_to_read_one() -> None:
         AIMessage(content="끝.\n"),
     ]
     _, model = asyncio.run(_ask(script, "가짜법 제1조가 뭐야?", client))
-    assert client.asked == 1
-    assert any(COVERAGE_NOTE in str(m.content) and "search_cases" in str(m.content) for seen in model.seen for m in seen)
+    assert len(client.reviews) == 2
+    assert any(COVERAGE_NOTE in str(m.content) and "search_cases" in str(m.content) for m in model.seen[2])
     assert model.calls == 5
 
 

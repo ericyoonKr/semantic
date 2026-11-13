@@ -6,7 +6,6 @@ import pytest
 from conftest import answer, call, delegate, make_agent, run_config
 from langchain_core.messages import AIMessage, ToolMessage
 
-from semantic_agent.agent import delegation
 from semantic_agent.agent.budget import LIMIT_CALLS, BudgetExceeded, QuestionBudget
 from semantic_agent.api.app import record_upload
 from semantic_agent.api.sse import to_sse
@@ -69,8 +68,7 @@ def test_usage_is_sent_before_done() -> None:
     assert verdicts == [{"kind": "verdict", "detail": {"outcome": "Unknown", "scope": "가짜"}}]
 
 
-def test_dropped_sub_lines_and_sentences_are_audited_without_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
+def test_dropped_sub_lines_and_sentences_are_audited_without_text() -> None:
     script = [
         delegate("researcher", "쟁점: 계약 기간\n목적: 조회", "t1"),
         answer([{"claim": "지어낸 줄", "source": "근거 9", "quote": "지어낸 인용"}]),
@@ -94,8 +92,7 @@ def _continues(events: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]
     return [data["detail"] for name, data in events if name == "Audit" and data["kind"] == "continue"]
 
 
-def test_token_budget_inside_subagent_continues_from_the_checkpoint_without_system_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
+def test_token_budget_inside_subagent_continues_from_the_checkpoint_without_system_text() -> None:
     script = [
         _used(200_000, tool_calls=[{"name": "task", "args": {"description": "가짜 조사", "subagent_type": "researcher"}, "id": "t1"}]),
         _used(150_000, tool_calls=[{"name": "search_laws", "args": {"queries": ["가짜"]}, "id": "c1"}]),

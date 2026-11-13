@@ -21,6 +21,7 @@ pub struct Tally {
     pub cases: u32,
     pub read: Vec<String>,
     pub required: Vec<String>,
+    pub rounds: Vec<(String, u32)>,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,9 +106,25 @@ impl Coverage {
         });
     }
 
-    pub fn reply(&self, request: &str) -> CoverageReply {
+    pub fn tally(&self, request: &str) -> Tally {
         let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let t = map.get(request.trim()).map(|(_, t)| t.clone()).unwrap_or_default();
+        map.get(request.trim()).map(|(_, t)| t.clone()).unwrap_or_default()
+    }
+
+    pub fn round(&self, request: &str, kind: &str) -> u32 {
+        let mut count = 0;
+        self.with(request.trim().to_string(), |t| {
+            match t.rounds.iter_mut().find(|(k, _)| k == kind) {
+                Some((_, n)) => *n += 1,
+                None => t.rounds.push((kind.to_string(), 1)),
+            }
+            count = t.rounds.iter().find(|(k, _)| k == kind).map_or(1, |(_, n)| *n);
+        });
+        count
+    }
+
+    pub fn reply(&self, request: &str) -> CoverageReply {
+        let t = self.tally(request);
         CoverageReply { laws: t.laws, cases: t.cases, missing: missing(&t) }
     }
 }

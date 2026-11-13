@@ -26,7 +26,6 @@ from semantic_agent.agent.progress import ProgressMiddleware
 from semantic_agent.agent.prompts import PLAN_PROMPT, SYSTEM_PROMPT
 from semantic_agent.agent.research import VERSION_TOOLS, ResearchOptions
 from semantic_agent.funcall.first_step import FirstStep
-from semantic_agent.funcall.readcheck import ReadCheck
 from semantic_agent.agent.subagents import SUBAGENT_NAMES, make_subagents
 from semantic_agent.memory.store import prefs_namespace
 from semantic_agent.tools.annex import make_annex_tools
@@ -121,7 +120,7 @@ def build_agent(
         routes={"/prefs/": StoreBackend(namespace=_prefs_namespace)},
     )
     subagents = make_subagents(
-        backend, researcher_tools(client, research), research.researcher_prompt(), research.deadline_s
+        backend, researcher_tools(client, research), research.researcher_prompt(), research.deadline_s, client
     )
     return create_deep_agent(
         model=model,
@@ -148,8 +147,6 @@ def build_agent(
                 deadline_s=research.deadline_s,
                 routes=catalogs.routes,
                 scope=IntentScope(client) if research.intent_scope else None,
-                unread=ReadCheck(client).unread,
-                coverage=ReadCheck(client).research_missing if research.first else None,
             ),
         ],
         subagents=subagents,
