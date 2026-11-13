@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Fold } from "../../shared/ui/Fold";
 import type { Source } from "./events";
 import { citeNames, markSpans, toBlocks, toSegments } from "./rich";
@@ -110,8 +110,22 @@ export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps)
 }
 
 function SourcePanel({ source, close }: { source: Source; close: () => void }) {
+  const closer = useRef<HTMLButtonElement>(null);
+  const mark = useRef<HTMLElement>(null);
+  useEffect(() => {
+    closer.current?.focus();
+    mark.current?.scrollIntoView?.({ block: "center" });
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        close();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [close, source]);
   return (
-    <aside className="source-panel" aria-label="근거 원문">
+    <div className="source-modal-backdrop" onClick={close}>
+    <aside className="source-panel source-modal" role="dialog" aria-modal="true" aria-label={source.label + " 원문"} onClick={(e) => e.stopPropagation()}>
       <header className="source-head">
         <span className="source-kind">{source.kind === "law" ? "법령" : "판례"}</span>
         <strong>{source.label}</strong>
@@ -120,15 +134,24 @@ function SourcePanel({ source, close }: { source: Source; close: () => void }) {
           {source.verified ? "DB 대조 확인" : "DB 대조 실패" + (source.verifyNote ? ": " + source.verifyNote : "")}
           {source.id ? " · ID " + source.id : ""}
         </span>
-        <button type="button" className="source-close" onClick={close} aria-label="닫기">
+        <button ref={closer} type="button" className="source-close" onClick={close} aria-label="닫기">
           ×
         </button>
       </header>
       {source.spans.length === 0 ? <p className="source-hint">답에 쓴 부분을 원문에서 짚지 못했습니다.</p> : null}
       <pre className="source-body">
-        {markSpans(source.body, source.spans).map((m, i) => (m.marked ? <mark key={i}>{m.text}</mark> : <span key={i}>{m.text}</span>))}
+        {markSpans(source.body, source.spans).map((m, i) =>
+          m.marked ? (
+            <mark key={i} ref={mark}>
+              {m.text}
+            </mark>
+          ) : (
+            <span key={i}>{m.text}</span>
+          ),
+        )}
       </pre>
     </aside>
+    </div>
   );
 }
 

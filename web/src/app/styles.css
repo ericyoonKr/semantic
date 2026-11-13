@@ -1094,6 +1094,32 @@ textarea {
   background: var(--blue-50);
 }
 
+.source-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(24 24 27 / 0.35);
+}
+
+.source-modal {
+  width: min(760px, 100%);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  background: var(--white);
+  box-shadow: var(--shadow-lg);
+}
+
+.source-modal .source-body {
+  max-height: none;
+  flex: 1;
+}
+
 .source-panel {
   margin: 0 0 12px;
   border: 1px solid var(--ink-200);
