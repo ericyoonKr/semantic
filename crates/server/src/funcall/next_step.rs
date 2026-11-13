@@ -15,6 +15,14 @@ pub const PURPOSE_HEAD: &str = "목적:";
 pub const FIRST_PURPOSE: &str = "조회";
 pub const EXCERPT_HEAD: &str = "올린 문서에서 법령이 적힌 줄:";
 pub const QUESTION_LAWS_HEAD: &str = "질문에 나온 법령(먼저 쟁점 조문을 찾아 읽는다):";
+pub const HISTORY_HEAD: &str = "앞선 질문:";
+pub const LAST_ANSWER_HEAD: &str = "직전 답 요지:";
+pub const READ_HEAD: &str = "이 대화에서 이미 읽은 근거:";
+pub const HISTORY_MAX: usize = 5;
+pub const HISTORY_CHARS: usize = 200;
+pub const LAST_ANSWER_CHARS: usize = 1500;
+pub const READ_MAX: usize = 12;
+const LAW_WORDS: [&str; 12] = ["법", "법령", "법률", "조례", "자치법규", "판례", "조문", "조항", "근거", "규정", "시행령", "시행규칙"];
 const LAW_NAME_MIN: usize = 3;
 pub const RESEARCHER: &str = "researcher";
 const KEYWORD_MIN: usize = 2;
@@ -31,8 +39,10 @@ fn names_law(text: &str) -> bool {
 #[derive(Debug, Clone)]
 pub struct Doc {
     pub file_id: String,
+    pub filename: String,
     pub chars: u64,
     pub uploaded_at: u64,
+    pub processing: bool,
     pub text: String,
 }
 
@@ -41,7 +51,7 @@ pub struct Doc {
 pub enum Step {
     Model,
     ReadFile { file_path: String, limit: u32 },
-    Grep { pattern: String, path: String, output_mode: String },
+    SearchDocument { query: String },
     Task { description: String, subagent_type: String },
 }
 
@@ -51,9 +61,61 @@ pub struct StepRequest {
     pub question: String,
     #[serde(default)]
     pub answer: Option<String>,
+    #[serde(default)]
+    pub history: Vec<String>,
+    #[serde(default)]
+    pub last_answer: Option<String>,
 }
 
 pub const MUST_READ_HEAD: &str = "먼저 읽을 조문:";
+
+fn one_line(text: &str, max: usize) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()
+}
+
+pub fn read_labels(set: &citegate::ReadSet) -> Vec<String> {
+    let parts = set.parts();
+    parts.units.iter().map(|(law, unit, _)| format!("{law} {unit}")).chain(parts.cases.iter().cloned()).take(READ_MAX).collect()
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Context {
+    pub history: Vec<String>,
+    pub last_answer: Option<String>,
+    pub read: Vec<String>,
+    pub scope: Vec<String>,
+}
+
+impl Context {
+    pub fn new(req: &StepRequest, reads: &citegate::ReadSet) -> Self {
+        let skip = req.history.len().saturating_sub(HISTORY_MAX);
+        let history = req.history.iter().skip(skip).map(|q| one_line(q, HISTORY_CHARS)).filter(|q| !q.is_empty()).collect();
+        let last_answer = req.last_answer.as_deref().map(|a| one_line(a, LAST_ANSWER_CHARS)).filter(|a| !a.is_empty());
+        Context { history, last_answer, read: read_labels(reads), scope: Vec::new() }
+    }
+
+    fn lines(&self) -> String {
+        let mut out = String::new();
+        if !self.history.is_empty() {
+            out.push_str(&format!("\n{HISTORY_HEAD}\n{}", self.history.iter().map(|q| format!("- {q}")).collect::<Vec<_>>().join("\n")));
+        }
+        if let Some(answer) = &self.last_answer {
+            out.push_str(&format!("\n{LAST_ANSWER_HEAD} {answer}"));
+        }
+        if !self.read.is_empty() {
+            out.push_str(&format!("\n{READ_HEAD} {}", self.read.join(", ")));
+        }
+        for line in &self.scope {
+            out.push_str(&format!("\n{line}"));
+        }
+        out
+    }
+}
+
+pub fn asks_for_law(question: &str) -> bool {
+    question.split_whitespace().map(|w| strip_particle(w.trim_matches(STRIP))).any(|w| LAW_WORDS.contains(&w))
+        || !question_laws(question).is_empty()
+}
 
 #[derive(Debug, Default)]
 struct Progress {
@@ -64,8 +126,8 @@ struct Progress {
     reread: bool,
 }
 
-pub fn reread_brief(question: &str, unread: &[String]) -> String {
-    format!("{}\n{MUST_READ_HEAD} {}", brief(question, &[], ""), unread.join(", "))
+pub fn reread_brief(question: &str, unread: &[String], ctx: &Context) -> String {
+    format!("{}\n{MUST_READ_HEAD} {}", brief(question, &[], "", ctx), unread.join(", "))
 }
 
 #[derive(Default)]
@@ -150,9 +212,9 @@ pub fn question_laws(question: &str) -> Vec<String> {
     out
 }
 
-pub fn brief(question: &str, laws: &[String], excerpt: &str) -> String {
+pub fn brief(question: &str, laws: &[String], excerpt: &str, ctx: &Context) -> String {
     let issue = question.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut out = format!("{ISSUE_HEAD} {issue}\n{PURPOSE_HEAD} {FIRST_PURPOSE}");
+    let mut out = format!("{ISSUE_HEAD} {issue}\n{PURPOSE_HEAD} {FIRST_PURPOSE}{}", ctx.lines());
     if !laws.is_empty() {
         out.push_str(&format!("\n{QUESTION_LAWS_HEAD} {}", laws.join(", ")));
     }
@@ -162,16 +224,12 @@ pub fn brief(question: &str, laws: &[String], excerpt: &str) -> String {
     out
 }
 
-fn doc_step(doc: &Doc, word: &str) -> Step {
-    let path = upload_path(&doc.file_id);
-    if doc.chars <= WHOLE_READ_CHARS {
-        return Step::ReadFile { file_path: path, limit: WHOLE_READ_LINES };
-    }
-    Step::Grep { pattern: word.to_string(), path, output_mode: "content".into() }
+fn readable_whole(doc: &Doc) -> bool {
+    !doc.processing && doc.chars <= WHOLE_READ_CHARS
 }
 
 impl StepLog {
-    pub fn after_answer(&self, thread: &str, req: &StepRequest, unread: &[String]) -> Step {
+    pub fn after_answer(&self, thread: &str, req: &StepRequest, unread: &[String], ctx: &Context) -> Step {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let progress = map.entry(thread.to_string()).or_default();
         if progress.turn != req.request_id {
@@ -183,7 +241,7 @@ impl StepLog {
             return Step::Model;
         }
         progress.reread = true;
-        Step::Task { description: reread_brief(&req.question, unread), subagent_type: RESEARCHER.into() }
+        Step::Task { description: reread_brief(&req.question, unread, ctx), subagent_type: RESEARCHER.into() }
     }
 
     pub fn new_turn(&self, thread: &str, request_id: &str) -> bool {
@@ -191,7 +249,7 @@ impl StepLog {
         map.get(thread).is_none_or(|p| p.turn != request_id)
     }
 
-    pub fn next(&self, thread: &str, req: &StepRequest, legal: bool, docs: &[Doc], laws: &[String]) -> Step {
+    pub fn next(&self, thread: &str, req: &StepRequest, legal: bool, docs: &[Doc], laws: &[String], ctx: &Context) -> Step {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         if map.len() >= MAX_THREADS {
@@ -204,21 +262,22 @@ impl StepLog {
             progress.done = false;
             progress.reread = false;
         }
-        let Some(word) = keyword(&req.question) else {
-            progress.done = true;
-            return Step::Model;
-        };
-        if progress.done || !legal {
+        if keyword(&req.question).is_none() || progress.done || !legal {
             progress.done = true;
             return Step::Model;
         }
         let mut newest: Vec<&Doc> = docs.iter().collect();
         newest.sort_by(|a, b| b.uploaded_at.cmp(&a.uploaded_at).then_with(|| a.file_id.cmp(&b.file_id)));
-        if let Some(doc) = newest.into_iter().find(|d| progress.docs.insert(d.file_id.clone())) {
-            return doc_step(doc, &word);
+        if let Some(doc) = newest.iter().find(|d| readable_whole(d) && progress.docs.insert(d.file_id.clone())) {
+            return Step::ReadFile { file_path: upload_path(&doc.file_id), limit: WHOLE_READ_LINES };
+        }
+        let large: Vec<String> = newest.iter().filter(|d| !readable_whole(d) && !progress.docs.contains(&d.file_id)).map(|d| d.file_id.clone()).collect();
+        if !large.is_empty() {
+            progress.docs.extend(large);
+            return Step::SearchDocument { query: req.question.split_whitespace().collect::<Vec<_>>().join(" ") };
         }
         progress.done = true;
-        Step::Task { description: brief(&req.question, laws, &law_lines(docs)), subagent_type: RESEARCHER.into() }
+        Step::Task { description: brief(&req.question, laws, &law_lines(docs), ctx), subagent_type: RESEARCHER.into() }
     }
 }
 

@@ -13,7 +13,14 @@ pub fn session_docs(db: &SessDb, session: &str) -> Vec<Doc> {
         .filter_map(|meta| {
             let key = doc_key(session, &meta.file_id, Part::Text).ok()?;
             let text = String::from_utf8(db.get_state(&key).ok()??).ok()?;
-            Some(Doc { file_id: meta.file_id, chars: meta.chars, uploaded_at: meta.uploaded_at, text })
+            Some(Doc {
+                file_id: meta.file_id,
+                filename: meta.filename,
+                chars: meta.chars,
+                uploaded_at: meta.uploaded_at,
+                processing: meta.processing,
+                text,
+            })
         })
         .collect()
 }

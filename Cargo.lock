@@ -3218,6 +3218,7 @@ dependencies = [
  "citegate",
  "docmodel",
  "engine",
+ "futures",
  "kg",
  "lawnames",
  "lawtime",

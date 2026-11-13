@@ -75,11 +75,15 @@ pub async fn run(
         pending,
         "upload stored"
     );
-    if let Some((filename, original)) = later {
-        let state = state.clone();
-        let session = sid.as_str().to_string();
-        state.tracker.clone().spawn(async move { recognize_later(state, session, filename, original, uploaded_at).await });
-    }
+    let state_bg = state.clone();
+    let session = sid.as_str().to_string();
+    let file_id = prepared.reply.file_id.clone();
+    state.tracker.clone().spawn(async move {
+        if let Some((filename, original)) = later {
+            recognize_later(state_bg.clone(), session.clone(), filename, original, uploaded_at).await;
+        }
+        crate::funcall::docindex::build_index(&state_bg, &session, &file_id).await;
+    });
     Ok(prepared.reply)
 }
 

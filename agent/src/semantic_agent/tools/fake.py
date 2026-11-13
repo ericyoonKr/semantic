@@ -155,6 +155,14 @@ UPLOAD = {
 }
 
 
+NO_ORDINANCE_NOTE = "조례(자치법규)는 이 서비스의 자료에 없어 확인하지 못했습니다."
+DOC_SEARCH = {
+    "hits": [{"file_id": "fake-file", "filename": "fake.pdf", "page": 1, "text": "가짜 문서의 고정 문단."}],
+    "processing": [],
+    "by_meaning": True,
+}
+
+
 FAKE_READ = re.compile(r"제\s*\d+\s*조|별표\s*\d|서식\s*\d|\d{2,4}[가-힣]{1,2}\d+")
 FAKE_KNOWN = ("가짜법 제1조", "0000가0000")
 
@@ -202,6 +210,8 @@ def _answer(method: str, path: str) -> Any:
         return JUDGE
     if path.endswith("/files"):
         return UPLOAD
+    if path.endswith("/docs/search"):
+        return DOC_SEARCH
     return {}
 
 
@@ -209,15 +219,18 @@ class FakeClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
         self.stepped: set[str] = set()
+        self.step_bodies: list[dict[str, Any]] = []
 
     def _next_step(self, body: dict[str, Any]) -> dict[str, Any]:
+        self.step_bodies.append(dict(body))
         request_id = str(body.get("request_id", ""))
         question = " ".join(str(body.get("question", "")).split())
+        notes = [NO_ORDINANCE_NOTE] if "조례" in question else []
         if "answer" in body or request_id in self.stepped or len(question) < 2:
-            return {"tool": "model"}
+            return {"tool": "model", "notes": notes}
         self.stepped.add(request_id)
         brief = f"쟁점: {question}\n목적: 조회"
-        return {"tool": "task", "args": {"description": brief, "subagent_type": "researcher"}}
+        return {"tool": "task", "args": {"description": brief, "subagent_type": "researcher"}, "notes": notes}
 
     async def fetch(
         self,

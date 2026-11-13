@@ -28,6 +28,7 @@ tokio-util = { workspace = true, features = ["rt"] }
 rayon = { workspace = true }
 serde = { workspace = true }
 citegate = { workspace = true }
+futures = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 unicode-normalization = { workspace = true }

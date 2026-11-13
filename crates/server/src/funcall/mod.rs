@@ -1,6 +1,8 @@
 pub mod check;
 pub mod coverage;
+pub mod docindex;
 pub mod docs;
+pub mod docsearch;
 pub mod known;
 pub mod next_step;
 pub mod readlog;

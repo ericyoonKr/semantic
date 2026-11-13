@@ -43,6 +43,62 @@ def test_model_step_goes_straight_to_the_model() -> None:
     assert model.calls == 1
 
 
+def test_notes_from_the_search_server_open_the_answer_and_reach_the_model() -> None:
+    from semantic_agent.tools.fake import NO_ORDINANCE_NOTE
+
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+        AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1].\n"),
+    ]
+    events, model = asyncio.run(_ask(script, "강남구 무슨 조례?"))
+    text = _tokens(events)
+    assert text.startswith(NO_ORDINANCE_NOTE), text
+    assert "가짜법 제1조(시행 2000-01-01)" in text
+    assert any("이번 차례 메모:" in str(getattr(m, "content", "")) for m in model.seen[-1])
+
+
+def test_earlier_questions_and_the_last_answer_go_to_the_search_server() -> None:
+    from langchain_core.messages import HumanMessage
+
+    from semantic_agent.funcall.first_step import recent_turns
+    from semantic_agent.tools.judge import UPLOAD_KIND
+
+    messages = [
+        HumanMessage(content="첫 질문"),
+        AIMessage(content="첫 답"),
+        HumanMessage(content="파일 올림", additional_kwargs={"kind": UPLOAD_KIND}),
+        HumanMessage(content="둘째 질문"),
+        AIMessage(content="", tool_calls=[{"name": "task", "args": {}, "id": "t1"}]),
+        ToolMessage(content="x", tool_call_id="t1", name="task"),
+        AIMessage(content="둘째 답"),
+        HumanMessage(content="이번 질문"),
+    ]
+    assert recent_turns(messages) == (["첫 질문", "둘째 질문"], "둘째 답")
+
+    async def two_turns() -> FakeClient:
+        client = FakeClient()
+        script = [
+            AIMessage(content="네, 말씀하세요.\n"),
+            call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+            answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+            AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1].\n"),
+        ]
+        agent, _, _ = await make_agent(script, client=client, research=ResearchOptions(first=True))
+        cfg = run_config()
+        for question, request_id in (("야", "r1"), ("가짜법 제1조가 뭐야?", "r2")):
+            cfg["configurable"]["request_id"] = request_id
+            async for _ in to_sse(agent, question, cfg, timeout_s=60, client=client):
+                pass
+        return client
+
+    client = asyncio.run(two_turns())
+    first = [b for b in client.step_bodies if b["request_id"] == "r1"]
+    second = [b for b in client.step_bodies if b["request_id"] == "r2"]
+    assert first and first[0]["history"] == [] and "last_answer" not in first[0]
+    assert second and second[0]["history"] == ["야"] and second[0]["last_answer"] == "네, 말씀하세요."
+
+
 def test_research_without_any_search_is_sent_back_once() -> None:
     script = [
         answer([], ["찾지 못함"]),
