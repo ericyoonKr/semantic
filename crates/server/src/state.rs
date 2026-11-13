@@ -36,6 +36,7 @@ pub struct Inner {
     pub reads: crate::funcall::readlog::ReadLog,
     pub steps: crate::funcall::next_step::StepLog,
     pub coverage: crate::funcall::coverage::Coverage,
+    pub known: crate::funcall::known::KnownLaws,
 }
 
 #[derive(Clone)]
@@ -84,6 +85,7 @@ impl AppState {
             reads,
             steps: crate::funcall::next_step::StepLog::default(),
             coverage: crate::funcall::coverage::Coverage::default(),
+            known: crate::funcall::known::KnownLaws::default(),
         })))
     }
 }

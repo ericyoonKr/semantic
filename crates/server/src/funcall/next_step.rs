@@ -45,7 +45,11 @@ pub enum Step {
 pub struct StepRequest {
     pub request_id: String,
     pub question: String,
+    #[serde(default)]
+    pub answer: Option<String>,
 }
+
+pub const MUST_READ_HEAD: &str = "먼저 읽을 조문:";
 
 #[derive(Debug, Default)]
 struct Progress {
@@ -53,6 +57,11 @@ struct Progress {
     docs: HashSet<String>,
     turn: String,
     done: bool,
+    reread: bool,
+}
+
+pub fn reread_brief(question: &str, unread: &[String]) -> String {
+    format!("{}\n{MUST_READ_HEAD} {}", brief(question, ""), unread.join(", "))
 }
 
 #[derive(Default)]
@@ -123,6 +132,21 @@ fn doc_step(doc: &Doc, word: &str) -> Step {
 }
 
 impl StepLog {
+    pub fn after_answer(&self, thread: &str, req: &StepRequest, unread: &[String]) -> Step {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let progress = map.entry(thread.to_string()).or_default();
+        if progress.turn != req.request_id {
+            progress.turn = req.request_id.clone();
+            progress.done = true;
+            progress.reread = false;
+        }
+        if unread.is_empty() || progress.reread {
+            return Step::Model;
+        }
+        progress.reread = true;
+        Step::Task { description: reread_brief(&req.question, unread), subagent_type: RESEARCHER.into() }
+    }
+
     pub fn new_turn(&self, thread: &str, request_id: &str) -> bool {
         let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         map.get(thread).is_none_or(|p| p.turn != request_id)
@@ -139,6 +163,7 @@ impl StepLog {
         if progress.turn != req.request_id {
             progress.turn = req.request_id.clone();
             progress.done = false;
+            progress.reread = false;
         }
         let Some(word) = keyword(&req.question) else {
             progress.done = true;

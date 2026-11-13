@@ -6,6 +6,7 @@ import pytest
 from conftest import answer, call, delegate, make_agent, run_config
 from langchain_core.messages import AIMessage
 
+from semantic_agent.agent import delegation
 from semantic_agent.agent.budget import LIMIT_CALLS, BudgetExceeded, QuestionBudget
 from semantic_agent.api.app import record_upload
 from semantic_agent.api.sse import to_sse
@@ -68,7 +69,8 @@ def test_usage_is_sent_before_done() -> None:
     assert verdicts == [{"kind": "verdict", "detail": {"outcome": "Unknown", "scope": "가짜"}}]
 
 
-def test_dropped_sub_lines_and_sentences_are_audited_without_text() -> None:
+def test_dropped_sub_lines_and_sentences_are_audited_without_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
     script = [
         delegate("researcher", "쟁점: 계약 기간\n목적: 조회", "t1"),
         answer([{"claim": "지어낸 줄", "source": "근거 9", "quote": "지어낸 인용"}]),

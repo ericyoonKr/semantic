@@ -31,6 +31,14 @@ static ANNEX: LazyLock<Regex> = LazyLock::new(|| {
 static CASE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"((?:\d{{4}}|\d{{2}})(?:{})\d{{1,7}})", CASE_CODES.join("|"))).expect("case pattern"));
 
+static PAGE_MARK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"-{3}p\d+-{3}").expect("page mark pattern"));
+static FOOTNOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([가-힣])\d{1,3}\)([\s」]|$)").expect("footnote pattern"));
+
+pub fn clean(text: &str) -> String {
+    let unpaged = PAGE_MARK.replace_all(text, "");
+    FOOTNOTE.replace_all(&unpaged, "$1$2").into_owned()
+}
+
 pub fn compact(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
 }
@@ -94,6 +102,8 @@ fn bare_articles(sentence: &str, covered: &[(usize, usize)], named: &[(usize, St
 }
 
 pub fn mentions(sentence: &str) -> Vec<Mention> {
+    let cleaned = clean(sentence);
+    let sentence = cleaned.as_str();
     let mut out: Vec<Mention> = Vec::new();
     let mut covered: Vec<(usize, usize)> = Vec::new();
     let mut named: Vec<(usize, String)> = QUOTED

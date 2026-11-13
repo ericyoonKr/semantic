@@ -3,7 +3,7 @@ use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 
 use crate::error::ApiError;
-use crate::funcall::check::{CheckReply, CheckRequest, MAX_SENTENCES, check_sentences};
+use crate::funcall::check::{CheckReply, CheckRequest, MAX_SENTENCES, UnreadReply, UnreadRequest, check_sentences, unread_in_corpus};
 use crate::funcall::coverage::{CoverageParams, CoverageReply};
 use crate::funcall::docs::session_docs;
 use crate::funcall::next_step::{Step, StepRequest, keyword};
@@ -26,6 +26,13 @@ pub async fn next_step(
 ) -> Result<Json<Step>, ApiError> {
     let sid = SessionId::parse(&sid)?;
     let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: request_id·question"))?;
+    if let Some(text) = req.answer.as_deref() {
+        let ask = UnreadRequest { thread_id: sid.as_str().to_string(), text: text.to_string() };
+        let unread = unread_in_corpus(&state, &ask).await.unread;
+        let step = state.steps.after_answer(sid.as_str(), &req, &unread);
+        tracing::info!(unread = unread.len(), reread = matches!(step, Step::Task { .. }), "next_step.after_answer");
+        return Ok(Json(step));
+    }
     let db = state.db.clone();
     let session = sid.as_str().to_string();
     let docs = tokio::task::spawn_blocking(move || session_docs(&db, &session)).await.unwrap_or_default();
@@ -49,5 +56,13 @@ pub async fn answer_check(
     if req.sentences.len() > MAX_SENTENCES {
         return Err(ApiError::bad_request("인자 오류: 문장이 너무 많습니다"));
     }
-    Ok(Json(check_sentences(&state.reads, &req)))
+    Ok(Json(check_sentences(&state, &req).await))
+}
+
+pub async fn answer_unread(
+    State(state): State<AppState>,
+    body: Result<Json<UnreadRequest>, JsonRejection>,
+) -> Result<Json<UnreadReply>, ApiError> {
+    let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: thread_id·text"))?;
+    Ok(Json(unread_in_corpus(&state, &req).await))
 }

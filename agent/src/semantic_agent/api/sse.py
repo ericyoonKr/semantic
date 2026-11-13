@@ -8,7 +8,6 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
 from semantic_agent.agent.budget import BudgetExceeded
-from semantic_agent.agent.build import MAIN_AGENT
 from semantic_agent.agent.injection import INJECTION_KIND
 from semantic_agent.api.answer_gate import SentenceGate, log_drop
 from semantic_agent.api.sources import build_sources
@@ -47,14 +46,7 @@ def event(name: str, data: dict[str, Any]) -> str:
     return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _is_main_token(chunk: Any, metadata: dict[str, Any]) -> bool:
-    return (
-        isinstance(chunk, AIMessage)
-        and metadata.get("lc_agent_name") == MAIN_AGENT
-        and metadata.get("langgraph_node") == "model"
-        and metadata.get("lc_source") != "summarization"
-        and not metadata.get("lc_internal_call")
-    )
+MODEL_NODE = "model"
 
 
 def _chunk_text(chunk: AIMessage) -> str:
@@ -73,6 +65,16 @@ def _update_messages(update: Any) -> list[Any]:
             if isinstance(item, dict) and isinstance(item.get("messages"), list):
                 found.extend(item["messages"])
     return found
+
+
+def final_texts(update: Any) -> list[str]:
+    if not isinstance(update, dict):
+        return []
+    out: list[str] = []
+    for item in _update_messages({MODEL_NODE: update.get(MODEL_NODE)}):
+        if isinstance(item, AIMessage) and not item.tool_calls:
+            out.append(_chunk_text(item))
+    return out
 
 
 def _update_events(update: Any) -> list[str]:
@@ -143,20 +145,17 @@ async def to_sse(
     stream = agent.astream(
         {"messages": [HumanMessage(content=question)]},
         cfg,
-        stream_mode=["messages", "updates"],
+        stream_mode=["updates"],
     )
     try:
         async with asyncio.timeout(timeout_s):
-            async for mode, payload in stream:
-                if mode == "messages":
-                    chunk, metadata = payload
-                    if _is_main_token(chunk, metadata):
-                        text = strip_emoji(thought.push(_chunk_text(chunk)))
-                        for piece in await gate.push(text) if text else []:
-                            yield event("Token", {"text": piece})
-                elif mode == "updates":
-                    for item in _update_events(payload):
-                        yield item
+            async for _mode, payload in stream:
+                for item in _update_events(payload):
+                    yield item
+                for answer in final_texts(payload):
+                    text = strip_emoji(thought.push(answer))
+                    for piece in await gate.push(text) if text else []:
+                        yield event("Token", {"text": piece})
                 for item in turn_events(turn):
                     yield item
         for piece in [*await gate.push(strip_emoji(thought.flush())), *await gate.flush()]:

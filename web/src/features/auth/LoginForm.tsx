@@ -41,7 +41,7 @@ export function LoginForm({ client, notice, onSignedIn }: Props) {
           <span className="brand-mark" aria-hidden="true">
             행
           </span>
-          <span>행정법 질의</span>
+          <span>법률 질의</span>
         </p>
         <h1>로그인</h1>
         {notice && !error ? (

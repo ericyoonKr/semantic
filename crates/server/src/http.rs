@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
         .route("/laws/unit", get(search::law_unit))
         .route("/laws/annexes", get(search::law_annexes))
         .route("/answer/check", post(funcall::answer_check))
+        .route("/answer/unread", post(funcall::answer_unread))
         .route("/sessions/{sid}/next-step", post(funcall::next_step))
         .route("/research/coverage", get(funcall::research_coverage))
         .route("/laws/scope", post(scope::law_scope))

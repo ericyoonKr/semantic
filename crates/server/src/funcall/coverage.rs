@@ -38,12 +38,15 @@ fn request_of(headers: &HeaderMap) -> Option<String> {
     (!raw.is_empty()).then(|| raw.to_string())
 }
 
+pub const LAW_MIN: u32 = 3;
+pub const CASE_MIN: u32 = 1;
+
 pub fn missing(t: Tally) -> Vec<&'static str> {
     let mut out = Vec::new();
-    if t.laws == 0 {
+    if t.laws < LAW_MIN {
         out.push(LAW);
     }
-    if t.cases == 0 {
+    if t.cases < CASE_MIN {
         out.push(CASE);
     }
     out
@@ -91,10 +94,12 @@ mod tests {
         assert_eq!(c.reply("req-a").missing, vec![LAW, CASE]);
         c.law(&a);
         c.law(&a);
+        assert_eq!(c.reply("req-a").missing, vec![LAW, CASE]);
+        c.law(&a);
         assert_eq!(c.reply("req-a").missing, vec![CASE]);
         c.case(&a);
         let r = c.reply("req-a");
-        assert_eq!((r.laws, r.cases, r.missing.len()), (2, 1, 0));
+        assert_eq!((r.laws, r.cases, r.missing.len()), (3, 1, 0));
         assert_eq!(c.reply("req-b").missing, vec![LAW, CASE]);
         c.law(&HeaderMap::new());
         assert_eq!(c.reply("").laws, 0);

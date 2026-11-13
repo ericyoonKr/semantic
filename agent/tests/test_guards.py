@@ -1,12 +1,15 @@
 import asyncio
 
+import pytest
 from conftest import answer, call, delegate, make_agent, run_config, tool_messages
 from langchain_core.messages import AIMessage, HumanMessage
 
+from semantic_agent.agent import delegation
 from semantic_agent.agent.guards import REFUSAL, REPEAT_BLOCK, is_out_of_scope
 
 
-def test_out_of_range_arg_is_blocked() -> None:
+def test_out_of_range_arg_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
     async def scenario() -> None:
         script = [
             delegate("researcher", "법령 찾기", "t1"),
@@ -23,7 +26,8 @@ def test_out_of_range_arg_is_blocked() -> None:
     asyncio.run(scenario())
 
 
-def test_third_identical_call_is_blocked() -> None:
+def test_third_identical_call_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(delegation, "NO_SEARCH_RETRIES", 0)
     async def scenario() -> None:
         same = {"queries": ["가짜"]}
         script = (

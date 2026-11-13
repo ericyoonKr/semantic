@@ -213,7 +213,7 @@ class FakeClient:
     def _next_step(self, body: dict[str, Any]) -> dict[str, Any]:
         request_id = str(body.get("request_id", ""))
         question = " ".join(str(body.get("question", "")).split())
-        if request_id in self.stepped or len(question) < 2:
+        if "answer" in body or request_id in self.stepped or len(question) < 2:
             return {"tool": "model"}
         self.stepped.add(request_id)
         brief = f"쟁점: {question}\n목적: 조회"

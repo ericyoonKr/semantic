@@ -5,7 +5,7 @@ fn doc(id: &str, chars: u64, at: u64, text: &str) -> Doc {
 }
 
 fn ask(id: &str, q: &str) -> StepRequest {
-    StepRequest { request_id: id.into(), question: q.into() }
+    StepRequest { request_id: id.into(), question: q.into(), answer: None }
 }
 
 #[test]
@@ -22,6 +22,18 @@ fn small_documents_are_read_large_ones_searched_then_research_once() {
     assert_eq!(log.next("t", &q, true, &docs), Step::Task { description: want, subagent_type: "researcher".into() });
     assert_eq!(log.next("t", &q, true, &docs), Step::Model);
     assert!(matches!(log.next("t", &ask("r2", "과징금은?"), true, &docs), Step::Task { .. }));
+}
+
+#[test]
+fn an_answer_citing_unread_articles_is_sent_back_to_read_them_once() {
+    let log = StepLog::default();
+    let q = ask("r1", "지방공무원법 해당 됨?");
+    let unread = vec!["지방공무원법 제48조".to_string(), "지방공무원법 제55조".to_string()];
+    let want = "쟁점: 지방공무원법 해당 됨?\n목적: 조회\n먼저 읽을 조문: 지방공무원법 제48조, 지방공무원법 제55조";
+    assert_eq!(log.after_answer("t", &q, &unread), Step::Task { description: want.into(), subagent_type: "researcher".into() });
+    assert_eq!(log.after_answer("t", &q, &unread), Step::Model);
+    assert_eq!(log.after_answer("t", &ask("r2", "또?"), &[]), Step::Model);
+    assert!(matches!(log.after_answer("t", &ask("r3", "또?"), &unread), Step::Task { .. }));
 }
 
 #[test]

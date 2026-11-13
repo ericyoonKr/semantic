@@ -134,7 +134,7 @@ export function Workspace({ client, onStreaming, account }: Props) {
           <span className="brand-mark" aria-hidden="true">
             행
           </span>
-          <h1>행정법 질의</h1>
+          <h1>법률 질의</h1>
           <button type="button" className="icon-button nav-close" aria-label="대화 목록 닫기" onClick={() => setNavOpen(false)}>
             <Icon name="close" />
           </button>
@@ -153,7 +153,7 @@ export function Workspace({ client, onStreaming, account }: Props) {
           <div className="chat">
             <header className="chat-header">
               {nav}
-              <h2>행정법 질의</h2>
+              <h2>법률 질의</h2>
             </header>
             <div className="chat-scroll">
               <div className="chat-column">

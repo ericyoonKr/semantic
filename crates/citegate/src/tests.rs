@@ -188,6 +188,21 @@ fn articles_away_from_the_law_name_take_the_name_before_them() {
 }
 
 #[test]
+fn footnote_numbers_and_page_marks_do_not_change_the_law_name() {
+    let mut r = ReadSet::default();
+    r.add_unit("공무원 행동강령", "제2조");
+    r.add_unit("공직자의 이해충돌 방지법", "제5조");
+    let pass = [
+        "「공무원 행동강령57)」 제2조에 따른다.",
+        "공무원 행동강령57) 제2조에 따른다.",
+        "「공직자의 이해충---p3---돌 방지법」 제5조를 어겼다.",
+    ];
+    let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &r).ok).collect();
+    assert_eq!(wrongly_blocked, Vec::<&str>::new());
+    assert_eq!(super::clean("1)에서 2)로 바뀐다"), "1)에서 2)로 바뀐다");
+}
+
+#[test]
 fn short_names_count_as_the_law_that_was_read() -> Result<(), lawnames::Error> {
     let entry = lawnames::Entry {
         alias: "지방계약법".into(),
