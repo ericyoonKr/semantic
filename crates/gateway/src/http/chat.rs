@@ -179,6 +179,38 @@ pub async fn history(State(state): State<AppState>, signed: Signed, Path(raw): P
     Ok(Json(json_of(res).await?))
 }
 
+pub fn file_id_ok(raw: &str) -> bool {
+    !raw.is_empty() && raw.len() <= 80 && raw.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+pub async fn files(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>) -> Result<Json<Value>, GatewayError> {
+    let id = owned(&state, &signed, &raw).await?;
+    let res = upstream(&state, reqwest::Method::GET, &format!("/session/{id}/files"), signed.user_id, &request_id())
+        .send()
+        .await
+        .map_err(|_| GatewayError::Upstream)?;
+    Ok(Json(json_of(res).await?))
+}
+
+pub async fn file_text(
+    State(state): State<AppState>,
+    signed: Signed,
+    Path((raw, file_id)): Path<(String, String)>,
+) -> Result<Json<Value>, GatewayError> {
+    let id = owned(&state, &signed, &raw).await?;
+    if !file_id_ok(&file_id) {
+        return Err(GatewayError::BadRequest);
+    }
+    let res = upstream(&state, reqwest::Method::GET, &format!("/session/{id}/files/{file_id}"), signed.user_id, &request_id())
+        .send()
+        .await
+        .map_err(|_| GatewayError::Upstream)?;
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(GatewayError::NotFound);
+    }
+    Ok(Json(json_of(res).await?))
+}
+
 pub async fn remove(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>) -> Result<StatusCode, GatewayError> {
     let id = owned(&state, &signed, &raw).await?;
     let res = upstream(&state, reqwest::Method::DELETE, &format!("/session/{id}"), signed.user_id, &request_id())
@@ -206,7 +238,15 @@ pub async fn remove_prefs(State(state): State<AppState>, signed: Signed) -> Resu
 
 #[cfg(test)]
 mod title_tests {
-    use super::{TITLE_MAX_CHARS, clean_title};
+    use super::{TITLE_MAX_CHARS, clean_title, file_id_ok};
+
+    #[test]
+    fn file_ids_are_plain_tokens_only() {
+        assert!(file_id_ok("f_1-a"));
+        assert!(!file_id_ok("../x"));
+        assert!(!file_id_ok(""));
+        assert!(!file_id_ok(&"a".repeat(81)));
+    }
 
     #[test]
     fn titles_are_trimmed_and_bounded() {

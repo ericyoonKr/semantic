@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import re
 import secrets
 import uuid
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import uvicorn
-from deepagents.backends.utils import create_file_data
+from deepagents.backends.utils import create_file_data, file_data_to_string
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.language_models import BaseChatModel
@@ -117,6 +118,24 @@ def upload_line(data: dict[str, Any]) -> str:
     line = f"[업로드] {data.get('filename', '')}, {data.get('pages', 0)}쪽"
     warnings = [str(w) for w in data.get("warnings") or []]
     return line + (f", 추출 불가: {'; '.join(warnings)}" if warnings else "")
+
+
+FILE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+def uploaded_files(values: dict[str, Any]) -> list[dict[str, Any]]:
+    keep = ("file_id", "filename", "format", "pages", "uploaded_at")
+    return [{k: u.get(k) for k in keep} for u in values.get("uploads") or [] if isinstance(u, dict)]
+
+
+def uploaded_text(values: dict[str, Any], file_id: str) -> dict[str, Any] | None:
+    if not FILE_ID.match(file_id):
+        return None
+    meta = next((u for u in uploaded_files(values) if u.get("file_id") == file_id), None)
+    data = (values.get("files") or {}).get(f"/uploads/{file_id}.md")
+    if meta is None or not data:
+        return None
+    return {**meta, "text": file_data_to_string(data)}
 
 
 async def record_upload(agent: Any, cfg: dict[str, Any], data: dict[str, Any]) -> None:
@@ -297,6 +316,21 @@ def create_app(
         snapshot = await state.agent.aget_state(_config(settings, sid, user_id))
         saved = await saved_answers(state.store, user_id, sid)
         return {"messages": history_items(list(snapshot.values.get("messages", [])), saved)}
+
+    @app.get("/session/{session_id}/files")
+    async def files(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> dict[str, Any]:
+        sid = _session(session_id)
+        snapshot = await rt(request).agent.aget_state(_config(settings, sid, user_id))
+        return {"files": uploaded_files(snapshot.values)}
+
+    @app.get("/session/{session_id}/files/{file_id}")
+    async def file_text(session_id: str, file_id: str, request: Request, user_id: str = Depends(user_id_header)) -> JSONResponse:
+        sid = _session(session_id)
+        snapshot = await rt(request).agent.aget_state(_config(settings, sid, user_id))
+        found = uploaded_text(snapshot.values, file_id)
+        if found is None:
+            return JSONResponse(status_code=404, content={"message": "파일이 없습니다"})
+        return JSONResponse(content=found)
 
     @app.delete("/session/{session_id}", status_code=204)
     async def remove_session(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:

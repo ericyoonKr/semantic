@@ -725,6 +725,53 @@ textarea {
 }
 
 .upload-summary,
+.uploaded-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.file-open {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.file-view {
+  margin-top: 8px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-card);
+  background: var(--white);
+}
+
+.file-body {
+  max-height: 420px;
+  padding: 8px 12px;
+  overflow: auto;
+}
+
+.file-page + .file-page {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ink-200);
+}
+
+.file-page-mark {
+  margin: 0 0 4px;
+  color: var(--ink-500);
+  font-size: 0.8em;
+}
+
+.file-page pre {
+  margin: 0;
+  font: inherit;
+  font-size: 0.92em;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: keep-all;
+}
+
 .upload-list {
   padding: 12px 14px;
   border: 1px solid var(--ink-200);

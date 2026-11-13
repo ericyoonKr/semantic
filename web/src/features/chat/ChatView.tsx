@@ -5,7 +5,7 @@ import { Icon } from "../../shared/ui/Icon";
 import { DropZone } from "../upload/DropZone";
 import { FileChips } from "../upload/FileChips";
 import { UploadForm } from "../upload/UploadForm";
-import { UploadList } from "../upload/UploadList";
+import { UploadedFiles } from "../upload/UploadedFiles";
 import { UploadSummaryView } from "../upload/UploadSummaryView";
 import { useUploadQueue } from "../upload/useUploadQueue";
 import { AskForm } from "./AskForm";
@@ -51,7 +51,7 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
       {filesOpen ? (
         <aside id={panelId} className="chat-files" aria-label="파일">
           {last ? <UploadSummaryView summary={last} /> : null}
-          <UploadList lines={uploadLines} />
+          <UploadedFiles client={client} sessionId={sessionId} version={uploadLines.length} />
         </aside>
       ) : null}
       <div className="chat-scroll">

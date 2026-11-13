@@ -29,6 +29,8 @@ pub fn router(state: AppState) -> Router {
         .route("/session/{id}/upload", post(chat::upload))
         .route("/session/{id}/history", get(chat::history))
         .route("/session/{id}/live", get(chat::live))
+        .route("/session/{id}/files", get(chat::files))
+        .route("/session/{id}/files/{file_id}", get(chat::file_text))
         .route("/session/{id}", delete(chat::remove).patch(chat::rename))
         .route("/prefs", delete(chat::remove_prefs))
         .layer(DefaultBodyLimit::max(limit));
