@@ -10,6 +10,10 @@ type Props = {
   tools?: ReactNode;
 };
 
+export function sendsOnKey(key: string, shift: boolean, composing: boolean): boolean {
+  return key === "Enter" && !shift && !composing;
+}
+
 export function AskForm({ sessionId, disabled, waitText, onAsk, above, tools }: Props) {
   const [question, setQuestion] = useState("");
 
@@ -28,7 +32,7 @@ export function AskForm({ sessionId, disabled, waitText, onAsk, above, tools }: 
   }
 
   function keyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    if (sendsOnKey(e.key, e.shiftKey, e.nativeEvent.isComposing)) {
       e.preventDefault();
       send();
     }
@@ -55,7 +59,7 @@ export function AskForm({ sessionId, disabled, waitText, onAsk, above, tools }: 
       <div className="composer-actions">
         {tools}
         <p id={hint} className="composer-hint">
-          Ctrl+Enter로 보낼 수 있습니다.
+          Enter로 보내고, Shift+Enter로 줄을 바꿉니다.
         </p>
         <button type="submit" className="button-primary" disabled={disabled || question.trim() === ""}>
           <span>{disabled ? waitText : "보내기"}</span>
