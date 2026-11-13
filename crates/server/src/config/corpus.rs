@@ -12,6 +12,7 @@ use crate::error::ConfigError;
 
 const DEFAULT_REGISTRY_MODEL: &str = "BAAI/bge-m3";
 const DEFAULT_KEYWORD_MAX_DF: f64 = 0.02;
+const DEFAULT_CASE_TEXT_RARE: usize = 3;
 
 #[derive(Debug, Clone)]
 pub struct CorpusConfig {
@@ -88,7 +89,7 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
             Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_SCOPE")),
         },
         case_text_rare: match r.text("CORPUS_CASE_TEXT_RARE") {
-            None => 0,
+            None => DEFAULT_CASE_TEXT_RARE,
             Some(v) => match v.parse::<usize>() {
                 Ok(n) if n <= 8 => n,
                 _ => return Err(ConfigError::Invalid("CORPUS_CASE_TEXT_RARE")),
@@ -259,7 +260,7 @@ mod tests {
         assert!(cfg.case_keyword_index.is_none());
         assert!(cfg.unit_vectors);
         assert!(!cfg.case_vectors);
-        assert_eq!(cfg.case_text_rare, 0);
+        assert_eq!(cfg.case_text_rare, DEFAULT_CASE_TEXT_RARE);
         assert_eq!(cfg.keyword_max_df, DEFAULT_KEYWORD_MAX_DF);
         Ok(())
     }
