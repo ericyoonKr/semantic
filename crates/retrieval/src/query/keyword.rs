@@ -154,6 +154,25 @@ impl KeywordIndex {
         Ok(freq.into_iter().take(KEEP_RAREST).map(|(_, p)| p).collect())
     }
 
+    pub fn rarest_words(&self, words: &[String], min_chars: usize, n: usize) -> Result<Vec<usize>, KeywordError> {
+        let searcher = self.reader.searcher();
+        let mut found: Vec<(u64, usize)> = Vec::new();
+        for (i, w) in words.iter().enumerate() {
+            if w.chars().count() < min_chars {
+                continue;
+            }
+            let mut df = u64::MAX;
+            for p in self.pieces(w)? {
+                df = df.min(searcher.doc_freq(&Term::from_field_text(self.fields.text, &p)).map_err(error::search)?);
+            }
+            if df != u64::MAX {
+                found.push((df, i));
+            }
+        }
+        found.sort();
+        Ok(found.into_iter().take(n).map(|(_, i)| i).collect())
+    }
+
     fn words(&self, text: &str) -> Result<Option<Box<dyn Query>>, KeywordError> {
         let mut pieces = self.pieces(text)?;
         pieces.sort();

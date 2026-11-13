@@ -21,11 +21,16 @@ impl Candidate {
 
 const TEXT_FIRST_SLOT: usize = 7;
 
+fn rare_filter(column: &str, rare: &[usize]) -> String {
+    let parts: Vec<String> = rare.iter().map(|i| format!("{column} LIKE ${}", TEXT_FIRST_SLOT + i)).collect();
+    format!("({})", parts.join(" OR "))
+}
+
 const SECTION_FROM: &str = "FROM decision_section s \
      JOIN decision d ON d.decision_id = s.decision_id \
      JOIN court c ON c.court_id = d.court_id";
 
-pub async fn text(pool: &PgPool, q: &CaseQuery, terms: &Terms) -> Result<Vec<Candidate>, RetrievalError> {
+pub async fn text(pool: &PgPool, q: &CaseQuery, terms: &Terms, rare: &[usize]) -> Result<Vec<Candidate>, RetrievalError> {
     let words = TEXT_FIRST_SLOT + terms.words().len();
     let sql = format!(
         "SELECT t.section_id, t.decision_id, {position}::int4 FROM ( \
@@ -37,9 +42,13 @@ pub async fn text(pool: &PgPool, q: &CaseQuery, terms: &Terms) -> Result<Vec<Can
         position = terms.first_position("b.body", words),
         filters = filters(),
         score = terms.contained("s.body", TEXT_FIRST_SLOT),
-        any = terms
-            .at_least("s.body", TEXT_FIRST_SLOT, 1)
-            .unwrap_or_else(|| format!("{} > 0", terms.contained("s.body", TEXT_FIRST_SLOT))),
+        any = if rare.is_empty() {
+            terms
+                .at_least("s.body", TEXT_FIRST_SLOT, 1)
+                .unwrap_or_else(|| format!("{} > 0", terms.contained("s.body", TEXT_FIRST_SLOT)))
+        } else {
+            rare_filter("s.body", rare)
+        },
     );
     let mut query = bind_filters(sqlx::query_as::<_, (i64, i64, i32)>(AssertSqlSafe(sql)), q);
     for pattern in terms.like_patterns() {
@@ -105,4 +114,15 @@ pub async fn keyword(pool: &PgPool, q: &CaseQuery, sections: &[i64]) -> Result<V
         .fetch_all(pool)
         .await?;
     Ok(rows.into_iter().map(|(s, d)| Candidate::section(s, d)).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TEXT_FIRST_SLOT, rare_filter};
+
+    #[test]
+    fn rare_filter_points_at_the_chosen_words_slots_only() {
+        let sql = rare_filter("s.body", &[0, 3]);
+        assert_eq!(sql, format!("(s.body LIKE ${} OR s.body LIKE ${})", TEXT_FIRST_SLOT, TEXT_FIRST_SLOT + 3));
+    }
 }

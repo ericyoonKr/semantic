@@ -56,6 +56,7 @@ pub struct Corpus {
     law_scope: bool,
     unit_vectors: bool,
     case_vectors: bool,
+    case_text_rare: usize,
     keyword: Option<Arc<KeywordIndex>>,
     case_keyword: Option<Arc<KeywordIndex>>,
     case_weights: CaseWeights,
@@ -78,6 +79,7 @@ impl Corpus {
             law_scope: true,
             unit_vectors: false,
             case_vectors: true,
+            case_text_rare: 0,
             keyword: None,
             case_keyword: None,
             case_weights: CaseWeights::default(),
@@ -119,6 +121,15 @@ impl Corpus {
 
     pub fn case_vectors(&self) -> bool {
         self.case_vectors
+    }
+
+    pub fn with_case_text_rare(mut self, n: usize) -> Self {
+        self.case_text_rare = n;
+        self
+    }
+
+    pub fn case_text_rare(&self) -> usize {
+        self.case_text_rare
     }
 
     pub fn with_keyword(mut self, index: KeywordIndex) -> Self {

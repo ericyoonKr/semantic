@@ -65,6 +65,22 @@ async fn timed<T>(stage: &'static str, fut: impl std::future::Future<Output = T>
     out
 }
 
+const RARE_MIN_CHARS: usize = 3;
+
+fn rare_words(corpus: &Corpus, words: &[String]) -> Vec<usize> {
+    let n = corpus.case_text_rare();
+    let Some(index) = corpus.case_keyword().filter(|_| n > 0) else {
+        return Vec::new();
+    };
+    match index.rarest_words(words, RARE_MIN_CHARS, n) {
+        Ok(found) => found,
+        Err(e) => {
+            log_search_failure(&e);
+            Vec::new()
+        }
+    }
+}
+
 fn ids(list: &[Candidate]) -> Vec<i64> {
     list.iter().map(|c| c.section_id).collect()
 }
@@ -72,8 +88,9 @@ fn ids(list: &[Candidate]) -> Vec<i64> {
 pub async fn search_cases(corpus: &Corpus, q: &CaseQuery) -> Result<SearchResult<CaseHit>, RetrievalError> {
     let (terms, k) = prepare(&q.text, q.k, corpus.stemmed())?;
     let pool = corpus.pool();
+    let rare = rare_words(corpus, terms.words());
     let (text, vector, keyword, cited) = tokio::join!(
-        timed("text", candidates::text(pool, q, &terms)),
+        timed("text", candidates::text(pool, q, &terms, &rare)),
         timed("vector", vector_side(corpus, q)),
         timed("keyword", keyword_side(corpus, q)),
         timed("cited", cited_side(corpus, q))

@@ -24,6 +24,7 @@ pub struct CorpusConfig {
     pub law_scope: bool,
     pub unit_vectors: bool,
     pub case_vectors: bool,
+    pub case_text_rare: usize,
     pub law_weights: LawWeights,
     pub law_weights_annex: bool,
     pub term_stem: bool,
@@ -86,14 +87,21 @@ pub(super) fn read<F: Fn(&str) -> Option<String>>(
             Some("off") => false,
             Some(_) => return Err(ConfigError::Invalid("CORPUS_LAW_SCOPE")),
         },
+        case_text_rare: match r.text("CORPUS_CASE_TEXT_RARE") {
+            None => 0,
+            Some(v) => match v.parse::<usize>() {
+                Ok(n) if n <= 8 => n,
+                _ => return Err(ConfigError::Invalid("CORPUS_CASE_TEXT_RARE")),
+            },
+        },
         case_vectors: match r.text("CORPUS_CASE_VECTOR").as_deref() {
             None | Some("off") => false,
             Some("on") => true,
             Some(_) => return Err(ConfigError::Invalid("CORPUS_CASE_VECTOR")),
         },
         unit_vectors: match r.text("CORPUS_UNIT_VECTOR").as_deref() {
-            None | Some("off") => false,
-            Some("on") => true,
+            None | Some("on") => true,
+            Some("off") => false,
             Some(_) => return Err(ConfigError::Invalid("CORPUS_UNIT_VECTOR")),
         },
         vector_search: match r.text("CORPUS_VECTOR_SEARCH").as_deref() {
@@ -187,6 +195,7 @@ impl CorpusConfig {
             .with_law_scope(self.law_scope)
             .with_unit_vectors(self.unit_vectors)
             .with_case_vectors(self.case_vectors)
+            .with_case_text_rare(self.case_text_rare)
             .with_case_weights(self.case_weights);
         if let Some(dir) = &self.keyword_index {
             match KeywordIndex::open(dir) {
@@ -248,8 +257,9 @@ mod tests {
         assert!(cfg.vector_search);
         assert_eq!(cfg.case_weights, CaseWeights::default());
         assert!(cfg.case_keyword_index.is_none());
-        assert!(!cfg.unit_vectors);
+        assert!(cfg.unit_vectors);
         assert!(!cfg.case_vectors);
+        assert_eq!(cfg.case_text_rare, 0);
         assert_eq!(cfg.keyword_max_df, DEFAULT_KEYWORD_MAX_DF);
         Ok(())
     }
@@ -259,6 +269,13 @@ mod tests {
         assert!(read(&reader(&[("CORPUS_UNIT_VECTOR", "on")]))?.unit_vectors);
         assert!(!read(&reader(&[("CORPUS_UNIT_VECTOR", "off")]))?.unit_vectors);
         assert!(matches!(read(&reader(&[("CORPUS_UNIT_VECTOR", "yes")])), Err(ConfigError::Invalid("CORPUS_UNIT_VECTOR"))));
+        Ok(())
+    }
+
+    #[test]
+    fn case_text_rare_reads_zero_to_eight_only() -> Result<(), ConfigError> {
+        assert_eq!(read(&reader(&[("CORPUS_CASE_TEXT_RARE", "4")]))?.case_text_rare, 4);
+        assert!(matches!(read(&reader(&[("CORPUS_CASE_TEXT_RARE", "9")])), Err(ConfigError::Invalid("CORPUS_CASE_TEXT_RARE"))));
         Ok(())
     }
 
