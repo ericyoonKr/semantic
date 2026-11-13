@@ -225,3 +225,11 @@ def test_internal_result_tags_are_removed() -> None:
 
     assert scrub_tools("판례는 확인되지 않았습니다. [하위 에이전트 결과]") == "판례는 확인되지 않았습니다."
     assert scrub_tools("내용 (조사 결과) 끝") == "내용 끝"
+
+
+def test_grouped_ref_tags_are_expanded_and_checked() -> None:
+    from semantic_agent.api.answer_gate import expand_groups
+
+    assert expand_groups("기준입니다 [근거 1, 근거 2].") == "기준입니다 [근거 1], [근거 2]."
+    assert expand_groups("[근거 3, 4 제2항]") == "[근거 3], [근거 4 제2항]"
+    assert expand_groups("[근거 5]") == "[근거 5]"

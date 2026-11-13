@@ -33,6 +33,16 @@ def scrub_tools(text: str) -> str:
 MAX_SENTENCE = 400
 
 TAG = re.compile(r"\[근거\s*(\d+)(?:\s*제\s*(\d+)\s*항)?\]")
+TAG_GROUP = re.compile(r"\[\s*근거\s*\d+(?:\s*제\s*\d+\s*항)?(?:\s*[,·]\s*(?:근거\s*)?\d+(?:\s*제\s*\d+\s*항)?)+\s*\]")
+TAG_PART = re.compile(r"(\d+)(?:\s*제\s*(\d+)\s*항)?")
+
+
+def expand_groups(text: str) -> str:
+    def one(match: re.Match[str]) -> str:
+        parts = TAG_PART.findall(match.group(0))
+        return ", ".join(f"[근거 {n} 제{p}항]" if p else f"[근거 {n}]" for n, p in parts)
+
+    return TAG_GROUP.sub(one, text)
 LAW = re.compile(
     r"(?<![가-힣])([가-힣]*(?:법률|법))(?:\s*(시행령|시행규칙))?(?:상|의)?\s*(제\s*\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제\s*(\d+)\s*항))?"
 )
@@ -75,6 +85,7 @@ def check_sentence(sentence: str, ledger: Ledger) -> Checked:
         cites.append((item.ref, paragraph))
         return item.display(paragraph)
 
+    sentence = expand_groups(sentence)
     replaced = TAG.sub(replace, sentence)
     bare = TAG.sub(" ", sentence)
     for match in LAW.finditer(bare):
