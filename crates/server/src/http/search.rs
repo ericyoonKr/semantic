@@ -7,10 +7,10 @@ use retrieval::{
     CaseDoc, CaseHit, CaseQuery, Citations, CitationsBy, Corpus, LawHit, LawQuery, LawUnit,
     RetrievalError, SearchResult,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::error::ApiError;
-use crate::readlog::thread_of;
+use crate::funcall::readlog::thread_of;
 use crate::state::AppState;
 
 const DEFAULT_K: usize = 8;
@@ -238,31 +238,6 @@ pub async fn law_annexes(
         });
     }
     Ok(out)
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CheckRequest {
-    pub thread_id: String,
-    pub sentences: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CheckReply {
-    pub results: Vec<citegate::Verdict>,
-}
-
-const CHECK_MAX_SENTENCES: usize = 200;
-
-pub async fn answer_check(
-    State(state): State<AppState>,
-    body: Result<Json<CheckRequest>, JsonRejection>,
-) -> Result<Json<CheckReply>, ApiError> {
-    let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: thread_id·sentences"))?;
-    if req.sentences.len() > CHECK_MAX_SENTENCES {
-        return Err(ApiError::bad_request("인자 오류: 문장이 너무 많습니다"));
-    }
-    let reads = state.reads.snapshot(req.thread_id.trim());
-    Ok(Json(CheckReply { results: req.sentences.iter().map(|s| citegate::check(s, &reads)).collect() }))
 }
 
 fn decision_id(raw: &str) -> Result<i64, ApiError> {

@@ -17,7 +17,7 @@ from semantic_agent.api.thought import ThoughtFilter
 from semantic_agent.api.verify import verify_sources
 from semantic_agent.ledger import LEDGER, Ledger
 from semantic_agent.tools.client import REQUEST_ID, THREAD_ID, ToolClient, unwrap_material
-from semantic_agent.tools.readcheck import ReadCheck
+from semantic_agent.funcall.readcheck import ReadCheck
 from semantic_agent.tools.judge import needed_asks, verdict_text
 from semantic_agent.turn import TURN, Turn
 

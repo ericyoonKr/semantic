@@ -1,6 +1,7 @@
 pub mod annex;
 pub mod catalog;
 pub mod files;
+pub mod funcall;
 pub mod health;
 pub mod judge;
 pub mod kg;
@@ -46,7 +47,8 @@ pub fn router(state: AppState) -> Router {
         .route("/search/cases", post(search::search_cases))
         .route("/laws/unit", get(search::law_unit))
         .route("/laws/annexes", get(search::law_annexes))
-        .route("/answer/check", post(search::answer_check))
+        .route("/answer/check", post(funcall::answer_check))
+        .route("/sessions/{sid}/next-step", post(funcall::next_step))
         .route("/laws/scope", post(scope::law_scope))
         .route("/cases/{decision_id}", get(search::case))
         .route("/citations", get(search::citations))

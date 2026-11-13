@@ -33,7 +33,8 @@ pub struct Inner {
     pub kg_ids: KgIdLocks,
     pub shutdown: CancellationToken,
     pub tracker: TaskTracker,
-    pub reads: crate::readlog::ReadLog,
+    pub reads: crate::funcall::readlog::ReadLog,
+    pub steps: crate::funcall::next_step::StepLog,
 }
 
 #[derive(Clone)]
@@ -78,7 +79,8 @@ impl AppState {
             kg_ids: KgIdLocks::default(),
             shutdown: CancellationToken::new(),
             tracker: TaskTracker::new(),
-            reads: crate::readlog::ReadLog::default(),
+            reads: crate::funcall::readlog::ReadLog::default(),
+            steps: crate::funcall::next_step::StepLog::default(),
         })))
     }
 }

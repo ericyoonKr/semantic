@@ -25,6 +25,7 @@ pub struct Config {
     pub ocr_threads: usize,
     pub lawtime_principles: Option<PathBuf>,
     pub law_aliases: Option<PathBuf>,
+    pub route_legal: bool,
 }
 
 impl Config {
@@ -78,6 +79,11 @@ impl Config {
         let ocr_threads = r.positive("OCR_THREADS", 8)?;
         let lawtime_principles = r.text("LAWTIME_PRINCIPLES").map(PathBuf::from);
         let law_aliases = r.text("LAW_ALIASES").map(PathBuf::from);
+        let route_legal = match r.text("ROUTE_LEGAL").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(_) => return Err(ConfigError::Invalid("ROUTE_LEGAL")),
+        };
         Ok(Self {
             data_dir,
             kg_dir,
@@ -95,6 +101,7 @@ impl Config {
             ocr_threads,
             lawtime_principles,
             law_aliases,
+            route_legal,
         })
     }
 

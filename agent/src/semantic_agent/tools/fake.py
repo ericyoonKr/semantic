@@ -208,6 +208,16 @@ def _answer(method: str, path: str) -> Any:
 class FakeClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.stepped: set[str] = set()
+
+    def _next_step(self, body: dict[str, Any]) -> dict[str, Any]:
+        request_id = str(body.get("request_id", ""))
+        question = " ".join(str(body.get("question", "")).split())
+        if request_id in self.stepped or len(question) < 2:
+            return {"tool": "model"}
+        self.stepped.add(request_id)
+        brief = f"쟁점: {question}\n목적: 조회"
+        return {"tool": "task", "args": {"description": brief, "subagent_type": "researcher"}}
 
     async def fetch(
         self,
@@ -224,6 +234,8 @@ class FakeClient:
         self.calls.append((method, path))
         if path == "/answer/check":
             return _fake_check(json), None
+        if path.endswith("/next-step"):
+            return self._next_step(json or {}), None
         return _answer(method, path), None
 
     async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None:
