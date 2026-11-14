@@ -432,3 +432,18 @@ fn page_references_to_uploaded_documents_are_recognised() {
     assert_eq!(missed, Vec::<&str>::new());
     assert_eq!(wrongly, Vec::<&str>::new());
 }
+
+#[test]
+fn school_rules_are_checked_like_laws() {
+    let mut r = ReadSet::default();
+    r.add_unit_body("단국대학교 학칙", "제23조", "① 휴학은 학기 단위로 한다.");
+    assert!(check("「단국대학교 학칙」 제23조에 따라 휴학은 학기 단위로 합니다.", &r).ok);
+    assert!(check("단국대학교 학칙 제23조에 따라 휴학할 수 있습니다.", &r).ok);
+    assert!(!check("단국대학교 학칙 제24조에 따라 복학합니다.", &r).ok);
+    assert!(check("단국대학교 학칙에 따르면 휴학은 학기 단위입니다.", &r).ok);
+    let v = check("단국대학교 학칙에 따르면 휴학은 학기 단위입니다.", &ReadSet::default());
+    assert!(v.reasons.contains(&NAMED_NOT_READ), "{v:?}");
+    assert_eq!(v.named, vec!["단국대학교 학칙".to_string()]);
+    let s = check("「단국대학교 학칙 시행세칙」 제5조에 따릅니다.", &ReadSet::default());
+    assert!(!s.ok && s.reasons.contains(&UNIT_NOT_READ), "{s:?}");
+}

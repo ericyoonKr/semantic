@@ -19,19 +19,19 @@ const CASE_CODES: [&str; 45] = [
     "드합", "드단", "느합", "느단", "구", "누", "두", "다", "나", "가", "도", "노", "므", "르", "스", "브", "마", "라", "카", "재", "추", "후",
     "허", "그", "아", "모", "오",
 ];
-static NAME: &str = r"(?:「([^」\n]{1,60})」|([가-힣]*(?:법률|법)))(?:\s*(시행령|시행규칙))?(?:상|의)?\s*";
+static NAME: &str = r"(?:「([^」\n]{1,60})」|([가-힣]*(?:법률|법|학칙|세칙)))(?:\s*(시행령|시행규칙))?(?:상|의)?\s*";
 static ARTICLE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"{NAME}제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*제\s*(\d+)\s*항)?")).expect("article pattern"));
 static BARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*제\s*(\d+)\s*항)?").expect("bare article pattern"));
-static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"「([^」\n]{0,58}(?:법|법률|령|규칙|조례|규정))」(?:\s*(시행령|시행규칙))?").expect("quoted law pattern"));
+static QUOTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"「([^」\n]{0,58}(?:법|법률|령|규칙|조례|규정|학칙|세칙))」(?:\s*(시행령|시행규칙))?").expect("quoted law pattern"));
 const PARTICLES: &str = "에서는|에서도|으로는|으로도|에서|에는|에도|으로|이라|이란|입니다|이다|까지|부터|처럼|이나|이고|에|을|를|은|는|이|가|의|과|와|도|로|상|나|만|고";
 static BARE_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"([가-힣]*(?:법률|법|령|규칙))(?:{PARTICLES})*(?:[^가-힣]|$)")).expect("bare law name pattern")
+    Regex::new(&format!(r"([가-힣]*(?:법률|법|령|규칙|학칙|세칙))(?:{PARTICLES})*(?:[^가-힣]|$)")).expect("bare law name pattern")
 });
 static ORDINANCE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"([가-힣]*(?:조례|자치법규))(?:{PARTICLES})*(?:[^가-힣]|$)")).expect("ordinance name pattern"));
-const NAME_TAILS: [&str; 4] = ["법률", "법", "령", "규칙"];
+const NAME_TAILS: [&str; 6] = ["법률", "법", "령", "규칙", "학칙", "세칙"];
 const NAME_WORDS: usize = 6;
 const REGION_TAILS: [&str; 8] = ["특별자치시", "특별자치도", "특별시", "광역시", "시", "도", "군", "구"];
 const NOT_HELD: [&str; 2] = ["자료에 없", "확인하지 못"];

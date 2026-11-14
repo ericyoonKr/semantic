@@ -127,7 +127,7 @@ fn the_reply_carries_the_step_and_the_notes_side_by_side() {
 
 #[test]
 fn questions_naming_law_words_are_legal_without_asking_the_model() {
-    for q in ["무슨 법?", "무슨 조례?", "아니 시발 무슨 조례", "판례는?", "근거가 뭐야", "지방공무원법 해당 됨?", "어떤 법이 적용돼?", "이 법은?"] {
+    for q in ["무슨 법?", "무슨 조례?", "아니 시발 무슨 조례", "판례는?", "근거가 뭐야", "지방공무원법 해당 됨?", "어떤 법이 적용돼?", "이 법은?", "학칙에 휴학 규정 있어?", "시행세칙은?"] {
         assert!(asks_for_law(q), "{q}");
     }
     for q in ["고마워요 정말", "더 짧게 써 줘", "방법 알려줘", "강남구 단란주점", "표로 정리해", "김밥 맛있게 싸는 법 알려줘", "파이썬으로 리스트 정렬하는 법"] {
