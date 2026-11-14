@@ -180,6 +180,14 @@ pub async fn vector_candidates(
            JOIN law l ON l.law_id = a.law_id \
            WHERE nm.name = $4 AND n.embedding IS NOT NULL AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} AND {VECTOR_LAW_IDS} \
            ORDER BY d LIMIT $3) \
+         UNION ALL \
+         (SELECT 'n' AS src, c.node_id AS id, c.embedding <=> CAST($5::text AS halfvec) AS d \
+           FROM annex_node_chunk c JOIN embedding_model cm ON cm.model_id = c.embed_model_id \
+           JOIN annex_node n ON n.node_id = c.node_id \
+           JOIN annex a ON a.row_id = n.annex_row_id \
+           JOIN law l ON l.law_id = a.law_id \
+           WHERE cm.name = $4 AND c.embedding IS NOT NULL AND {OPEN_ANNEX} AND {VALID_A} AND {LAW_TYPE} AND {VECTOR_LAW_IDS} \
+           ORDER BY d LIMIT $3) \
          ORDER BY d LIMIT $3"
     );
     let rows = sqlx::query(AssertSqlSafe(sql))
