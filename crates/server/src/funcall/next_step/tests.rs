@@ -150,3 +150,19 @@ fn law_lines_keep_only_sentences_that_name_laws_even_across_pdf_line_breaks() {
         "「지방자치단체를 당사자로 하는 계약에 관한 법률」(이하 ‘지방계약법’이 라 한다) 제16조에 따라 검사하여야 한다."
     );
 }
+
+#[test]
+fn question_laws_resolve_registered_abbreviations_across_words() -> Result<(), lawnames::Error> {
+    let entries = vec![
+        lawnames::Entry { alias: "단국대 학칙".into(), law_id: "rule:dku:hakchik".into(), name: "단국대학교 학칙".into(), source: "시험".into() },
+        lawnames::Entry { alias: "학칙".into(), law_id: "rule:dku:hakchik".into(), name: "단국대학교 학칙".into(), source: "시험".into() },
+    ];
+    let installed = lawnames::install(lawnames::Aliases::from_entries(entries)?);
+    let laws = question_laws("단국대 학칙에서 휴학은 어떻게 규정돼 있어?");
+    if installed || lawnames::lookup("단국대학칙").is_some() {
+        assert_eq!(laws, vec!["단국대학교학칙".to_string()]);
+    }
+    assert_eq!(question_laws("휴학 절차가 궁금해"), Vec::<String>::new());
+    assert_eq!(question_laws("지방공무원법 해당 됨?"), vec!["지방공무원법".to_string()]);
+    Ok(())
+}

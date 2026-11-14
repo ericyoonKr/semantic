@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 LIMIT_STEPS = "최대 단계"
 LIMIT_TIME = "질문 시간"
+EMPTY_ANSWER_TEXT = "확인한 근거가 없어 답을 쓰지 못했습니다. 질문을 조금 바꾸거나 「다시 답변하기」를 눌러 주세요."
 MAX_ROUNDS = 3
 WRAP_UP_S = 90.0
 WARNING_TEXT = {INJECTION_KIND: "읽은 자료 안에 지시처럼 보이는 문장이 있었습니다"}
@@ -173,16 +174,19 @@ async def to_sse(
     thought = ThoughtFilter()
     payload_in: Any = {"messages": [HumanMessage(content=question)]}
     budget_s = timeout_s
+    spoken = 0
     while True:
         stream = agent.astream(payload_in, cfg, stream_mode=["updates"])
         try:
             async with asyncio.timeout(budget_s):
                 async for _mode, payload in stream:
                     for item in _update_events(payload):
+                        spoken += item.startswith("event: Token")
                         yield item
                     for answer in final_texts(payload):
                         text = strip_emoji(thought.push(answer))
                         for piece in await gate.push(text) if text else []:
+                            spoken += bool(piece.strip())
                             yield event("Token", {"text": piece})
                     for item in turn_events(turn):
                         yield item
@@ -209,7 +213,11 @@ async def to_sse(
         finally:
             await stream.aclose()
     for piece in [*await gate.push(strip_emoji(thought.flush())), *await gate.flush()]:
+        spoken += bool(piece.strip())
         yield event("Token", {"text": piece})
+    if spoken == 0:
+        log.info("answer empty after gate request_id=%s drops=%d", request_id, len(gate.drops))
+        yield event("Token", {"text": EMPTY_ANSWER_TEXT})
     for item in await sources_event(gate, client):
         yield item
     for item in [*turn_events(turn), usage_event(turn, context_limit)]:

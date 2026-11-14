@@ -5,7 +5,7 @@ import pytest
 from conftest import answer, call, delegate, make_agent, run_config, tool_messages
 from langchain_core.messages import AIMessage
 
-from semantic_agent.api.sse import to_sse
+from semantic_agent.api.sse import EMPTY_ANSWER_TEXT, to_sse
 from semantic_agent.config import Settings
 
 FOUND = [{"claim": "가짜법 제1조는 목적 조항이다", "source": "가짜법 제1조 · 2000-01-01", "quote": "이 조문은 가짜 도구가 돌려주는 고정 문장이다."}]
@@ -64,5 +64,17 @@ def test_streamed_answer_shows_checked_sources_only() -> None:
         assert "[근거 1]" not in tokens
         assert "민법 제750조" not in tokens
         assert "뺐습니다" not in tokens
+
+    asyncio.run(scenario())
+
+
+def test_answer_with_every_sentence_dropped_says_so_instead_of_staying_blank() -> None:
+    async def scenario() -> None:
+        agent, _, client = await make_agent([AIMessage(content="민법 제750조가 적용됩니다.\n")])
+        cfg = run_config(Settings(internal_key="k", fake_tools=True).recursion_limit)
+        events = [e async for e in to_sse(agent, "질", cfg, timeout_s=60, client=client)]
+        tokens = "".join(json.loads(e.split("data: ", 1)[1])["text"] for e in events if e.startswith("event: Token"))
+        assert tokens.strip() == EMPTY_ANSWER_TEXT
+        assert [e.split("\n", 1)[0] for e in events][-1] == "event: Done"
 
     asyncio.run(scenario())

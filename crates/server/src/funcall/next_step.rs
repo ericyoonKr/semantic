@@ -24,6 +24,7 @@ pub const LAST_ANSWER_CHARS: usize = 1500;
 pub const READ_MAX: usize = 12;
 const LAW_WORDS: [&str; 15] = ["법", "법령", "법률", "조례", "자치법규", "판례", "조문", "조항", "근거", "규정", "시행령", "시행규칙", "학칙", "세칙", "시행세칙"];
 const LAW_NAME_MIN: usize = 3;
+const ALIAS_WORDS: usize = 3;
 pub const RESEARCHER: &str = "researcher";
 const KEYWORD_MIN: usize = 2;
 const KEEP: Duration = Duration::from_secs(24 * 3600);
@@ -237,13 +238,32 @@ pub fn question_laws(question: &str) -> Vec<String> {
             _ => {}
         }
     }
-    for word in outside.split_whitespace() {
-        let word = strip_particle(word.trim_matches(STRIP));
-        let word = word.strip_suffix("상").unwrap_or(word);
+    let words: Vec<&str> = outside
+        .split_whitespace()
+        .map(|w| {
+            let w = strip_particle(w.trim_matches(STRIP));
+            w.strip_suffix("상").unwrap_or(w)
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    for word in &words {
         if word.chars().count() >= LAW_NAME_MIN && names_a_law(word) {
             push(citegate::compact(word));
         }
     }
+    }
+    for n in (1..=ALIAS_WORDS).rev() {
+        for start in 0..words.len().saturating_sub(n - 1) {
+            let phrase = words[start..start + n].join(" ");
+            let plain = citegate::compact(&phrase);
+            if plain.chars().count() < 2 {
+                continue;
+            }
+            let canon = citegate::canonical(&phrase);
+            if canon != plain {
+                push(canon);
+            }
+        }
     out
 }
 

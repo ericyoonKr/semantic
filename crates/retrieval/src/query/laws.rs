@@ -216,7 +216,7 @@ pub async fn law_names(pool: &PgPool) -> Result<Vec<String>, RetrievalError> {
 }
 
 pub async fn resolve_law(pool: &PgPool, law: &str) -> Result<Option<(String, String, String)>, RetrievalError> {
-    let law = law.trim();
+    let law = law_of_unit_id(law.trim());
     if law.is_empty() {
         return Ok(None);
     }
@@ -243,6 +243,14 @@ pub async fn direct_candidates(
     pool: &PgPool,
     direct: &Direct,
     as_of: Option<NaiveDate>,
+pub fn law_of_unit_id(law: &str) -> &str {
+    let id = law.split_once('@').map_or(law, |(head, _)| head);
+    match id.rsplit_once(':') {
+        Some((head, tail)) if !head.is_empty() && !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => head,
+        _ => law,
+    }
+}
+
 ) -> Result<Vec<UnitRef>, RetrievalError> {
     let Some((law_id, _, _)) = resolve_law(pool, &direct.law).await? else {
         return Ok(Vec::new());
@@ -549,3 +557,15 @@ mod tests {
         assert!(!deleted("제4조", "① 국가는 ..."));
     }
 }
+
+    #[test]
+    fn unit_ids_fall_back_to_their_law_id() {
+        assert_eq!(super::law_of_unit_id("rule:dku:hakchik:000100"), "rule:dku:hakchik");
+        assert_eq!(super::law_of_unit_id("rule:dku:hakchik:002100@2011-02-24"), "rule:dku:hakchik");
+        assert_eq!(super::law_of_unit_id("000899:0023041@2024-10-22"), "000899");
+        assert_eq!(super::law_of_unit_id("001234:0001001"), "001234");
+        assert_eq!(super::law_of_unit_id("a@b"), "a@b");
+        assert_eq!(super::law_of_unit_id("rule:dku:hakchik"), "rule:dku:hakchik");
+        assert_eq!(super::law_of_unit_id("단국대학교 학칙"), "단국대학교 학칙");
+        assert_eq!(super::law_of_unit_id(":000100"), ":000100");
+    }
