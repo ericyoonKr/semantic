@@ -132,7 +132,7 @@ class ToolGuard(AgentMiddleware):
             try:
                 schema.model_validate(args)
             except ValidationError as exc:
-                log.info("guard_block kind=tool_args tool=%s", name)
+                log.info("guard_block kind=tool_args tool=%s args=%s", name, str(args)[:160])
                 current_turn().block("tool_args", tool=name)
                 return ToolMessage(content=_arg_error(exc), tool_call_id=call_id, name=name, status="error")
         messages = list((request.state or {}).get("messages", []))

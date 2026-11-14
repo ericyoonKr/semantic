@@ -25,7 +25,7 @@ SUB_DEADLINE_S = 120.0
 LLM_CALL_S = 45.0
 LIMIT_MARK = "제한에 걸림"
 ERROR_WRAP = 2
-NO_FILE_TOOLS_NOTE = "파일 도구(read_file 등)는 여기서 쓸 수 없다. 법령·판례는 search_laws·search_cases·read_law·read_case로만 찾고 읽는다."
+NO_FILE_TOOLS_NOTE = "파일 도구는 여기서 쓸 수 없다. 조문 원문은 read_law(law, unit)로, 판례는 read_case(decision_id)로 읽는다."
 
 SUB_DEADLINE: ContextVar[float | None] = ContextVar("sub_deadline", default=None)
 

@@ -263,7 +263,7 @@ class SubagentGate(AgentMiddleware):
             if findings is None:
                 malformed += 1
                 log.info("subagent result malformed name=%s round=%d", name, malformed)
-                if malformed >= 2:
+                if malformed >= 2 or LIMIT_MARK in result_text(result):
                     return ToolMessage(
                         content=f"{RESEARCH_FAIL}: {name}의 결과가 정해진 형식에 맞지 않음",
                         tool_call_id=call_id,
