@@ -66,6 +66,6 @@ describe("rich answer text", () => {
       event: "Sources",
       data: JSON.stringify({ items: [{ kind: "law", label: "법 제1조", note: "", displays: ["법 제1조"], body: "본문", spans: [[0, 2], [1, 5]] }, { kind: "x" }] }),
     } as never);
-    expect(ev).toEqual({ kind: "sources", items: [{ kind: "law", label: "법 제1조", note: "", displays: ["법 제1조"], body: "본문", spans: [[0, 2]], id: "", verified: false, verifyNote: "" }] });
+    expect(ev).toEqual({ kind: "sources", items: [{ kind: "law", norm: "법령", label: "법 제1조", note: "", displays: ["법 제1조"], body: "본문", spans: [[0, 2]], id: "", verified: false, verifyNote: "" }] });
   });
 });

@@ -114,11 +114,15 @@ class FirstStep(AgentMiddleware):
         notes = [str(n) for n in ((step or {}).get("notes") or []) if n]
         if notes:
             turn.notes = notes
+        guidance = [str(g) for g in ((step or {}).get("guidance") or []) if g]
+        if guidance:
+            turn.guidance = guidance
         forced = self._run(step, "before")
         if forced is not None:
             return forced
-        if turn.notes:
-            request = request.override(system_message=append_system(request.system_message, f"{NOTES_HEAD} " + " ".join(turn.notes)))
+        memo = [*turn.notes, *turn.guidance]
+        if memo:
+            request = request.override(system_message=append_system(request.system_message, f"{NOTES_HEAD} " + " ".join(memo)))
         response = await handler(request)
         final = response.result[-1] if response.result else None
         if not isinstance(final, AIMessage) or final.tool_calls:

@@ -156,6 +156,7 @@ UPLOAD = {
 
 
 NO_ORDINANCE_NOTE = "조례(자치법규)는 이 서비스의 자료에 없어 확인하지 못했습니다."
+RULE_GUIDANCE = "학칙·세칙 같은 기관 규정은 그 기관 구성원에게만 미치는 자치규범이고 법령이 아니다. 「학칙상 …」으로 적는다."
 DOC_SEARCH = {
     "hits": [{"file_id": "fake-file", "filename": "fake.pdf", "page": 1, "text": "가짜 문서의 고정 문단."}],
     "processing": [],
@@ -226,11 +227,12 @@ class FakeClient:
         request_id = str(body.get("request_id", ""))
         question = " ".join(str(body.get("question", "")).split())
         notes = [NO_ORDINANCE_NOTE] if "조례" in question else []
+        guidance = [RULE_GUIDANCE] if "학칙" in question else []
         if "answer" in body or request_id in self.stepped or len(question) < 2:
-            return {"tool": "model", "notes": notes}
+            return {"tool": "model", "notes": notes, "guidance": guidance}
         self.stepped.add(request_id)
         brief = f"쟁점: {question}\n목적: 조회"
-        return {"tool": "task", "args": {"description": brief, "subagent_type": "researcher"}, "notes": notes}
+        return {"tool": "task", "args": {"description": brief, "subagent_type": "researcher"}, "notes": notes, "guidance": guidance}
 
     async def fetch(
         self,

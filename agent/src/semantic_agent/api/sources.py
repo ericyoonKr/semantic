@@ -72,6 +72,7 @@ def _item(item: Authority, cites: list[tuple[int | None, str]]) -> dict[str, Any
         "body": body,
         "spans": [list(s) for s in spans],
         "id": item.source_id,
+        "norm_kind": item.norm_kind,
     }
 
 

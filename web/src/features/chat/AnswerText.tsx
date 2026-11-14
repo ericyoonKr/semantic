@@ -258,7 +258,7 @@ export function SourceDetail({ source, close, modal = false }: { source: Source;
     <article className="source-detail" aria-label={source.label + " 원문"}>
       <header className="source-head">
         <div className="source-title">
-          <span className="source-kind">{source.kind === "law" ? "법령" : "판례"}</span>
+          <span className="source-kind">{source.norm}</span>
           <strong>{source.label}</strong>
           {source.note ? <span className="source-note">{source.note}</span> : null}
         </div>
@@ -318,7 +318,7 @@ export function AnswerText({ text, streaming = false, sources = [] }: Props) {
               <button
                 type="button"
                 className={"source-chip" + (isShown(i) ? " is-open" : "") + (s.verified ? "" : " is-unverified")}
-                title={s.label + (s.note ? " · " + s.note : "")}
+                title={s.norm + " · " + s.label + (s.note ? " · " + s.note : "")}
                 onClick={() => open(i)}
               >
                 <span className="source-num">{i + 1}</span>

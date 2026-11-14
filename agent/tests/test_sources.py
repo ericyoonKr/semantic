@@ -48,3 +48,12 @@ def test_dropped_sentence_cites_nothing() -> None:
     gate = SentenceGate(ledger)
     asyncio.run(gate.push("행정절차법 제21조에 따라야 합니다. "))
     assert gate.cited == []
+
+
+def test_sources_carry_the_norm_kind_of_the_law() -> None:
+    ledger = Ledger()
+    item = ledger.add_law({"law_name": "단국대학교 학칙", "unit_key": "제4조", "enforcement_date": "2011-09-26", "body": "① 각 대학의 수업연한은 4년으로 한다.", "version": {"kind": "rule", "version_id": "rule:dku:hakchik:000400"}})
+    plain = ledger.add_law({"law_name": "고등교육법", "unit_key": "제23조", "body": "① 학생은 휴학할 수 있다."})
+    built = {s["ref"]: s for s in build_sources(ledger, [(item.ref, None, "수업연한은 4년이다"), (plain.ref, None, "휴학할 수 있다")])}
+    assert built[item.ref]["norm_kind"] == "rule"
+    assert built[plain.ref]["norm_kind"] == ""

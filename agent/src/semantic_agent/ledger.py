@@ -45,6 +45,7 @@ class Authority:
     unit_key: str = ""
     enforced: str = ""
     source_id: str = ""
+    norm_kind: str = ""
 
     def display(self, paragraph: int | None = None) -> str:
         label = f"{self.label} 제{paragraph}항" if paragraph is not None else self.label
@@ -122,6 +123,7 @@ class Ledger:
                 unit_key=unit_key,
                 enforced=enforced,
                 source_id=str((data.get("version") or {}).get("version_id") or ""),
+                norm_kind=str((data.get("version") or {}).get("kind") or ""),
             ),
         )
 

@@ -239,3 +239,18 @@ def test_empty_final_answer_is_written_again() -> None:
     events, model = asyncio.run(_ask(script, "아무 법이나 알려줘"))
     assert _tokens(events).strip() == "조사한 자료로는 확인되지 않습니다."
     assert model.calls == 4
+
+
+def test_writing_guidance_from_the_search_server_reaches_the_model_but_not_the_answer() -> None:
+    from semantic_agent.tools.fake import RULE_GUIDANCE
+
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+        AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1].\n"),
+    ]
+    events, model = asyncio.run(_ask(script, "학칙에 휴학 규정 있어?"))
+    text = _tokens(events)
+    assert text.startswith("가짜법 제1조"), text
+    assert RULE_GUIDANCE not in text
+    assert any(RULE_GUIDANCE in str(getattr(m, "content", "")) for m in model.seen[-1])

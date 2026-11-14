@@ -4,6 +4,7 @@ export const STREAM_ERROR_TEXT = "답을 만들지 못했습니다. 잠시 뒤 �
 
 export type Source = {
   kind: "law" | "case";
+  norm: string;
   label: string;
   note: string;
   displays: string[];
@@ -67,6 +68,7 @@ export function toSource(value: unknown): Source | null {
   }
   return {
     kind,
+    norm: typeof v.norm === "string" && v.norm !== "" ? v.norm : kind === "law" ? "법령" : "판례",
     label,
     note: typeof v.note === "string" ? v.note : "",
     displays: strings(v.displays),
