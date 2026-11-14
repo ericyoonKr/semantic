@@ -7,5 +7,6 @@ pub mod holdings;
 pub mod known;
 pub mod next_step;
 pub mod readlog;
+pub mod relevance;
 pub mod review;
 pub mod route;

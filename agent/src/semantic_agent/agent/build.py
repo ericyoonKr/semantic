@@ -147,6 +147,7 @@ def build_agent(
                 deadline_s=research.deadline_s,
                 routes=catalogs.routes,
                 scope=IntentScope(client) if research.intent_scope else None,
+                client=client,
             ),
         ],
         subagents=subagents,

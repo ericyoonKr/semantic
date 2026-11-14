@@ -6,6 +6,7 @@ from semantic_agent.tools.client import REQUEST_ID, SEARCH_FAIL, THREAD_ID, Tool
 CHECK_PATH = "/answer/check"
 COVERAGE_PATH = "/research/coverage"
 REVIEW_PATH = "/research/review"
+JUDGE_PATH = "/research/judge"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,16 @@ class ReadCheck:
         data, err = await self.client.fetch("POST", REVIEW_PATH, kind="search", fail=SEARCH_FAIL, json=body)
         note = data.get("note") if isinstance(data, dict) and not err else None
         return str(note) if note else None
+
+    async def judge(self, issue: str, items: list[dict[str, Any]]) -> list[int] | None:
+        if self.client is None or not items:
+            return None
+        body = {"issue": issue, "items": items}
+        data, err = await self.client.fetch("POST", JUDGE_PATH, kind="search", fail=SEARCH_FAIL, json=body)
+        if not isinstance(data, dict) or err or not data.get("judged"):
+            return None
+        keep = data.get("keep")
+        return [int(k) for k in keep] if isinstance(keep, list) else None
 
     async def unread(self, sentences: list[str]) -> list[str]:
         got = await self.verdicts(sentences) or []

@@ -12,7 +12,7 @@ const ERROR_MODEL_DOWN: &str = "모델 서버에 연결되지 않아 답을 만�
 
 fn status_for(tool: &str) -> &'static str {
     match tool {
-        "ls" | "glob" | "grep" | "read_file" | "doc_reader" => STATUS_READ,
+        "ls" | "glob" | "grep" | "read_file" | "doc_reader" | "search_document" => STATUS_READ,
         "judge" => STATUS_JUDGE,
         "search_laws" | "search_cases" | "read_law" | "read_case" | "case_citations" | "kg_find" | "kg_expand" | "researcher"
         | "kg_explorer" | "task" => STATUS_SEARCH,

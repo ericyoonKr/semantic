@@ -9,6 +9,7 @@ use crate::funcall::docindex::{DocSearchReply, DocSearchRequest, search};
 use crate::funcall::docs::session_docs;
 use crate::funcall::holdings::{notes_for, scope_for};
 use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_law, keyword, question_laws};
+use crate::funcall::relevance::{JudgeReply, JudgeRequest, judge, unjudged};
 use crate::funcall::review::{ReviewReply, ReviewRequest, review};
 use crate::funcall::route::is_legal;
 use crate::session::SessionId;
@@ -25,6 +26,19 @@ pub async fn docs_search(
         return Err(ApiError::bad_request("인자 오류: query"));
     }
     Ok(Json(search(&state, sid.as_str(), &req).await))
+}
+
+pub async fn research_judge(
+    State(state): State<AppState>,
+    body: Result<Json<JudgeRequest>, JsonRejection>,
+) -> Result<Json<JudgeReply>, ApiError> {
+    let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: issue·items"))?;
+    let reply = match state.engine.as_ref() {
+        Some(parts) if state.cfg.research_judge => judge(&parts.llm, &req).await,
+        _ => unjudged(&req),
+    };
+    tracing::info!(items = req.items.len(), kept = reply.keep.len(), judged = reply.judged, "research.judge");
+    Ok(Json(reply))
 }
 
 pub async fn research_review(

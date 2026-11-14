@@ -122,6 +122,40 @@ class ReviewingClient(FakeClient):
         return await super().fetch(method, path, **kw)
 
 
+class JudgingClient(FakeClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.judged: list[dict[str, Any]] = []
+
+    async def fetch(self, method: str, path: str, **kw: Any) -> tuple[Any, str | None]:
+        if path == "/research/judge":
+            self.judged.append(dict(kw["json"]))
+            refs = [i["ref"] for i in kw["json"]["items"]]
+            return {"keep": refs[:1], "judged": True}, None
+        return await super().fetch(method, path, **kw)
+
+
+def test_sources_judged_off_the_issue_are_dropped_and_counted() -> None:
+    client = JudgingClient()
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        call("read_case", {"decision_id": "1"}, "k1"),
+        answer(
+            [
+                {"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE},
+                {"claim": "엉뚱한 판례다", "source": "근거 2", "quote": "가짜 판결요지 고정 문장."},
+            ]
+        ),
+        AIMessage(content="끝.\n"),
+    ]
+    events, model = asyncio.run(_ask(script, "가짜법 제1조가 뭐야?", client))
+    assert len(client.judged) == 1 and [i["ref"] for i in client.judged[0]["items"]] == [1, 2]
+    assert client.judged[0]["issue"].startswith("가짜법 제1조가 뭐야?")
+    task = next(m for m in model.seen[-1] if isinstance(m, ToolMessage) and m.name == "task")
+    assert "엉뚱한 판례다" not in str(task.content) and "목적 조항이다" in str(task.content)
+    assert any('"irrelevant": 1' in e for e in events if e.startswith("event: Audit"))
+
+
 def test_research_without_any_search_is_sent_back_inside_the_same_run() -> None:
     client = ReviewingClient([NO_SEARCH_NOTE])
     script = [

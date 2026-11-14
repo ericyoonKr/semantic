@@ -27,6 +27,15 @@ pub struct Config {
     pub lawtime_principles: Option<PathBuf>,
     pub law_aliases: Option<PathBuf>,
     pub route_legal: bool,
+    pub research_judge: bool,
+}
+
+fn switch(value: Option<&str>, name: &'static str) -> Result<bool, ConfigError> {
+    match value {
+        None | Some("off") => Ok(false),
+        Some("on") => Ok(true),
+        Some(_) => Err(ConfigError::Invalid(name)),
+    }
 }
 
 impl Config {
@@ -78,14 +87,11 @@ impl Config {
         let pdfium_dir = r.text("PDFIUM_DIR").map(PathBuf::from);
         let ocr_dir = r.text("OCR_DIR").map(PathBuf::from);
         let ocr_threads = r.positive("OCR_THREADS", 8)?;
-        let ocr_lanes = r.positive("OCR_LANES", 4)?;
+        let ocr_lanes = r.positive("OCR_LANES", 2)?;
         let lawtime_principles = r.text("LAWTIME_PRINCIPLES").map(PathBuf::from);
         let law_aliases = r.text("LAW_ALIASES").map(PathBuf::from);
-        let route_legal = match r.text("ROUTE_LEGAL").as_deref() {
-            None | Some("off") => false,
-            Some("on") => true,
-            Some(_) => return Err(ConfigError::Invalid("ROUTE_LEGAL")),
-        };
+        let route_legal = switch(r.text("ROUTE_LEGAL").as_deref(), "ROUTE_LEGAL")?;
+        let research_judge = switch(r.text("RESEARCH_JUDGE").as_deref(), "RESEARCH_JUDGE")?;
         Ok(Self {
             data_dir,
             kg_dir,
@@ -105,6 +111,7 @@ impl Config {
             lawtime_principles,
             law_aliases,
             route_legal,
+            research_judge,
         })
     }
 

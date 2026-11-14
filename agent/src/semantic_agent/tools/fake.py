@@ -244,13 +244,15 @@ class FakeClient:
         content: Any = None,
         headers: dict[str, str] | None = None,
     ) -> tuple[Any, str | None]:
+        if path == "/research/review":
+            return {"note": None}, None
+        if path == "/research/judge":
+            return {"keep": [i.get("ref") for i in (json or {}).get("items", [])], "judged": False}, None
         self.calls.append((method, path))
         if path == "/answer/check":
             return _fake_check(json), None
         if path.endswith("/next-step"):
             return self._next_step(json or {}), None
-        if path == "/research/review":
-            return {"note": None}, None
         return _answer(method, path), None
 
     async def open_bytes(self, path: str, *, kind: str) -> httpx.Response | None:

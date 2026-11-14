@@ -11,15 +11,16 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from semantic_agent.agent.citations import Finding, Findings, check_research
+from semantic_agent.agent.citations import Finding, Findings, check_research, judge_relevance
 from semantic_agent.agent.guards import result_text
 from semantic_agent.agent.intent import IntentScope
 from semantic_agent.agent.issues import flag, parse_issues, render_issues
 from semantic_agent.agent.prompts import ADVERSE_NOTE, RETRY_NOTE
 from semantic_agent.agent.prompts_research import INTENT_NOTE
 from semantic_agent.agent.subagents import LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
+from semantic_agent.funcall.readcheck import ReadCheck
 from semantic_agent.ledger import Ledger, current_ledger, normalize
-from semantic_agent.tools.client import material
+from semantic_agent.tools.client import ToolClient, material
 from semantic_agent.turn import current_turn
 
 log = logging.getLogger(__name__)
@@ -167,8 +168,10 @@ class SubagentGate(AgentMiddleware):
         deadline_s: float = SUB_DEADLINE_S,
         routes: Mapping[str, Sequence[str]] | None = None,
         scope: IntentScope | None = None,
+        client: ToolClient | None = None,
     ) -> None:
         super().__init__()
+        self._judge = ReadCheck(client).judge
         self._names = frozenset(names)
         self._limit = limit
         self._deadline_s = deadline_s
@@ -269,7 +272,7 @@ class SubagentGate(AgentMiddleware):
                 note = RETRY_NOTE
             else:
                 if name == RESEARCHER:
-                    findings = check_research(findings, ledger)
+                    findings = await judge_relevance(check_research(findings, ledger), ledger, self._judge, brief.issue)
                     if brief.purpose == JUDGE_PURPOSE and not reverse_ok(findings, ledger.queries[start:]):
                         adverse += 1
                         log.info(
@@ -292,6 +295,9 @@ class SubagentGate(AgentMiddleware):
                     if findings.dropped:
                         log.info("subagent lines dropped name=%s count=%d", name, findings.dropped)
                         current_turn().block("sub_result", name=name, dropped=findings.dropped)
+                    if findings.irrelevant:
+                        log.info("subagent lines off the issue name=%s count=%d", name, findings.irrelevant)
+                        current_turn().block("sub_result", name=name, irrelevant=findings.irrelevant)
                     return _with_text(result, call_id, render_findings(name, findings))
             current = dict(attempt.tool_call.get("args") or {})
             current["description"] = f"{current.get('description', '')}\n\n{note}"

@@ -1,6 +1,7 @@
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from typing import Any
 
 from semantic_agent.agent.issues import Issue, check_refs
 from semantic_agent.ledger import Authority, Ledger
@@ -26,6 +27,31 @@ class Findings:
     limit: str | None
     reverse_query: str | None = None
     issues: tuple[Issue, ...] = ()
+    irrelevant: int = 0
+
+
+Judge = Callable[[str, list[dict[str, Any]]], Awaitable[list[int] | None]]
+JUDGE_TEXT_CHARS = 800
+
+
+def _ref_of(source: str) -> int | None:
+    match = REF.match(source)
+    return int(match.group(1)) if match else None
+
+
+async def judge_relevance(findings: Findings, ledger: Ledger, judge: Judge, issue: str) -> Findings:
+    items: list[dict[str, Any]] = []
+    for item in findings.found:
+        ref = _ref_of(item.source)
+        authority = ledger.get(ref) if ref is not None else None
+        if authority is None or any(i["ref"] == ref for i in items):
+            continue
+        items.append({"ref": ref, "label": authority.display(), "text": authority.body[:JUDGE_TEXT_CHARS]})
+    keep = await judge(issue, items) if items else None
+    if keep is None:
+        return findings
+    kept = [item for item in findings.found if _ref_of(item.source) in keep]
+    return replace(findings, found=kept, irrelevant=len(findings.found) - len(kept))
 
 
 def _keep(findings: Findings, judge: Callable[[Finding], Finding | None]) -> Findings:
