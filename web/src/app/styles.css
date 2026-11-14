@@ -1658,22 +1658,31 @@ button:disabled {
 .context-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 16px 6px;
-  font-size: 12px;
+  gap: 12px;
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--glass-strong);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.context-bar.is-empty {
   color: var(--ink-3);
 }
 
 .context-bar-label {
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .context-bar-track {
   position: relative;
   flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--fill-2);
+  height: 8px;
+  border-radius: 4px;
+  background: var(--fill-3);
 }
 
 .context-bar-fill {
@@ -1681,14 +1690,20 @@ button:disabled {
   top: 0;
   bottom: 0;
   left: 0;
-  border-radius: 2px;
+  min-width: 2px;
+  border-radius: 4px;
   background: var(--accent);
 }
 
 .context-bar-mark {
   position: absolute;
-  top: -3px;
+  top: -4px;
   width: 2px;
-  height: 10px;
-  background: var(--ink-3);
+  height: 16px;
+  background: var(--ink-2);
+}
+
+.context-bar-pct {
+  white-space: nowrap;
+  color: var(--ink-3);
 }
