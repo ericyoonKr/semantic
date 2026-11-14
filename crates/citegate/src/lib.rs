@@ -126,14 +126,60 @@ pub fn canonical(name: &str) -> String {
 const QUOTE_MIN: usize = 20;
 const QUOTE_OVERLAP: f32 = 0.95;
 const FRAGMENT_MIN: usize = 8;
-const QUOTE_MARKS: [char; 31] = [
+const FRAGMENT_LOOSE_MIN: usize = 12;
+const FRAGMENT_OVERLAP: f32 = 0.8;
+const FRAGMENT_RUN: f32 = 0.5;
+const QUOTE_MARKS: &[char] = &[
     '「', '」', '『', '』', '"', '\'', '“', '”', '‘', '’', '·', 'ㆍ', '・', '…', ',', '.', '(', ')', '[', ']', '{', '}', ':', ';', '!', '?', '-', '–', '—',
-    '/', '~',
+    '/', '~', '∼', '|', '│', '┃', '├', '┼', '┤', '┬', '┴', '─', '━', '┌', '┐', '└', '┘', '■', '□',
 ];
 const ELLIPSES: [&str; 4] = ["…", "...", "(중략)", "[중략]"];
+static ASIDE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^<>\n]{0,80}>|\([^()\n]{0,120}\)|（[^（）\n]{0,120}）").expect("aside pattern"));
+static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^제\d+조(?:의\d+)?").expect("heading pattern"));
 
 fn plain(text: &str) -> String {
-    compact(text).chars().filter(|c| !QUOTE_MARKS.contains(c)).collect()
+    compact(&ASIDE.replace_all(text, "")).chars().filter(|c| !QUOTE_MARKS.contains(c)).collect()
+}
+
+fn ngram_ratio(piece: &str, body: &str, n: usize) -> f32 {
+    let chars: Vec<char> = piece.chars().collect();
+    if chars.len() < n {
+        return 0.0;
+    }
+    let grams: Vec<String> = chars.windows(n).map(|w| w.iter().collect()).collect();
+    let hits = grams.iter().filter(|g| body.contains(g.as_str())).count();
+    hits as f32 / grams.len() as f32
+}
+
+fn longest_common_run(piece: &str, body: &str) -> usize {
+    let p: Vec<char> = piece.chars().collect();
+    let b: Vec<char> = body.chars().collect();
+    let mut prev = vec![0usize; b.len() + 1];
+    let mut best = 0;
+    for &pc in &p {
+        let mut cur = vec![0usize; b.len() + 1];
+        for (j, &bc) in b.iter().enumerate() {
+            if pc == bc {
+                cur[j + 1] = prev[j] + 1;
+                best = best.max(cur[j + 1]);
+            }
+        }
+        prev = cur;
+    }
+    best
+}
+
+fn fragment_found(body: &str, at: &mut usize, part: &str, loose: bool) -> bool {
+    if let Some(i) = body[*at..].find(part) {
+        *at += i + part.len();
+        return true;
+    }
+    let len = part.chars().count();
+    loose
+        && len >= FRAGMENT_LOOSE_MIN
+        && ngram_ratio(part, body, 3) >= FRAGMENT_OVERLAP
+        && longest_common_run(part, body) as f32 >= len as f32 * FRAGMENT_RUN
 }
 
 fn fragments(quote: &str) -> Vec<String> {
@@ -144,29 +190,97 @@ fn fragments(quote: &str) -> Vec<String> {
     parts.iter().map(|p| plain(p)).filter(|p| p.chars().count() >= FRAGMENT_MIN).collect()
 }
 
-pub fn quote_match(body: &str, quote: &str) -> bool {
-    let body_plain = plain(body);
-    let parts = fragments(quote);
-    let mut at = 0;
-    if !parts.is_empty()
-        && parts.iter().all(|p| match body_plain[at..].find(p.as_str()) {
-            Some(i) => {
-                at += i + p.len();
-                true
+const TABLE_BARS: [char; 3] = ['│', '┼', '|'];
+const CELL_MIN: usize = 2;
+
+fn table_rows(body: &str) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut open = false;
+    for line in body.lines() {
+        let text = plain(line);
+        if text.is_empty() {
+            open = false;
+            continue;
+        }
+        if open {
+            if let Some(last) = rows.last_mut() {
+                last.push_str(&text);
             }
-            None => false,
-        })
-    {
-        return true;
+        } else {
+            rows.push(text);
+            open = true;
+        }
     }
-    let q: Vec<char> = compact(quote).chars().collect();
-    if q.len() < QUOTE_MIN {
+    rows
+}
+
+fn cells(line: &str) -> Vec<String> {
+    line.split(['|', '│', '\t'])
+        .flat_map(str::split_whitespace)
+        .map(plain)
+        .filter(|c| c.chars().count() >= CELL_MIN)
+        .collect()
+}
+
+const WRAPPED_MIN: usize = 5;
+
+fn in_order(token: &str, row: &str) -> bool {
+    let mut rest = row;
+    for c in token.chars() {
+        match rest.find(c) {
+            Some(i) => rest = &rest[i + c.len_utf8()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+fn cell_in_row(cell: &str, row: &str) -> bool {
+    row.contains(cell) || (cell.chars().count() >= WRAPPED_MIN && in_order(cell, row))
+}
+
+const WINDOW_SLACK: usize = 10;
+
+fn line_in_row(cells: &[String], row: &str) -> bool {
+    let Some(anchor) = cells.iter().filter(|c| row.contains(c.as_str())).max_by_key(|c| c.chars().count()) else { return false };
+    let span: usize = cells.iter().map(|c| c.chars().count()).sum::<usize>() + WINDOW_SLACK;
+    let chars: Vec<char> = row.chars().collect();
+    row.match_indices(anchor.as_str()).any(|(byte_at, _)| {
+        let at = row[..byte_at].chars().count();
+        let window: String = chars[at.saturating_sub(span)..(at + span).min(chars.len())].iter().collect();
+        cells.iter().all(|c| cell_in_row(c, &window))
+    })
+}
+
+fn table_quote_match(body: &str, quote: &str) -> bool {
+    if !body.contains(TABLE_BARS) {
         return false;
     }
-    let b = compact(body);
-    let pairs: Vec<String> = q.windows(2).map(|w| w.iter().collect()).collect();
-    let hits = pairs.iter().filter(|p| b.contains(p.as_str())).count();
-    hits as f32 / pairs.len() as f32 >= QUOTE_OVERLAP
+    let rows = table_rows(body);
+    let lines: Vec<Vec<String>> = quote.lines().map(cells).filter(|c| !c.is_empty()).collect();
+    !lines.is_empty() && lines.iter().all(|cs| rows.iter().any(|row| line_in_row(cs, row)))
+}
+
+pub fn quote_match(body: &str, quote: &str) -> bool {
+    if table_quote_match(body, quote) {
+        return true;
+    }
+    let body_plain = plain(body);
+    let mut parts = fragments(quote);
+    if let Some(first) = parts.first_mut()
+        && !body_plain.contains(first.as_str())
+        && let Some(m) = HEADING.find(first)
+    {
+        *first = first[m.end()..].to_string();
+    }
+    let parts: Vec<String> = parts.into_iter().filter(|p| p.chars().count() >= FRAGMENT_MIN).collect();
+    let loose = !body.contains(TABLE_BARS);
+    let mut at = 0;
+    if !parts.is_empty() && parts.iter().all(|p| fragment_found(&body_plain, &mut at, p, loose)) {
+        return true;
+    }
+    let q = plain(quote);
+    loose && q.chars().count() >= QUOTE_MIN && ngram_ratio(&q, &body_plain, 2) >= QUOTE_OVERLAP
 }
 
 pub fn suffixes(name: &str) -> Vec<String> {

@@ -9,7 +9,7 @@ from semantic_agent.ledger import Authority, Ledger, compact
 
 log = logging.getLogger(__name__)
 
-REF = re.compile(r"^\s*\[?근거\s*(\d+)\]?")
+REF = re.compile(r"^\s*[\[「]?\s*근거\s*(\d+)\s*[\]」]?")
 MARKS = re.compile(r"[「」『』\"'“”‘’·ㆍ・…,.()\[\]{}:;!?\-–—/~]")
 ELLIPSIS = re.compile(r"(?:\.{3}|…|\(중략\)|\[중략\])")
 FRAGMENT_MIN = 8
@@ -125,12 +125,14 @@ def check_research(findings: Findings, ledger: Ledger, relaxed: frozenset[str] =
             return None
         if not authority.has_quote(item.quote) and item.quote not in relaxed:
             log.info(
-                "quote_mismatch kind=%s ref=%d quote_chars=%d overlap=%.2f normalized=%s",
+                "quote_mismatch kind=%s ref=%d quote_chars=%d overlap=%.2f normalized=%s label=%r quote=%r",
                 authority.kind,
                 authority.ref,
                 len(item.quote),
                 overlap(item.quote, authority.body),
                 normalized_match(item.quote, authority.body),
+                authority.label[:40],
+                item.quote[:240],
             )
             return None
         return replace(item, source=_shown(authority))
