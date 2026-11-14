@@ -78,7 +78,7 @@ pub async fn next_step(
     let notes = notes_for(&req.question, state.holdings.get());
     let mut ctx = Context::new(&req, &state.reads.snapshot(sid.as_str()));
     ctx.scope = scope_for(&notes);
-    let read_kinds: Vec<String> = ctx.read.iter().filter_map(|l| law_of_label(l)).filter_map(|law| state.known.kind_of(law)).collect();
+    let read_kinds: Vec<norms::Kind> = ctx.read.iter().filter_map(|l| law_of_label(l)).filter_map(|law| state.known.kind_of(law)).collect();
     if let Some(text) = req.answer.as_deref() {
         let ask = UnreadRequest { thread_id: sid.as_str().to_string(), text: text.to_string() };
         let found = unread_in_corpus(&state, &ask).await;
@@ -90,7 +90,7 @@ pub async fn next_step(
             reread = matches!(step, Step::Task { .. }),
             "next_step.after_answer"
         );
-        let guidance = guidance_for(&req.question, read_kinds.iter().map(String::as_str));
+        let guidance = guidance_for(&req.question, read_kinds.iter().copied());
         return Ok(Json(StepReply { step, notes, guidance }));
     }
     let db = state.db.clone();
@@ -118,7 +118,7 @@ pub async fn next_step(
     let step = state.steps.next(sid.as_str(), &req, legal, &docs, &laws, &ctx);
     let mut kinds = read_kinds;
     kinds.extend(laws.iter().filter_map(|law| state.known.kind_of(law)));
-    let guidance = guidance_for(&req.question, kinds.iter().map(String::as_str));
+    let guidance = guidance_for(&req.question, kinds.iter().copied());
     if let Step::Task { description, .. } = &step {
         tracing::info!(
             history = ctx.history.len(),

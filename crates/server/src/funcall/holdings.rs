@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use norms::Kind;
 use retrieval::Corpus;
 
 pub use norms::{NO_ORDINANCE_NOTE, ORDINANCE_SCOPE_LINE as SCOPE_LINE};
@@ -18,7 +19,7 @@ impl Holdings {
         match retrieval::query::laws::law_kinds(corpus.pool()).await {
             Ok(kinds) => {
                 let found = Self::from_kinds(kinds);
-                tracing::info!(kinds = ?found.kinds, ordinances = found.has_kind("ordin"), "holdings.loaded");
+                tracing::info!(kinds = ?found.kinds, ordinances = found.has(Kind::Ordinance), "holdings.loaded");
                 Some(found)
             }
             Err(error) => {
@@ -28,40 +29,41 @@ impl Holdings {
         }
     }
 
-    pub fn has_kind(&self, kind: &str) -> bool {
-        self.kinds.get(kind).is_some_and(|n| *n > 0)
+    pub fn has(&self, kind: Kind) -> bool {
+        self.kinds.get(kind.db_value()).is_some_and(|n| *n > 0)
     }
 
     pub fn has_ordinances(&self) -> bool {
-        self.has_kind("ordin")
+        self.has(Kind::Ordinance)
     }
 }
 
 pub fn asks_ordinance(question: &str) -> bool {
-    norms::kinds_in_question(question).iter().any(|k| k.kind == "ordin")
+    norms::kinds_in_question(question).contains(&Kind::Ordinance)
 }
 
 pub fn notes_for(question: &str, holdings: Option<&Holdings>) -> Vec<String> {
     let Some(h) = holdings else { return Vec::new() };
-    norms::missing_kinds(question, |k| h.has_kind(k)).into_iter().filter_map(|k| k.missing_note.map(str::to_string)).collect()
+    norms::missing_kinds(question, |k| h.has(k)).into_iter().filter_map(|k| k.norm().missing_note().map(str::to_string)).collect()
 }
 
 pub fn scope_for(notes: &[String]) -> Vec<String> {
-    norms::KINDS
-        .iter()
-        .filter(|k| k.missing_note.is_some_and(|n| notes.iter().any(|x| x == n)))
-        .filter_map(|k| k.scope_line.map(str::to_string))
+    norms::all()
+        .filter(|n| n.missing_note().is_some_and(|note| notes.iter().any(|x| x == note)))
+        .filter_map(|n| n.scope_line().map(str::to_string))
         .collect()
 }
 
-pub fn guidance_for<'a>(question: &str, kinds: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-    let mut names: Vec<&str> = norms::kinds_in_question(question).into_iter().map(|k| k.kind).collect();
-    names.extend(kinds);
-    norms::writing_notes(names).into_iter().map(str::to_string).collect()
+pub fn guidance_for(question: &str, kinds: impl IntoIterator<Item = Kind>) -> Vec<String> {
+    let mut all = norms::kinds_in_question(question);
+    all.extend(kinds);
+    norms::writing_notes(all).into_iter().map(str::to_string).collect()
 }
 
 #[cfg(test)]
 mod tests {
+    use norms::Kind;
+
     use super::{Holdings, NO_ORDINANCE_NOTE, SCOPE_LINE, asks_ordinance, guidance_for, notes_for, scope_for};
 
     #[test]
@@ -75,15 +77,16 @@ mod tests {
         assert!(notes_for("무슨 조례?", None).is_empty());
         assert_eq!(scope_for(&[NO_ORDINANCE_NOTE.to_string()]), vec![SCOPE_LINE.to_string()]);
         assert!(scope_for(&[]).is_empty());
+        assert!(with.has_ordinances() && !without.has_ordinances());
     }
 
     #[test]
     fn writing_guidance_follows_the_kinds_in_the_question_and_the_laws_involved() {
         let from_question = guidance_for("학칙에 휴학 규정 있어?", []);
         assert_eq!(from_question, vec![norms::RULE_WRITING_NOTE.to_string()]);
-        let from_laws = guidance_for("휴학은 어떻게 돼?", ["rule", "law"]);
+        let from_laws = guidance_for("휴학은 어떻게 돼?", [Kind::Rule, Kind::Law]);
         assert_eq!(from_laws, vec![norms::RULE_WRITING_NOTE.to_string()]);
-        assert!(guidance_for("과태료 얼마야?", ["law", "admrul"]).is_empty());
-        assert_eq!(guidance_for("강남구 조례는?", ["ordin"]), vec![norms::ORDINANCE_WRITING_NOTE.to_string()]);
+        assert!(guidance_for("과태료 얼마야?", [Kind::Law, Kind::AdminRule]).is_empty());
+        assert_eq!(guidance_for("강남구 조례는?", [Kind::Ordinance]), vec![norms::ORDINANCE_WRITING_NOTE.to_string()]);
     }
 }

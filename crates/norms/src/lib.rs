@@ -14,18 +14,31 @@ pub enum BareName {
     QuotedOnly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NormKind {
-    pub kind: &'static str,
-    pub label: &'static str,
-    pub rank: u8,
-    pub tails: &'static [&'static str],
-    pub words: &'static [&'static str],
-    pub bare: BareName,
-    pub weight: Weight,
-    pub missing_note: Option<&'static str>,
-    pub scope_line: Option<&'static str>,
-    pub writing_note: Option<&'static str>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Law,
+    AdminRule,
+    Ordinance,
+    Rule,
+}
+
+pub trait Norm {
+    fn kind(&self) -> Kind;
+    fn label(&self) -> &'static str;
+    fn rank(&self) -> u8;
+    fn tails(&self) -> &'static [&'static str];
+    fn words(&self) -> &'static [&'static str];
+    fn bare(&self) -> BareName;
+    fn weight(&self) -> Weight;
+    fn missing_note(&self) -> Option<&'static str> {
+        None
+    }
+    fn scope_line(&self) -> Option<&'static str> {
+        None
+    }
+    fn writing_note(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 pub const NO_ORDINANCE_NOTE: &str = "조례(자치법규)는 이 서비스의 자료에 없어 확인하지 못했습니다.";
@@ -35,69 +48,163 @@ pub const ORDINANCE_WRITING_NOTE: &str =
 pub const RULE_WRITING_NOTE: &str =
     "학칙·세칙 같은 기관 규정은 그 기관 구성원에게만 미치는 자치규범이고 법령이 아니다. 「학칙상 …」·「규정상 …」으로 적어 법률상 근거와 섞지 않고, 상위 법령(고등교육법 등)이 있으면 함께 든다.";
 
-pub const KINDS: [NormKind; 4] = [
-    NormKind {
-        kind: "law",
-        label: "법령",
-        rank: 1,
-        tails: &["법률", "법", "령", "규칙"],
-        words: &["법", "법령", "법률", "시행령", "시행규칙"],
-        bare: BareName::Checked,
-        weight: Weight::ByLawType,
-        missing_note: None,
-        scope_line: None,
-        writing_note: None,
-    },
-    NormKind {
-        kind: "admrul",
-        label: "행정규칙",
-        rank: 2,
-        tails: &["고시", "훈령", "예규", "지침", "규정"],
-        words: &["고시", "훈령", "예규", "지침", "규정"],
-        bare: BareName::QuotedOnly,
-        weight: Weight::AdminRule,
-        missing_note: None,
-        scope_line: None,
-        writing_note: None,
-    },
-    NormKind {
-        kind: "ordin",
-        label: "자치법규",
-        rank: 3,
-        tails: &["조례", "자치법규"],
-        words: &["조례", "자치법규"],
-        bare: BareName::RegionOnly,
-        weight: Weight::Rule,
-        missing_note: Some(NO_ORDINANCE_NOTE),
-        scope_line: Some(ORDINANCE_SCOPE_LINE),
-        writing_note: Some(ORDINANCE_WRITING_NOTE),
-    },
-    NormKind {
-        kind: "rule",
-        label: "기관 규정",
-        rank: 4,
-        tails: &["학칙", "세칙"],
-        words: &["학칙", "세칙", "시행세칙", "내규", "정관", "규약"],
-        bare: BareName::Checked,
-        weight: Weight::Rule,
-        missing_note: None,
-        scope_line: None,
-        writing_note: Some(RULE_WRITING_NOTE),
-    },
-];
+pub struct Law;
+pub struct AdminRule;
+pub struct Ordinance;
+pub struct Rule;
 
-pub fn kind(name: &str) -> Option<&'static NormKind> {
-    KINDS.iter().find(|k| k.kind == name)
+impl Norm for Law {
+    fn kind(&self) -> Kind {
+        Kind::Law
+    }
+    fn label(&self) -> &'static str {
+        "법령"
+    }
+    fn rank(&self) -> u8 {
+        1
+    }
+    fn tails(&self) -> &'static [&'static str] {
+        &["법률", "법", "령", "규칙"]
+    }
+    fn words(&self) -> &'static [&'static str] {
+        &["법", "법령", "법률", "시행령", "시행규칙"]
+    }
+    fn bare(&self) -> BareName {
+        BareName::Checked
+    }
+    fn weight(&self) -> Weight {
+        Weight::ByLawType
+    }
 }
 
-pub fn label(kind_name: &str) -> &'static str {
-    kind(kind_name).map_or("법령", |k| k.label)
+impl Norm for AdminRule {
+    fn kind(&self) -> Kind {
+        Kind::AdminRule
+    }
+    fn label(&self) -> &'static str {
+        "행정규칙"
+    }
+    fn rank(&self) -> u8 {
+        2
+    }
+    fn tails(&self) -> &'static [&'static str] {
+        &["고시", "훈령", "예규", "지침", "규정"]
+    }
+    fn words(&self) -> &'static [&'static str] {
+        &["고시", "훈령", "예규", "지침", "규정"]
+    }
+    fn bare(&self) -> BareName {
+        BareName::QuotedOnly
+    }
+    fn weight(&self) -> Weight {
+        Weight::AdminRule
+    }
 }
 
-fn tails_of<'a>(kinds: impl Iterator<Item = &'a NormKind>) -> Vec<&'static str> {
+impl Norm for Ordinance {
+    fn kind(&self) -> Kind {
+        Kind::Ordinance
+    }
+    fn label(&self) -> &'static str {
+        "자치법규"
+    }
+    fn rank(&self) -> u8 {
+        3
+    }
+    fn tails(&self) -> &'static [&'static str] {
+        &["조례", "자치법규"]
+    }
+    fn words(&self) -> &'static [&'static str] {
+        &["조례", "자치법규"]
+    }
+    fn bare(&self) -> BareName {
+        BareName::RegionOnly
+    }
+    fn weight(&self) -> Weight {
+        Weight::Rule
+    }
+    fn missing_note(&self) -> Option<&'static str> {
+        Some(NO_ORDINANCE_NOTE)
+    }
+    fn scope_line(&self) -> Option<&'static str> {
+        Some(ORDINANCE_SCOPE_LINE)
+    }
+    fn writing_note(&self) -> Option<&'static str> {
+        Some(ORDINANCE_WRITING_NOTE)
+    }
+}
+
+impl Norm for Rule {
+    fn kind(&self) -> Kind {
+        Kind::Rule
+    }
+    fn label(&self) -> &'static str {
+        "기관 규정"
+    }
+    fn rank(&self) -> u8 {
+        4
+    }
+    fn tails(&self) -> &'static [&'static str] {
+        &["학칙", "세칙"]
+    }
+    fn words(&self) -> &'static [&'static str] {
+        &["학칙", "세칙", "시행세칙", "내규", "정관", "규약"]
+    }
+    fn bare(&self) -> BareName {
+        BareName::Checked
+    }
+    fn weight(&self) -> Weight {
+        Weight::Rule
+    }
+    fn writing_note(&self) -> Option<&'static str> {
+        Some(RULE_WRITING_NOTE)
+    }
+}
+
+impl Kind {
+    pub const ALL: [Kind; 4] = [Kind::Law, Kind::AdminRule, Kind::Ordinance, Kind::Rule];
+    const BY_NAME: [Kind; 4] = [Kind::Ordinance, Kind::Rule, Kind::AdminRule, Kind::Law];
+
+    pub fn norm(self) -> &'static dyn Norm {
+        match self {
+            Kind::Law => &Law,
+            Kind::AdminRule => &AdminRule,
+            Kind::Ordinance => &Ordinance,
+            Kind::Rule => &Rule,
+        }
+    }
+
+    pub fn db_value(self) -> &'static str {
+        match self {
+            Kind::Law => "law",
+            Kind::AdminRule => "admrul",
+            Kind::Ordinance => "ordin",
+            Kind::Rule => "rule",
+        }
+    }
+
+    pub fn from_db(value: &str) -> Option<Kind> {
+        Kind::ALL.into_iter().find(|k| k.db_value() == value.trim())
+    }
+
+    pub fn of_name(name: &str) -> Option<Kind> {
+        let name = name.trim_end();
+        Kind::BY_NAME.into_iter().find(|k| k.norm().tails().iter().any(|t| name.ends_with(t)))
+    }
+}
+
+pub fn all() -> impl Iterator<Item = &'static dyn Norm> {
+    Kind::ALL.into_iter().map(Kind::norm)
+}
+
+pub fn label(db_value: &str) -> &'static str {
+    Kind::from_db(db_value).map_or(Law.label(), |k| k.norm().label())
+}
+
+fn tails_of<'a>(norms: impl Iterator<Item = &'a dyn Norm>) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
-    for k in kinds {
-        for t in k.tails {
+    for n in norms {
+        for t in n.tails() {
             if !out.contains(t) {
                 out.push(t);
             }
@@ -108,26 +215,21 @@ fn tails_of<'a>(kinds: impl Iterator<Item = &'a NormKind>) -> Vec<&'static str> 
 }
 
 pub fn all_tails() -> Vec<&'static str> {
-    tails_of(KINDS.iter())
+    tails_of(all())
 }
 
 pub fn tails_for(bare: BareName) -> Vec<&'static str> {
-    tails_of(KINDS.iter().filter(|k| k.bare == bare))
+    tails_of(all().filter(|n| n.bare() == bare))
 }
 
 pub fn names_a_norm(word: &str) -> bool {
     all_tails().iter().any(|t| word.ends_with(t))
 }
 
-pub fn kind_of_name(name: &str) -> Option<&'static NormKind> {
-    let order = ["ordin", "rule", "admrul", "law"];
-    order.iter().filter_map(|k| kind(k)).find(|k| k.tails.iter().any(|t| name.trim_end().ends_with(t)))
-}
-
 pub fn question_words() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
-    for k in &KINDS {
-        for w in k.words {
+    for n in all() {
+        for w in n.words() {
             if !out.contains(w) {
                 out.push(w);
             }
@@ -136,22 +238,22 @@ pub fn question_words() -> Vec<&'static str> {
     out
 }
 
-pub fn kinds_in_question(question: &str) -> Vec<&'static NormKind> {
-    KINDS.iter().filter(|k| k.words.iter().any(|w| question.contains(w))).collect()
+pub fn kinds_in_question(question: &str) -> Vec<Kind> {
+    Kind::ALL.into_iter().filter(|k| k.norm().words().iter().any(|w| question.contains(w))).collect()
 }
 
-pub fn missing_kinds(question: &str, has_kind: impl Fn(&str) -> bool) -> Vec<&'static NormKind> {
-    kinds_in_question(question).into_iter().filter(|k| k.missing_note.is_some() && !has_kind(k.kind)).collect()
+pub fn missing_kinds(question: &str, has: impl Fn(Kind) -> bool) -> Vec<Kind> {
+    kinds_in_question(question).into_iter().filter(|k| k.norm().missing_note().is_some() && !has(*k)).collect()
 }
 
 pub fn is_missing_note(text: &str) -> bool {
-    KINDS.iter().any(|k| k.missing_note == Some(text.trim()))
+    all().any(|n| n.missing_note() == Some(text.trim()))
 }
 
-pub fn writing_notes<'a>(kinds: impl IntoIterator<Item = &'a str>) -> Vec<&'static str> {
+pub fn writing_notes(kinds: impl IntoIterator<Item = Kind>) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
-    for name in kinds {
-        if let Some(note) = kind(name).and_then(|k| k.writing_note)
+    for k in kinds {
+        if let Some(note) = k.norm().writing_note()
             && !out.contains(&note)
         {
             out.push(note);
@@ -160,15 +262,14 @@ pub fn writing_notes<'a>(kinds: impl IntoIterator<Item = &'a str>) -> Vec<&'stat
     out
 }
 
-pub fn weight_slot(kind_name: &str, law_type: &str) -> Weight {
-    match kind(kind_name).map(|k| k.weight) {
-        Some(Weight::ByLawType) => match law_type {
+pub fn weight_slot(kind: Kind, law_type: &str) -> Weight {
+    match kind.norm().weight() {
+        Weight::ByLawType => match law_type {
             "법률" => Weight::Statute,
             "대통령령" => Weight::Decree,
             _ => Weight::Rule,
         },
-        Some(w) => w,
-        None => Weight::AdminRule,
+        w => w,
     }
 }
 
@@ -189,40 +290,45 @@ mod tests {
     }
 
     #[test]
-    fn kinds_are_told_apart_by_tails_and_words() {
-        assert_eq!(kind_of_name("단국대학교 학칙").map(|k| k.kind), Some("rule"));
-        assert_eq!(kind_of_name("서울특별시 강남구 식품접객업소 조례").map(|k| k.kind), Some("ordin"));
-        assert_eq!(kind_of_name("식품위생법 시행규칙").map(|k| k.kind), Some("law"));
-        assert_eq!(kind_of_name("공무원 보수 지침").map(|k| k.kind), Some("admrul"));
-        assert_eq!(kind_of_name("김밥").map(|k| k.kind), None);
-        assert_eq!(kinds_in_question("학칙에 휴학 규정 있어?").iter().map(|k| k.kind).collect::<Vec<_>>(), vec!["admrul", "rule"]);
+    fn kinds_are_made_from_db_values_and_names() {
+        assert_eq!(Kind::of_name("단국대학교 학칙"), Some(Kind::Rule));
+        assert_eq!(Kind::of_name("서울특별시 강남구 식품접객업소 조례"), Some(Kind::Ordinance));
+        assert_eq!(Kind::of_name("식품위생법 시행규칙"), Some(Kind::Law));
+        assert_eq!(Kind::of_name("공무원 보수 지침"), Some(Kind::AdminRule));
+        assert_eq!(Kind::of_name("김밥"), None);
+        for k in Kind::ALL {
+            assert_eq!(Kind::from_db(k.db_value()), Some(k));
+            assert_eq!(k.norm().kind(), k);
+        }
+        assert_eq!(Kind::from_db("mystery"), None);
+        assert_eq!(kinds_in_question("학칙에 휴학 규정 있어?"), vec![Kind::AdminRule, Kind::Rule]);
         assert!(question_words().contains(&"학칙") && question_words().contains(&"조례") && question_words().contains(&"시행령"));
         assert_eq!(label("rule"), "기관 규정");
         assert_eq!(label("ordin"), "자치법규");
         assert_eq!(label("law"), "법령");
         assert_eq!(label("unknown"), "법령");
+        assert!(all().map(|n| n.rank()).collect::<Vec<_>>().windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]
     fn missing_notes_and_writing_notes_follow_the_spec() {
-        let none = |_: &str| false;
-        assert_eq!(missing_kinds("무슨 조례?", none).iter().map(|k| k.kind).collect::<Vec<_>>(), vec!["ordin"]);
-        assert!(missing_kinds("무슨 조례?", |k| k == "ordin").is_empty());
+        let none = |_: Kind| false;
+        assert_eq!(missing_kinds("무슨 조례?", none), vec![Kind::Ordinance]);
+        assert!(missing_kinds("무슨 조례?", |k| k == Kind::Ordinance).is_empty());
         assert!(missing_kinds("무슨 법?", none).is_empty());
         assert!(is_missing_note(NO_ORDINANCE_NOTE) && !is_missing_note("조례가 있습니다."));
-        assert_eq!(writing_notes(["rule", "law", "rule"]), vec![RULE_WRITING_NOTE]);
-        assert_eq!(writing_notes(["ordin"]), vec![ORDINANCE_WRITING_NOTE]);
-        assert!(writing_notes(["law", "admrul"]).is_empty());
+        assert_eq!(writing_notes([Kind::Rule, Kind::Law, Kind::Rule]), vec![RULE_WRITING_NOTE]);
+        assert_eq!(writing_notes([Kind::Ordinance]), vec![ORDINANCE_WRITING_NOTE]);
+        assert!(writing_notes([Kind::Law, Kind::AdminRule]).is_empty());
     }
 
     #[test]
     fn weights_follow_kind_then_law_type() {
-        assert_eq!(weight_slot("law", "법률"), Weight::Statute);
-        assert_eq!(weight_slot("law", "대통령령"), Weight::Decree);
-        assert_eq!(weight_slot("law", "부령"), Weight::Rule);
-        assert_eq!(weight_slot("rule", "학칙"), Weight::Rule);
-        assert_eq!(weight_slot("ordin", "조례"), Weight::Rule);
-        assert_eq!(weight_slot("admrul", "고시"), Weight::AdminRule);
-        assert_eq!(weight_slot("mystery", ""), Weight::AdminRule);
+        assert_eq!(weight_slot(Kind::Law, "법률"), Weight::Statute);
+        assert_eq!(weight_slot(Kind::Law, "대통령령"), Weight::Decree);
+        assert_eq!(weight_slot(Kind::Law, "부령"), Weight::Rule);
+        assert_eq!(weight_slot(Kind::Rule, "학칙"), Weight::Rule);
+        assert_eq!(weight_slot(Kind::Ordinance, "조례"), Weight::Rule);
+        assert_eq!(weight_slot(Kind::AdminRule, "고시"), Weight::AdminRule);
     }
 }

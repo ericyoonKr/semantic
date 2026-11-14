@@ -59,14 +59,14 @@ impl LawWeights {
             format!("WHEN {kind} = 'law' AND {law_type} = '대통령령' THEN {:.4}", self.decree),
             format!("WHEN {kind} = 'law' THEN {:.4}", self.rule),
         ];
-        for k in norms::KINDS.iter().filter(|k| k.kind != "law") {
-            arms.push(format!("WHEN {kind} = '{}' THEN {:.4}", k.kind, self.value(k.weight)));
+        for k in norms::Kind::ALL.into_iter().filter(|k| *k != norms::Kind::Law) {
+            arms.push(format!("WHEN {kind} = '{}' THEN {:.4}", k.db_value(), self.value(k.norm().weight())));
         }
         format!("(CASE {} ELSE {:.4} END)", arms.join(" "), self.admin_rule)
     }
 
     pub fn of(&self, kind: &str, law_type: &str) -> f64 {
-        self.value(norms::weight_slot(kind, law_type))
+        norms::Kind::from_db(kind).map_or(self.admin_rule, |k| self.value(norms::weight_slot(k, law_type)))
     }
 }
 

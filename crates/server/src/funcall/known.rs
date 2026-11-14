@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
+use norms::Kind;
 use retrieval::Corpus;
 use tokio::sync::OnceCell;
 
@@ -9,7 +10,7 @@ const MAX_NAMES: usize = 20_000;
 #[derive(Default)]
 pub struct KnownLaws {
     names: OnceCell<HashSet<String>>,
-    kinds: OnceCell<HashMap<String, String>>,
+    kinds: OnceCell<HashMap<String, Kind>>,
     cache: Mutex<HashMap<String, bool>>,
 }
 
@@ -22,8 +23,9 @@ impl KnownLaws {
     pub async fn load(&self, corpus: &Corpus) {
         match retrieval::query::laws::law_name_kinds(corpus.pool()).await {
             Ok(rows) => {
-                let kinds: HashMap<String, String> = rows.iter().map(|(n, k)| (citegate::canonical(n), k.clone())).collect();
-                let set: HashSet<String> = kinds.keys().cloned().collect();
+                let set: HashSet<String> = rows.iter().map(|(n, _)| citegate::canonical(n)).collect();
+                let kinds: HashMap<String, Kind> =
+                    rows.iter().filter_map(|(n, k)| Kind::from_db(k).map(|kind| (citegate::canonical(n), kind))).collect();
                 tracing::info!(names = set.len(), "known_laws.loaded");
                 let _ = self.names.set(set);
                 let _ = self.kinds.set(kinds);
@@ -32,8 +34,8 @@ impl KnownLaws {
         }
     }
 
-    pub fn kind_of(&self, law: &str) -> Option<String> {
-        self.kinds.get().and_then(|m| m.get(&citegate::canonical(law)).cloned())
+    pub fn kind_of(&self, law: &str) -> Option<Kind> {
+        self.kinds.get().and_then(|m| m.get(&citegate::canonical(law)).copied())
     }
 
     async fn lookup(&self, corpus: Option<&Corpus>, law: &str) -> Option<bool> {
