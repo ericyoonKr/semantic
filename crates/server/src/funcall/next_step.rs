@@ -143,6 +143,8 @@ struct Progress {
     turn: String,
     done: bool,
     reread: bool,
+    legal: bool,
+    cites: u32,
 }
 
 pub const UNCITED_HEAD: &str = "근거 없이 쓴 문장(조문·판례를 찾아 붙이거나 뺀다):";
@@ -278,6 +280,18 @@ impl StepLog {
         map.get(thread).is_none_or(|p| p.turn != request_id)
     }
 
+    pub fn is_legal(&self, thread: &str) -> bool {
+        let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(thread).is_none_or(|p| p.legal)
+    }
+
+    pub fn count_cites(&self, thread: &str, found: u32) -> u32 {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let progress = map.entry(thread.to_string()).or_default();
+        progress.cites += found;
+        progress.cites
+    }
+
     pub fn next(&self, thread: &str, req: &StepRequest, legal: bool, docs: &[Doc], laws: &[String], ctx: &Context) -> Step {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
@@ -290,6 +304,8 @@ impl StepLog {
             progress.turn = req.request_id.clone();
             progress.done = false;
             progress.reread = false;
+            progress.legal = legal;
+            progress.cites = 0;
         }
         if keyword(&req.question).is_none() || progress.done || !legal {
             progress.done = true;

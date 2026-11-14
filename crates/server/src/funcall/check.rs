@@ -34,8 +34,27 @@ pub struct UnreadReply {
 }
 
 pub const UNCITED_MAX: usize = 6;
+pub const UNCITED_CLAIM: &str = "uncited_claim";
 const UNCITED_CHARS: usize = 120;
 const REF_TAG: &str = "[근거";
+
+pub fn cites_in(sentences: &[String], verdicts: &[Verdict]) -> u32 {
+    let tagged = sentences.iter().filter(|s| s.contains(REF_TAG)).count();
+    let read: usize = verdicts.iter().map(|v| v.cites.len()).sum();
+    u32::try_from(tagged + read).unwrap_or(u32::MAX)
+}
+
+pub fn drop_uncited_claims(sentences: &[String], verdicts: &mut [Verdict]) -> usize {
+    let mut dropped = 0;
+    for (sentence, verdict) in sentences.iter().zip(verdicts.iter_mut()) {
+        if verdict.ok && !sentence.contains(REF_TAG) && citegate::asserts_law(sentence) {
+            verdict.ok = false;
+            verdict.reasons.push(UNCITED_CLAIM);
+            dropped += 1;
+        }
+    }
+    dropped
+}
 
 pub fn split(text: &str) -> Vec<String> {
     let mut rest = text.to_string();
@@ -118,13 +137,22 @@ pub async fn check_sentences(state: &AppState, req: &CheckRequest) -> CheckReply
     let set = state.reads.snapshot(thread);
     let verdicts: Vec<Verdict> =
         req.sentences.iter().map(|s| if s.trim() == NO_ORDINANCE_NOTE { passed() } else { citegate::check(s, &set) }).collect();
-    if verdicts.iter().all(|v| v.ok) {
-        return CheckReply { results: verdicts };
-    }
-    let docs = doc_text(state, thread).await;
-    let mut results = Vec::with_capacity(verdicts.len());
-    for v in verdicts {
-        results.push(settle(state, &docs, v).await);
+    let mut results = if verdicts.iter().all(|v| v.ok) {
+        verdicts
+    } else {
+        let docs = doc_text(state, thread).await;
+        let mut settled = Vec::with_capacity(verdicts.len());
+        for v in verdicts {
+            settled.push(settle(state, &docs, v).await);
+        }
+        settled
+    };
+    let cites = state.steps.count_cites(thread, cites_in(&req.sentences, &results));
+    if cites == 0 && state.steps.is_legal(thread) {
+        let dropped = drop_uncited_claims(&req.sentences, &mut results);
+        if dropped > 0 {
+            tracing::info!(dropped, "answer.uncited_claims_dropped");
+        }
     }
     CheckReply { results }
 }
@@ -240,6 +268,33 @@ mod tests {
         let named = real_laws(known, None, verdict.named.clone()).await;
         let kept = verdict.unread.clone();
         settle_with(verdict, named, kept)
+    }
+
+    #[test]
+    fn legal_claims_without_any_citation_in_the_answer_are_dropped() {
+        let reads = ReadSet::default();
+        let sentences: Vec<String> = [
+            "식품위생법에 따라 영업정지 처분을 받을 수 있습니다.",
+            "업소가 위치한 지역을 알려 주세요.",
+            "조례는 우리 자료에 없어 확인하지 못했습니다.",
+            "그런 조례는 존재하지 않습니다.",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let mut verdicts: Vec<Verdict> = sentences.iter().map(|s| citegate::check(s, &reads)).collect();
+        for v in &mut verdicts {
+            v.ok = true;
+            v.reasons.clear();
+        }
+        assert_eq!(super::cites_in(&sentences, &verdicts), 0);
+        assert_eq!(super::drop_uncited_claims(&sentences, &mut verdicts), 2);
+        assert_eq!(verdicts.iter().map(|v| v.ok).collect::<Vec<_>>(), vec![false, true, true, false]);
+        assert!(verdicts[0].reasons.contains(&super::UNCITED_CLAIM));
+        let tagged = vec!["영업정지 처분이 가능합니다 [근거 1].".to_string()];
+        let mut fine = vec![super::passed()];
+        assert_eq!(super::cites_in(&tagged, &fine), 1);
+        assert_eq!(super::drop_uncited_claims(&tagged, &mut fine), 0);
     }
 
     #[tokio::test]

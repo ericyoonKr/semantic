@@ -1,12 +1,42 @@
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
 from semantic_agent.agent.issues import Issue, check_refs
-from semantic_agent.ledger import Authority, Ledger
+from semantic_agent.ledger import Authority, Ledger, compact
+
+log = logging.getLogger(__name__)
 
 REF = re.compile(r"^\s*\[?근거\s*(\d+)\]?")
+MARKS = re.compile(r"[「」『』\"'“”‘’·ㆍ・…,.()\[\]{}:;!?\-–—/~]")
+ELLIPSIS = re.compile(r"(?:\.{3}|…|\(중략\)|\[중략\])")
+FRAGMENT_MIN = 8
+
+
+def _plain(text: str) -> str:
+    return MARKS.sub("", compact(text))
+
+
+def overlap(quote: str, body: str) -> float:
+    q, b = compact(quote), compact(body)
+    pairs = [q[i : i + 2] for i in range(len(q) - 1)]
+    return sum(1 for p in pairs if p in b) / len(pairs) if pairs else 0.0
+
+
+def normalized_match(quote: str, body: str) -> bool:
+    plain_body = _plain(body)
+    parts = [p for p in (_plain(f) for f in ELLIPSIS.split(quote)) if len(p) >= FRAGMENT_MIN]
+    if not parts:
+        return False
+    at = 0
+    for part in parts:
+        found = plain_body.find(part, at)
+        if found < 0:
+            return False
+        at = found + len(part)
+    return True
 
 
 @dataclass(frozen=True)
@@ -78,7 +108,18 @@ def _shown(authority: Authority) -> str:
 def check_research(findings: Findings, ledger: Ledger) -> Findings:
     def judge(item: Finding) -> Finding | None:
         authority = _authority(ledger, item.source)
-        if authority is None or not authority.has_quote(item.quote):
+        if authority is None:
+            log.info("quote_mismatch kind=no_ref source=%r", item.source[:20])
+            return None
+        if not authority.has_quote(item.quote):
+            log.info(
+                "quote_mismatch kind=%s ref=%d quote_chars=%d overlap=%.2f normalized=%s",
+                authority.kind,
+                authority.ref,
+                len(item.quote),
+                overlap(item.quote, authority.body),
+                normalized_match(item.quote, authority.body),
+            )
             return None
         return replace(item, source=_shown(authority))
 

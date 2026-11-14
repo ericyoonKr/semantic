@@ -67,10 +67,16 @@ fn laws_named_in_the_question_are_found_and_put_in_the_brief() {
 fn chat_and_non_legal_questions_go_to_the_model() {
     let log = StepLog::default();
     assert_eq!(log.next("t", &ask("r1", "야"), true, &[], &[], &no_ctx()), Step::Model);
+    assert!(log.is_legal("t") && log.is_legal("unknown"));
     assert_eq!(log.next("t", &ask("r2", "고마워요 정말"), false, &[], &[], &no_ctx()), Step::Model);
+    assert!(!log.is_legal("t"));
+    assert_eq!(log.count_cites("t", 2), 2);
+    assert_eq!(log.count_cites("t", 1), 3);
     assert_eq!(keyword("영업정지 처분은 무엇인가?").as_deref(), Some("영업정지"));
     assert_eq!(keyword("응?"), None);
     assert!(log.new_turn("t", "r3") && !log.new_turn("t", "r2"));
+    log.next("t", &ask("r3", "영업정지 처분은 무엇인가?"), true, &[], &[], &no_ctx());
+    assert!(log.is_legal("t") && log.count_cites("t", 0) == 0);
 }
 
 #[test]
