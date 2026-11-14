@@ -16,6 +16,8 @@ pub mod versions;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
+
+const QUOTES_BODY_BYTES: usize = 4 * 1024 * 1024;
 use axum::middleware::{from_fn, from_fn_with_state};
 use axum::routing::{delete, get, post};
 use tower_http::catch_panic::CatchPanicLayer;
@@ -54,7 +56,7 @@ pub fn router(state: AppState) -> Router {
         .route("/research/coverage", get(funcall::research_coverage))
         .route("/research/review", post(funcall::research_review))
         .route("/research/judge", post(funcall::research_judge))
-        .route("/research/quotes", post(funcall::research_quotes))
+        .route("/research/quotes", post(funcall::research_quotes).layer(DefaultBodyLimit::max(QUOTES_BODY_BYTES)))
         .route("/laws/scope", post(scope::law_scope))
         .route("/cases/{decision_id}", get(search::case))
         .route("/citations", get(search::citations))
