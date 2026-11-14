@@ -135,6 +135,17 @@ def format_cases(data: dict[str, Any]) -> str:
     return "\n\n".join(lines)
 
 
+SHOWN_MAX_CHARS = 12_000
+
+
+def clip_shown(text: str) -> str:
+    if len(text) <= SHOWN_MAX_CHARS:
+        return text
+    cut = text.rfind("\n", 0, SHOWN_MAX_CHARS)
+    cut = cut if cut > SHOWN_MAX_CHARS // 2 else SHOWN_MAX_CHARS
+    return f"{text[:cut]}\n(이하 {len(text) - cut:,}자 생략. 인용은 보이는 부분에서만 하고, 뒷부분이 필요하면 범위를 좁혀 다시 읽는다.)"
+
+
 def format_law_unit(data: dict[str, Any]) -> str:
     version = data.get("version") or {}
     head = (
@@ -295,7 +306,7 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
         data, err = await client.fetch("GET", "/laws/unit", kind="search", fail=SEARCH_FAIL, params=params)
         if err:
             return failed(err)
-        text = format_law_unit(data)
+        text = clip_shown(format_law_unit(data))
         if data.get("content_status") != "link_only" and not data.get("deleted"):
             text = f"{ref_line(current_ledger().add_law(data).ref)}\n{text}"
         return material(f"{law} {unit}", text)
@@ -317,7 +328,7 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
         )
         if err:
             return case_failed(err) or err
-        text = f"{ref_line(current_ledger().add_case(data, decision_id).ref)}\n{format_case(data)}"
+        text = f"{ref_line(current_ledger().add_case(data, decision_id).ref)}\n{clip_shown(format_case(data))}"
         return material(f"판례 {decision_id}", text)
 
     @tool("case_citations", description="판례가 인용한 조문, 또는 조문(law+unit)을 인용한 판례를 찾는다.")

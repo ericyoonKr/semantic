@@ -11,6 +11,7 @@ class Turn:
     round_calls: int = 0
     rounds: int = 0
     wrap_up: bool = False
+    overflow: bool = False
     context_tokens: int = 0
     notes: list[str] = field(default_factory=list)
     guidance: list[str] = field(default_factory=list)

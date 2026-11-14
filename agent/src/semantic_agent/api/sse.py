@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 
 LIMIT_STEPS = "최대 단계"
 LIMIT_TIME = "질문 시간"
+LIMIT_CONTEXT = "문맥 길이"
 EMPTY_ANSWER_TEXT = "확인한 근거가 없어 답을 쓰지 못했습니다. 질문을 조금 바꾸거나 「다시 답변하기」를 눌러 주세요."
 MAX_ROUNDS = 3
 WRAP_UP_S = 90.0
@@ -198,6 +200,13 @@ async def to_sse(
             payload_in = None
         except TimeoutError:
             if not continue_round(turn, LIMIT_TIME, request_id, final=True):
+                break
+            payload_in = None
+            budget_s = WRAP_UP_S
+        except ContextOverflowError:
+            turn.overflow = True
+            log.info("context overflow request_id=%s round=%d", request_id, turn.rounds)
+            if not continue_round(turn, LIMIT_CONTEXT, request_id, final=True):
                 break
             payload_in = None
             budget_s = WRAP_UP_S

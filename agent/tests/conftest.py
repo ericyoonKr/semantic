@@ -33,7 +33,10 @@ class ScriptedToolModel(BaseChatModel):
     def _generate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any) -> ChatResult:
         self.calls += 1
         self.seen.append(list(messages))
-        return ChatResult(generations=[ChatGeneration(message=next(self.script))])
+        item = next(self.script)
+        if isinstance(item, BaseException):
+            raise item
+        return ChatResult(generations=[ChatGeneration(message=item)])
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> "ScriptedToolModel":
         self.bound.append(_names(tools))

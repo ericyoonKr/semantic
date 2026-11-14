@@ -15,6 +15,19 @@ MAIN = "main"
 QUESTION_TOKENS = 300_000
 QUESTION_CALLS = 40
 ERROR_WRAP = 3
+OVERFLOW_TOOL_CHARS = 1_500
+OVERFLOW_CUT_NOTE = "\n(문맥이 넘쳐 뒷부분을 줄였다. 인용은 남은 부분에서만 한다.)"
+
+
+def shrink_tool_messages(messages: list[Any], limit: int) -> list[Any]:
+    out: list[Any] = []
+    for message in messages:
+        text = message.content if isinstance(message, ToolMessage) and isinstance(message.content, str) else None
+        if text is not None and len(text) > limit:
+            out.append(message.model_copy(update={"content": text[:limit] + OVERFLOW_CUT_NOTE}))
+        else:
+            out.append(message)
+    return out
 LIMIT_TOKENS = "토큰 예산"
 LIMIT_CALLS = "모델 호출 수"
 
@@ -89,6 +102,8 @@ class QuestionBudget(AgentMiddleware):
             log.info("tool errors reached %d agent=%s; finishing without tools", ERROR_WRAP, self._name)
         if turn.wrap_up:
             request = request.override(tools=[], system_message=append_system(request.system_message, self._finish_note))
+        if turn.overflow:
+            request = request.override(messages=shrink_tool_messages(list(request.messages), OVERFLOW_TOOL_CHARS))
         response = await handler(request)
         used = usage_of(response)
         turn.tokens += used["total"]

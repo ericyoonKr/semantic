@@ -3,7 +3,7 @@ import json
 
 import pytest
 from conftest import answer, call, delegate, make_agent, run_config, tool_messages
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from semantic_agent.api.sse import EMPTY_ANSWER_TEXT, to_sse
 from semantic_agent.config import Settings
@@ -78,3 +78,36 @@ def test_answer_with_every_sentence_dropped_says_so_instead_of_staying_blank() -
         assert [e.split("\n", 1)[0] for e in events][-1] == "event: Done"
 
     asyncio.run(scenario())
+
+
+def test_context_overflow_finishes_in_a_wrap_up_round_instead_of_an_error() -> None:
+    from langchain_core.exceptions import ContextOverflowError
+
+    async def scenario() -> None:
+        script = [
+            call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+            ContextOverflowError("문맥이 넘침"),
+            AIMessage(content="가짜법 제1조는 목적 조항입니다.\n"),
+        ]
+        agent, model, client = await make_agent(script)
+        cfg = run_config(Settings(internal_key="k", fake_tools=True).recursion_limit)
+        events = [e async for e in to_sse(agent, "가짜법 제1조가 뭐야?", cfg, timeout_s=60, client=client)]
+        names = [e.split("\n", 1)[0] for e in events]
+        assert "event: Error" not in names
+        assert names[-1] == "event: Done"
+        tokens = "".join(json.loads(e.split("data: ", 1)[1])["text"] for e in events if e.startswith("event: Token"))
+        assert tokens.strip()
+        assert model.calls >= 2
+    asyncio.run(scenario())
+
+
+def test_overflow_shrinks_only_long_tool_results() -> None:
+    from semantic_agent.agent.budget import OVERFLOW_CUT_NOTE, shrink_tool_messages
+
+    long = ToolMessage(content="가" * 3000, tool_call_id="t1")
+    short = ToolMessage(content="짧은 결과", tool_call_id="t2")
+    shrunk = shrink_tool_messages([AIMessage(content="답"), long, short], 100)
+    assert shrunk[1].content == "가" * 100 + OVERFLOW_CUT_NOTE
+    assert shrunk[2].content == "짧은 결과"
+    assert shrunk[0].content == "답"
+    assert long.content == "가" * 3000
