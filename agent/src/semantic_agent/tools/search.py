@@ -8,8 +8,8 @@ from pydantic import Field
 from semantic_agent.ledger import current_ledger
 from semantic_agent.tools.client import SEARCH_FAIL, IsoDate, Limit, ToolClient, material
 
-SNIPPET_CHARS = 300
-MAX_QUERIES = 6
+SNIPPET_CHARS = 200
+MAX_QUERIES = 4
 Queries = Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1, max_length=MAX_QUERIES)]
 EXCERPT_NOTE = "발췌라 인용할 수 없음 — 인용하려면 read_law·read_case로 본문을 읽는다"
 CASE_EXCERPT_NOTE = "발췌라 인용할 수 없음 — 쟁점에 맞는 판례 1~2건을 read_case(decision_id)로 읽어야 근거로 들 수 있다. decision_id는 항목 머리의 값이다"
@@ -236,7 +236,7 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
     @tool("search_laws", description=LAWS_DESCRIPTION)
     async def search_laws(
         queries: Queries,
-        k: Limit = 8,
+        k: Limit = 5,
         as_of: IsoDate | None = None,
         law_type: list[str] | None = None,
     ) -> str:
@@ -245,7 +245,7 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
     @tool("search_laws", description=LAWS_DESCRIPTION + SCOPE_DESCRIPTION)
     async def search_laws_scoped(
         queries: Queries,
-        k: Limit = 8,
+        k: Limit = 5,
         as_of: IsoDate | None = None,
         law_type: list[str] | None = None,
         law_ids: list[str] | None = None,
@@ -263,7 +263,7 @@ def make_search_tools(client: ToolClient, scoped: bool = False) -> list[BaseTool
     )
     async def search_cases(
         queries: Queries,
-        k: Limit = 8,
+        k: Limit = 5,
         field: list[str] | None = None,
         court_level: list[str] | None = None,
         decided_from: IsoDate | None = None,

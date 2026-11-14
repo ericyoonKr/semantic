@@ -172,7 +172,7 @@ def test_intent_scope_reruns_researcher_once_with_unread_articles() -> None:
     ]
     messages, model = _run(script, client, ResearchOptions(prompt="steps", intent_scope=True))
     system = [m for m in model.seen[1] if isinstance(m, SystemMessage)][0]
-    assert "검색어 바꾸기 예시" in system.content
+    assert "검색어 바꾸기 예시" in system.text
     rerun = [m for m in model.seen[3] if isinstance(m, HumanMessage)][-1]
     assert rerun.content.endswith(f"먼저 읽을 조문: 가짜법 제2조\n\n{INTENT_NOTE}")
     assert [c for c in client.calls if c[1] == "/laws/scope"] == [("POST", "/laws/scope")]
@@ -192,7 +192,7 @@ def test_intent_scope_off_makes_no_scope_calls() -> None:
     _, model = _run(script, client, None)
     assert client.calls == [("GET", "/laws/unit")]
     system = [m for m in model.seen[1] if isinstance(m, SystemMessage)][0]
-    assert RESEARCHER_PROMPT in system.content and "검색어 바꾸기 예시" not in system.content
+    assert RESEARCHER_PROMPT in system.text and "검색어 바꾸기 예시" not in system.text
     assert model.calls == 4
 
 

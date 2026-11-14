@@ -6,13 +6,13 @@ from typing import Any
 from deepagents import FilesystemPermission, SubAgent
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
-from langchain.agents.middleware import AgentMiddleware, ClearToolUsesEdit, ContextEditingMiddleware, ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
 from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import append_system
-from semantic_agent.agent.guards import ToolGuard
+from semantic_agent.agent.guards import REPEAT_BLOCK, ToolGuard
 from semantic_agent.agent.prompts import RESEARCHER_PROMPT, WRAP_UP_PROMPT
 from semantic_agent.funcall.research_gate import ResearchGate
 from semantic_agent.tools.client import ToolClient
@@ -20,19 +20,12 @@ from semantic_agent.tools.client import ToolClient
 RESEARCHER = "researcher"
 SUBAGENT_NAMES = (RESEARCHER,)
 
-SUB_STEP_LIMIT = 20
+SUB_STEP_LIMIT = 12
 SUB_DEADLINE_S = 120.0
 LLM_CALL_S = 45.0
 LIMIT_MARK = "제한에 걸림"
-CONTEXT_TRIGGER = 12_000
-CONTEXT_KEEP = 2
-KEPT_TOOLS = ("read_law", "read_case")
-CLEARED_NOTE = "앞선 검색 결과는 치웠다. 근거 번호는 그대로 쓸 수 있고, 원문이 필요하면 read_law·read_case로 다시 읽는다."
-
-
-def context_editing() -> ContextEditingMiddleware:
-    edit = ClearToolUsesEdit(trigger=CONTEXT_TRIGGER, keep=CONTEXT_KEEP, exclude_tools=KEPT_TOOLS, placeholder=CLEARED_NOTE)
-    return ContextEditingMiddleware(edits=[edit])
+ERROR_WRAP = 2
+NO_FILE_TOOLS_NOTE = "파일 도구(read_file 등)는 여기서 쓸 수 없다. 법령·판례는 search_laws·search_cases·read_law·read_case로만 찾고 읽는다."
 
 SUB_DEADLINE: ContextVar[float | None] = ContextVar("sub_deadline", default=None)
 
@@ -86,9 +79,13 @@ class SubagentLimit(AgentMiddleware):
         self._reserve_s = reserve_s
 
     def _reason(self, state: Any) -> str | None:
-        step = 1 + sum(1 for m in (state or {}).get("messages", []) if isinstance(m, AIMessage))
+        messages = (state or {}).get("messages", [])
+        step = 1 + sum(1 for m in messages if isinstance(m, AIMessage))
         if step >= self._steps:
             return f"단계 상한 {self._steps}"
+        errors = sum(1 for m in messages if isinstance(m, ToolMessage) and (m.status == "error" or m.content == REPEAT_BLOCK))
+        if errors >= ERROR_WRAP:
+            return f"도구 오류 {ERROR_WRAP}회"
         deadline = SUB_DEADLINE.get()
         if deadline is not None and deadline - time.monotonic() <= self._reserve_s:
             return f"시간 상한 {int(self._deadline_s)}초"
@@ -121,10 +118,16 @@ def make_subagents(
             "tools": search_tools,
             "middleware": [
                 QuestionBudget(RESEARCHER, finish_note=WRAP_UP_PROMPT),
-                FilesystemMiddleware(backend=backend, tools=["read_file"], _permissions=NO_FILES),
+                FilesystemMiddleware(
+                    backend=backend,
+                    tools=["read_file"],
+                    system_prompt=NO_FILE_TOOLS_NOTE,
+                    tool_token_limit_before_evict=None,
+                    human_message_token_limit_before_evict=None,
+                    _permissions=NO_FILES,
+                ),
                 ToolAllowlist([t.name for t in search_tools]),
                 ToolGuard(),
-                context_editing(),
                 ResearchGate(client, LIMIT_MARK),
                 SubagentLimit(deadline_s=deadline_s),
             ],

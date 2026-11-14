@@ -42,6 +42,25 @@ def test_third_identical_call_is_blocked() -> None:
     asyncio.run(scenario())
 
 
+def test_three_tool_errors_end_the_research_run_with_a_wrap_up() -> None:
+    async def scenario() -> None:
+        same = {"queries": ["가짜"]}
+        script = (
+            [delegate("researcher", "법령 찾기", "t1")]
+            + [call("search_laws", same, f"c{i}") for i in range(5)]
+            + [answer([], ["가짜"]), AIMessage(content="끝")]
+        )
+        agent, model, client = await make_agent(script)
+        await agent.ainvoke({"messages": [HumanMessage(content="법령 찾아 줘")]}, run_config())
+        assert model.calls == 8
+        assert any("제한에 걸렸다" in str(getattr(m, "content", "")) for m in model.seen[6])
+        task = next(m for m in tool_messages(model.seen[7]) if m.name == "task")
+        assert "도구 오류 3회" in str(task.content)
+        assert len(client.calls) == 2
+
+    asyncio.run(scenario())
+
+
 def test_drafting_request_refused_and_definition_question_passes() -> None:
     assert is_out_of_scope("소장 써 줘")
     assert not is_out_of_scope("소장이 뭐야?")
