@@ -86,3 +86,36 @@ fn math_commands_become_symbols_and_unknown_ones_stay() {
     assert_eq!(plain_math("$\\alpha$ 그대로"), "$\\alpha$ 그대로");
     assert_eq!(plain_math("\\toc 는 바꾸지 않음"), "\\toc 는 바꾸지 않음");
 }
+
+#[test]
+fn light_box_tables_take_the_first_block_as_the_head_and_keep_merged_cells() {
+    let lines = [
+        "┌────────┬──────┬──────┐",
+        "│비위의 유형     │고의        │경과실      │",
+        "├────────┼──────┼──────┤",
+        "│1. 성실의무 위반│            │            │",
+        "│                │            │            │",
+        "│  가. 회계질서  │파면        │감봉∼견책  │",
+        "│문란            │            │            │",
+        "│                │                         │",
+        "│  나. 수당 부정 │별표 1의2와 같음         │",
+        "│수급            │                         │",
+        "├────────┼──────┴──────┤",
+        "│2. 청렴의무 위반│별표 2와 같음            │",
+        "└────────┴─────────────┘",
+    ];
+    let t = parse_box_table(&lines);
+    assert_eq!(t.head, vec![vec!["비위의 유형", "고의", "경과실"]]);
+    assert_eq!(
+        t.rows,
+        vec![
+            vec!["1. 성실의무 위반", "", ""],
+            vec!["가. 회계질서문란", "파면", "감봉∼견책"],
+            vec!["나. 수당 부정수급", "별표 1의2와 같음"],
+            vec!["2. 청렴의무 위반", "별표 2와 같음"],
+        ]
+    );
+    let body = format!("앞 글\n{}\n뒤 글", lines.join("\n"));
+    let kinds: Vec<&str> = split_body(&body).iter().map(|p| if matches!(p, Piece::Table { .. }) { "table" } else { "text" }).collect();
+    assert_eq!(kinds, vec!["text", "table", "text"]);
+}

@@ -58,7 +58,7 @@ fn source_item(v: &Value) -> Option<Value> {
     }))
 }
 
-fn frame(name: &str, data: Value) -> String {
+pub(crate) fn frame(name: &str, data: Value) -> String {
     format!("event: {name}\ndata: {data}\n\n")
 }
 

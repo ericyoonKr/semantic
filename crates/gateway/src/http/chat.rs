@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::audit::Event;
 use crate::error::GatewayError;
-use crate::filter::SseFilter;
+use crate::filter::{SseFilter, frame};
 use crate::http::guard::{Signed, thread_id};
 use crate::http::sides::SideSink;
 use crate::quota::AskPermit;
@@ -84,6 +84,21 @@ pub async fn create(State(state): State<AppState>, signed: Signed) -> Result<Jso
 }
 
 const STREAM_BROKEN: &str = "event: Error\ndata: {}\n\n";
+pub const QUEUED_TEXT: &str = "앞 질문의 답을 기다리는 중";
+
+enum Upstream {
+    Ask(String),
+    Retry,
+}
+
+impl Upstream {
+    fn kind(&self) -> &'static str {
+        match self {
+            Upstream::Ask(_) => "ask",
+            Upstream::Retry => "retry",
+        }
+    }
+}
 
 struct AskStream {
     filter: SseFilter,
@@ -93,30 +108,71 @@ struct AskStream {
 
 pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>, Json(body): Json<Value>) -> Result<Response, GatewayError> {
     let id = owned(&state, &signed, &raw).await?;
-    let question = body.get("question").and_then(Value::as_str).ok_or(GatewayError::BadRequest)?;
-    let rid = request_id();
-    if let Some(title) = first_title(question) {
+    let question = body.get("question").and_then(Value::as_str).ok_or(GatewayError::BadRequest)?.to_string();
+    if let Some(title) = first_title(&question) {
         state.store.name_if_untitled(id, &title).await?;
     }
-    let permit = state.quota.acquire(signed.user_id, id).await?;
-    let res = upstream(&state, reqwest::Method::POST, &format!("/session/{id}/ask"), signed.user_id, &rid)
-        .timeout(state.cfg.ask_deadline)
-        .json(&json!({ "question": question }))
-        .send()
-        .await
-        .map_err(|_| GatewayError::Upstream)?;
-    if !res.status().is_success() {
-        return Err(GatewayError::Upstream);
-    }
-    state.audit.spawn(Event::new("ask").user(signed.user_id).thread(id).request(&rid));
-    state.store.touch_thread(id).await?;
-    let sides = SideSink { store: state.store.clone(), audit: state.audit.clone(), user: signed.user_id, thread: id, request_id: rid.clone() };
-    let mut st = AskStream { filter: SseFilter::new(rid, state.cfg.hidden_spans.clone()), sides, _permit: permit };
+    start(state, signed.user_id, id, Upstream::Ask(question))
+}
+
+pub async fn retry(State(state): State<AppState>, signed: Signed, Path(raw): Path<String>) -> Result<Response, GatewayError> {
+    let id = owned(&state, &signed, &raw).await?;
+    start(state, signed.user_id, id, Upstream::Retry)
+}
+
+fn error_frame(error: &GatewayError, rid: &str) -> String {
+    frame("Error", json!({ "message": error.message(), "request_id": rid }))
+}
+
+fn start(state: AppState, user: Uuid, id: Uuid, kind: Upstream) -> Result<Response, GatewayError> {
+    let rid = request_id();
+    let permit = state.quota.try_acquire(user, id)?;
     let (tx, rx) = futures::channel::mpsc::unbounded::<Result<String, std::io::Error>>();
     tokio::spawn(async move {
-        let mut upstream = res.bytes_stream();
+        let send = |text: String| tx.unbounded_send(Ok(text)).is_ok();
+        let permit = match permit {
+            Some(permit) => permit,
+            None => {
+                send(frame("Status", json!({ "text": QUEUED_TEXT })));
+                match state.quota.acquire(user, id).await {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        send(error_frame(&error, &rid));
+                        return;
+                    }
+                }
+            }
+        };
+        let request = match &kind {
+            Upstream::Ask(question) => {
+                upstream(&state, reqwest::Method::POST, &format!("/session/{id}/ask"), user, &rid).json(&json!({ "question": question }))
+            }
+            Upstream::Retry => upstream(&state, reqwest::Method::POST, &format!("/session/{id}/retry"), user, &rid),
+        };
+        let res = match request.timeout(state.cfg.ask_deadline).send().await {
+            Ok(res) => res,
+            Err(_) => {
+                send(error_frame(&GatewayError::Upstream, &rid));
+                return;
+            }
+        };
+        if res.status() == reqwest::StatusCode::NOT_FOUND && matches!(kind, Upstream::Retry) {
+            send(error_frame(&GatewayError::NothingToRetry, &rid));
+            return;
+        }
+        if !res.status().is_success() {
+            send(error_frame(&GatewayError::Upstream, &rid));
+            return;
+        }
+        state.audit.spawn(Event::new(kind.kind()).user(user).thread(id).request(&rid));
+        if let Err(error) = state.store.touch_thread(id).await {
+            tracing::warn!(error = %error, "thread.touch_failed");
+        }
+        let sides = SideSink { store: state.store.clone(), audit: state.audit.clone(), user, thread: id, request_id: rid.clone() };
+        let mut st = AskStream { filter: SseFilter::new(rid, state.cfg.hidden_spans.clone()), sides, _permit: permit };
+        let mut body = res.bytes_stream();
         let mut client_gone = false;
-        while let Some(chunk) = upstream.next().await {
+        while let Some(chunk) = body.next().await {
             let frames = match chunk {
                 Ok(bytes) => st.filter.push(&String::from_utf8_lossy(&bytes)),
                 Err(_) => st.filter.push(STREAM_BROKEN),
@@ -124,7 +180,7 @@ pub async fn ask(State(state): State<AppState>, signed: Signed, Path(raw): Path<
             for side in st.filter.take_side() {
                 st.sides.handle(side);
             }
-            if !client_gone && tx.unbounded_send(Ok(frames.concat())).is_err() {
+            if !client_gone && !send(frames.concat()) {
                 client_gone = true;
             }
         }

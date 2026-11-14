@@ -18,11 +18,15 @@ fn starts_with_any(line: &str, marks: &[char]) -> bool {
 }
 
 fn is_top(line: &str) -> bool {
-    starts_with_any(line, &['┏'])
+    starts_with_any(line, &['┏', '┌'])
+}
+
+fn is_light_top(line: &str) -> bool {
+    starts_with_any(line, &['┌'])
 }
 
 fn is_bottom(line: &str) -> bool {
-    starts_with_any(line, &['┗'])
+    starts_with_any(line, &['┗', '└'])
 }
 
 fn is_body_start(line: &str) -> bool {
@@ -33,7 +37,11 @@ fn is_separator(line: &str) -> bool {
     line.chars().any(|c| c == '─' || c == '━') && !line.chars().any(char::is_alphanumeric)
 }
 
-const RULES: [char; 15] = ['─', '━', '┬', '┴', '┼', '├', '┤', '┨', '┠', '┣', '┫', '┏', '┓', '┗', '┛'];
+fn is_light_full_separator(line: &str) -> bool {
+    starts_with_any(line, &['├']) && is_separator(line) && !line.chars().any(|c| c == '┬' || c == '┴')
+}
+
+const RULES: [char; 19] = ['─', '━', '┬', '┴', '┼', '├', '┤', '┨', '┠', '┣', '┫', '┏', '┓', '┗', '┛', '┌', '┐', '└', '┘'];
 const ITEM_MARKS: [char; 4] = ['○', '▪', '•', '※'];
 const CONNECTORS: [char; 8] = ['·', 'ㆍ', '・', '/', '~', '-', '(', ')'];
 const WORD_STARTS: [&str; 5] = ["및", "또는", "그리고", "다만", "단,"];
@@ -109,7 +117,8 @@ fn row_of(group: &[Vec<String>]) -> Vec<String> {
 pub fn parse_box_table(lines: &[&str]) -> BoxTable {
     let mut head = Vec::new();
     let mut rows = Vec::new();
-    let mut in_body = !lines.iter().any(|l| is_body_start(l));
+    let light = lines.iter().any(|l| is_light_top(l));
+    let mut in_body = if light { !lines.iter().any(|l| is_light_full_separator(l)) } else { !lines.iter().any(|l| is_body_start(l)) };
     let mut group: Vec<Vec<String>> = Vec::new();
     let flush = |group: &mut Vec<Vec<String>>, in_body: bool, head: &mut Vec<Vec<String>>, rows: &mut Vec<Vec<String>>| {
         if !group.is_empty() {
@@ -127,7 +136,7 @@ pub fn parse_box_table(lines: &[&str]) -> BoxTable {
         }
         if is_separator(line) {
             flush(&mut group, in_body, &mut head, &mut rows);
-            in_body |= is_body_start(line);
+            in_body |= is_body_start(line) || (light && is_light_full_separator(line));
             continue;
         }
         let raw = raw_cells(line);

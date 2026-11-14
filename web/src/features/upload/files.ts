@@ -70,3 +70,17 @@ export async function listFiles(client: ApiClient, sessionId: string): Promise<S
 export async function loadFileText(client: ApiClient, sessionId: string, fileId: string): Promise<FileText | null> {
   return toFileText(await client.json<unknown>("GET", `/session/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(fileId)}`));
 }
+
+export function pageOf(label: string): number | null {
+  const m = /\d+/.exec(label);
+  return m ? Number(m[0]) : null;
+}
+
+export function findFile(files: StoredFile[], filename: string): StoredFile | null {
+  const want = filename.trim().toLowerCase();
+  if (want === "") {
+    return null;
+  }
+  const exact = files.find((f) => f.filename.toLowerCase() === want);
+  return exact ?? files.find((f) => f.filename.toLowerCase().endsWith(want) || want.endsWith(f.filename.toLowerCase())) ?? null;
+}

@@ -4,6 +4,7 @@ import { ErrorNote } from "../../shared/ui/ErrorNote";
 import { Icon } from "../../shared/ui/Icon";
 import { DropZone } from "../upload/DropZone";
 import { FileChips } from "../upload/FileChips";
+import { FilePageView } from "../upload/FilePageView";
 import { UploadForm } from "../upload/UploadForm";
 import { UploadedFiles } from "../upload/UploadedFiles";
 import { UploadSummaryView } from "../upload/UploadSummaryView";
@@ -13,7 +14,7 @@ import { AskForm } from "./AskForm";
 import type { Source } from "./events";
 import { LiveTurn } from "./LiveTurn";
 import { MessageList } from "./MessageList";
-import { SourceViewContext, type SourceView } from "./sourceView";
+import { type DocRef, SourceViewContext, type SourceView } from "./sourceView";
 import { useConversation } from "./useConversation";
 
 type Props = {
@@ -28,6 +29,7 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
   const c = useConversation(client, sessionId, onStreaming);
   const files = useUploadQueue(client, sessionId, c.streaming, c.addUpload);
   const [shown, setShown] = useState<Source | null>(null);
+  const [shownDoc, setShownDoc] = useState<DocRef | null>(null);
   const [paneOpen, setPaneOpen] = useState(false);
   const end = useRef<HTMLLIElement>(null);
   const last = c.uploads.length > 0 ? c.uploads[c.uploads.length - 1] : undefined;
@@ -42,7 +44,13 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
     () => ({
       shown,
       open: (s: Source) => {
+        setShownDoc(null);
         setShown(s);
+        setPaneOpen(true);
+      },
+      openDoc: (ref: DocRef) => {
+        setShown(null);
+        setShownDoc(ref);
         setPaneOpen(true);
       },
     }),
@@ -50,6 +58,7 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
   );
   const closeSource = useCallback(() => {
     setShown(null);
+    setShownDoc(null);
     setPaneOpen(false);
   }, []);
 
@@ -101,6 +110,14 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
                 {c.turns.map((t) => (
                   <LiveTurn key={t.id} turn={t} />
                 ))}
+                {c.canRetry ? (
+                  <li className="message retry-row">
+                    <button type="button" className="button-ghost retry-button" onClick={c.retry} disabled={files.busy}>
+                      <Icon name="redo" />
+                      <span>다시 답변하기</span>
+                    </button>
+                  </li>
+                ) : null}
                 <li ref={end} className="messages-end" aria-hidden="true" />
               </ol>
             </div>
@@ -109,8 +126,8 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
             <div className="chat-column">
               <AskForm
                 sessionId={sessionId}
-                disabled={c.streaming || files.busy || c.loading}
-                waitText={c.streaming ? "답을 받는 중" : files.busy ? "파일을 올리는 중" : "보내기"}
+                disabled={files.busy || c.loading}
+                waitText={files.busy ? "파일을 올리는 중" : "보내기"}
                 onAsk={c.submit}
                 above={
                   <>
@@ -131,6 +148,8 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
         <aside id={paneId} className="pane" aria-label="근거 원문과 올린 파일">
           {shown ? (
             <SourceDetail source={shown} close={closeSource} />
+          ) : shownDoc ? (
+            <FilePageView client={client} sessionId={sessionId} target={shownDoc} close={closeSource} />
           ) : (
             <div className="pane-files">
               <header className="pane-head">

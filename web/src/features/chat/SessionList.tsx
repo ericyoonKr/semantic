@@ -14,7 +14,6 @@ export function cleanTitle(raw: string): string | null {
 type Props = {
   sessions: SessionSummary[];
   selected: string | null;
-  locked: boolean;
   busy: boolean;
   onSelect: (id: string) => void;
   onCreate: () => void;
@@ -68,12 +67,12 @@ function TitleEditor({ session, done, onRename }: EditProps) {
   );
 }
 
-export function SessionList({ sessions, selected, locked, busy, onSelect, onCreate, onDelete, onRename }: Props) {
+export function SessionList({ sessions, selected, busy, onSelect, onCreate, onDelete, onRename }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   return (
     <nav className="sessions" aria-label="대화 목록">
       <div className="sessions-actions">
-        <button type="button" className="new-session" onClick={onCreate} disabled={locked || busy}>
+        <button type="button" className="new-session" onClick={onCreate} disabled={busy}>
           <Icon name="plus" />
           <span>새 대화</span>
         </button>
@@ -91,14 +90,14 @@ export function SessionList({ sessions, selected, locked, busy, onSelect, onCrea
                   <TitleEditor session={s} done={() => setEditing(null)} onRename={onRename} />
                 ) : (
                   <>
-                    <button type="button" className="session-open" aria-current={current ? "page" : undefined} onClick={() => onSelect(s.id)} disabled={locked && !current}>
+                    <button type="button" className="session-open" aria-current={current ? "page" : undefined} onClick={() => onSelect(s.id)}>
                       <span className="session-dot" aria-hidden="true" />
                       <span className="session-title">{title}</span>
                     </button>
                     <button type="button" className="session-rename" aria-label={title + " 이름 바꾸기"} title="이름 바꾸기" onClick={() => setEditing(s.id)} disabled={busy}>
                       <Icon name="pen" />
                     </button>
-                    <button type="button" className="session-delete" aria-label={title + " 지우기"} title="지우기" onClick={() => onDelete(s)} disabled={locked || busy}>
+                    <button type="button" className="session-delete" aria-label={title + " 지우기"} title="지우기" onClick={() => onDelete(s)} disabled={busy}>
                       <Icon name="trash" />
                     </button>
                   </>
@@ -107,7 +106,6 @@ export function SessionList({ sessions, selected, locked, busy, onSelect, onCrea
             );
           })}
         </ul>
-        {locked ? <p className="muted sessions-empty">답을 받는 동안에는 다른 대화로 옮길 수 없습니다.</p> : null}
       </div>
     </nav>
   );

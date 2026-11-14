@@ -4,6 +4,7 @@ import logging
 import re
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -33,6 +34,7 @@ from semantic_agent.api.answers import (
     save_ledger,
     saved_answers,
 )
+from semantic_agent.api.retry import retry_cut, rewind
 from semantic_agent.api.runlog import RunLog
 from semantic_agent.ledger import Ledger
 from semantic_agent.api.sse import event, to_sse
@@ -274,35 +276,63 @@ def create_app(
         }
         return JSONResponse(content=summary)
 
-    @app.post("/session/{session_id}/ask")
-    async def ask(session_id: str, body: AskBody, request: Request, user_id: str = Depends(user_id_header)) -> StreamingResponse:
-        sid = _session(session_id)
-        state = rt(request)
-        cfg = _config(settings, sid, user_id)
+    def start_ask(
+        state: AppState,
+        cfg: dict[str, Any],
+        user_id: str,
+        sid: str,
+        question: str,
+        before: Callable[[], Awaitable[None]] | None = None,
+    ) -> StreamingResponse:
         request_id = cfg["configurable"]["request_id"]
         slot = state.registry.get(sid)
-        log = RunLog(body.question)
+        run = RunLog(question)
 
         async def produce() -> None:
-            slot.log = log
+            slot.log = run
             if not slot.ledger_loaded:
                 with contextlib.suppress(Exception):
                     slot.ledger = await load_ledger(state.store, user_id, sid)
                 slot.ledger_loaded = True
             try:
-                async for item in to_sse(state.agent, body.question, cfg, settings.ask_timeout_s, state.client, slot.ledger):
-                    log.add(item)
-                await keep_answer(state, cfg, user_id, sid, log.items)
+                if before is not None:
+                    await before()
+                async for item in to_sse(state.agent, question, cfg, settings.ask_timeout_s, state.client, slot.ledger):
+                    run.add(item)
+                await keep_answer(state, cfg, user_id, sid, run.items)
                 await keep_ledger(state, user_id, sid, slot.ledger)
             except asyncio.CancelledError:
-                log.add(event("Error", {"message": "질문이 중단되었습니다", "request_id": request_id}))
+                run.add(event("Error", {"message": "질문이 중단되었습니다", "request_id": request_id}))
                 raise
+            except Exception as exc:
+                log.warning("ask failed before streaming type=%s request_id=%s", type(exc).__name__, request_id)
+                run.add(event("Error", {"message": "답을 만들지 못했습니다", "kind": "failed", "request_id": request_id}))
             finally:
-                log.finish()
+                run.finish()
 
         state.background.add(task := asyncio.create_task(run_ask(slot, produce())))
         task.add_done_callback(state.background.discard)
-        return StreamingResponse(log.follow(), media_type="text/event-stream")
+        return StreamingResponse(run.follow(), media_type="text/event-stream")
+
+    @app.post("/session/{session_id}/ask")
+    async def ask(session_id: str, body: AskBody, request: Request, user_id: str = Depends(user_id_header)) -> StreamingResponse:
+        sid = _session(session_id)
+        return start_ask(rt(request), _config(settings, sid, user_id), user_id, sid, body.question)
+
+    @app.post("/session/{session_id}/retry")
+    async def retry(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
+        sid = _session(session_id)
+        state = rt(request)
+        cfg = _config(settings, sid, user_id)
+        snapshot = await state.agent.aget_state(cfg)
+        question, dropped = retry_cut(list(snapshot.values.get("messages", [])))
+        if question is None:
+            return JSONResponse(status_code=404, content={"message": "다시 답할 질문이 없습니다"})
+
+        async def before() -> None:
+            await rewind(state.agent, state.store, cfg, user_id, sid, dropped)
+
+        return start_ask(state, cfg, user_id, sid, question, before)
 
     @app.get("/session/{session_id}/live")
     async def live(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
@@ -362,6 +392,7 @@ def create_app(
     async def remove_session(session_id: str, request: Request, user_id: str = Depends(user_id_header)) -> Response:
         sid = _session(session_id)
         state = rt(request)
+        await state.registry.cancel(sid)
         await delete_session(state.saver, sid)
         await delete_answers(state.store, user_id, sid)
         await delete_ledger(state.store, user_id, sid)

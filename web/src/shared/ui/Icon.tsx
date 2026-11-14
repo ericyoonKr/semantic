@@ -12,6 +12,7 @@ const PATHS = {
   panel: ["M4 5h16v14H4z", "M15 5v14"],
   pen: ["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
   trash: ["M5 7h14", "M9 7V5h6v2", "M7 7l1 12h8l1-12", "M10.5 11v5", "M13.5 11v5"],
+  redo: ["M20 12a8 8 0 1 1-2.3-5.7", "M20 4v6h-6"],
 } as const;
 
 export type IconName = keyof typeof PATHS;

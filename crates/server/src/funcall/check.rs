@@ -47,7 +47,7 @@ pub fn cites_in(sentences: &[String], verdicts: &[Verdict]) -> u32 {
 pub fn drop_uncited_claims(sentences: &[String], verdicts: &mut [Verdict]) -> usize {
     let mut dropped = 0;
     for (sentence, verdict) in sentences.iter().zip(verdicts.iter_mut()) {
-        if verdict.ok && !sentence.contains(REF_TAG) && citegate::asserts_law(sentence) {
+        if verdict.ok && !sentence.contains(REF_TAG) && !citegate::cites_document(sentence) && citegate::asserts_law(sentence) {
             verdict.ok = false;
             verdict.reasons.push(UNCITED_CLAIM);
             dropped += 1;
@@ -76,7 +76,7 @@ fn same_claim(flagged: &str, sentence: &str) -> bool {
 pub fn drop_flagged_claims(sentences: &[String], verdicts: &mut [Verdict], flagged: &[String]) -> usize {
     let mut dropped = 0;
     for (sentence, verdict) in sentences.iter().zip(verdicts.iter_mut()) {
-        let cited = sentence.contains(REF_TAG) || !verdict.cites.is_empty();
+        let cited = sentence.contains(REF_TAG) || !verdict.cites.is_empty() || citegate::cites_document(sentence);
         if verdict.ok && !cited && flagged.iter().any(|f| same_claim(f, sentence)) {
             verdict.ok = false;
             verdict.reasons.push(UNCITED_CLAIM);
@@ -201,7 +201,7 @@ pub async fn unread_in_corpus(state: &AppState, req: &UnreadRequest) -> UnreadRe
         let tagged = sentence.contains(REF_TAG);
         let verdict = citegate::check(&sentence, &set);
         cites += verdict.cites.len() as u32 + u32::from(tagged);
-        if !tagged && verdict.cites.is_empty() && uncited.len() < UNCITED_MAX && citegate::asserts_law(&sentence) {
+        if !tagged && verdict.cites.is_empty() && !citegate::cites_document(&sentence) && uncited.len() < UNCITED_MAX && citegate::asserts_law(&sentence) {
             uncited.push(sentence.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(UNCITED_CHARS).collect());
         }
         let named = real_laws(&state.known, state.corpus.as_ref(), verdict.named).await;
@@ -312,6 +312,7 @@ mod tests {
             "업소가 위치한 지역을 알려 주세요.",
             "조례는 우리 자료에 없어 확인하지 못했습니다.",
             "그런 조례는 존재하지 않습니다.",
+            "총 12건을 목적 외로 집행하여 손해를 발생시켰습니다 「감사보고서.pdf · 25쪽」.",
         ]
         .iter()
         .map(|s| s.to_string())
@@ -323,7 +324,7 @@ mod tests {
         }
         assert_eq!(super::cites_in(&sentences, &verdicts), 0);
         assert_eq!(super::drop_uncited_claims(&sentences, &mut verdicts), 2);
-        assert_eq!(verdicts.iter().map(|v| v.ok).collect::<Vec<_>>(), vec![false, true, true, false]);
+        assert_eq!(verdicts.iter().map(|v| v.ok).collect::<Vec<_>>(), vec![false, true, true, false, true]);
         assert!(verdicts[0].reasons.contains(&super::UNCITED_CLAIM));
         let tagged = vec!["영업정지 처분이 가능합니다 [근거 1].".to_string()];
         let mut fine = vec![super::passed()];
@@ -346,6 +347,8 @@ mod tests {
         assert_eq!(super::drop_flagged_claims(&sentences, &mut verdicts, &flagged), 1);
         assert_eq!(verdicts.iter().map(|v| v.ok).collect::<Vec<_>>(), vec![false, true, true]);
         assert_eq!(super::drop_flagged_claims(&sentences, &mut vec![super::passed(); 3], &[]), 0);
+        let paged = vec!["해고된 날부터 3개월 이내에 지방노동위원회에 구제 신청을 할 수 있습니다 「상담기록.pdf · 2쪽」.".to_string()];
+        assert_eq!(super::drop_flagged_claims(&paged, &mut vec![super::passed()], &flagged), 0);
     }
 
     #[tokio::test]

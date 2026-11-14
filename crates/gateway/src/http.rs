@@ -31,6 +31,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions", get(chat::list))
         .route("/session", post(chat::create))
         .route("/session/{id}/ask", post(chat::ask))
+        .route("/session/{id}/retry", post(chat::retry))
         .route("/session/{id}/upload", post(chat::upload))
         .route("/session/{id}/history", get(chat::history))
         .route("/session/{id}/live", get(chat::live))

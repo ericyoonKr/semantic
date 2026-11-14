@@ -88,3 +88,9 @@ async function readEvents(res: Response, onEvent: (event: ChatEvent) => void): P
   }
   return end;
 }
+
+export async function retry(client: ApiClient, id: string, onEvent: (event: ChatEvent) => void, signal?: AbortSignal): Promise<AskEnd> {
+  const options = signal ? { accept: "text/event-stream", signal } : { accept: "text/event-stream" };
+  const res = await client.send("POST", `/session/${encodeURIComponent(id)}/retry`, options);
+  return readEvents(res, onEvent);
+}

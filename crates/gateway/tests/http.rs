@@ -3,7 +3,7 @@ mod support;
 use axum::http::StatusCode;
 use gateway::GatewayError;
 use serde_json::{Value, json};
-use support::{PASSWORD, drop_schema, fixture, login};
+use support::{PASSWORD, drop_schema, fixture, login, new_session};
 
 #[tokio::test]
 async fn login_owner_check_csrf_and_filtered_stream() -> Result<(), Box<dyn std::error::Error>> {
@@ -76,6 +76,23 @@ async fn login_owner_check_csrf_and_filtered_stream() -> Result<(), Box<dyn std:
     let after = f.http.get(format!("{}/api/auth/me", f.base)).header("cookie", &a.cookie).send().await?;
     assert_eq!(after.status().as_u16(), 401);
 
+    drop_schema(&f.pool, &f.schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn retry_streams_a_new_answer_through_the_same_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(f) = fixture().await else { return Ok(()) };
+    let (_, a) = login(&f, "grader_a", PASSWORD).await?;
+    let a = a.ok_or("no session")?;
+    let sid = new_session(&f, &a).await?;
+    let res = f.http.post(format!("{}/session/{sid}/retry", f.base)).header("cookie", &a.cookie).header("x-csrf-token", &a.csrf).send().await?;
+    assert_eq!(res.status().as_u16(), 200);
+    let stream = res.text().await?;
+    assert!(stream.contains("visible answer"));
+    assert!(!stream.contains("internal plan"));
+    let no_csrf = f.http.post(format!("{}/session/{sid}/retry", f.base)).header("cookie", &a.cookie).send().await?;
+    assert_eq!(no_csrf.status().as_u16(), 403);
     drop_schema(&f.pool, &f.schema).await;
     Ok(())
 }

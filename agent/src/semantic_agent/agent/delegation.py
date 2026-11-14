@@ -32,6 +32,7 @@ ADVERSE_RETRIES = 2
 ISSUE_HEAD = "쟁점:"
 PURPOSE_HEAD = "목적:"
 JUDGE_PURPOSE = "판단"
+REREAD_HEADS = ("먼저 읽을 조문:", "근거 없이 쓴 문장")
 STANCES = frozenset({"support", "adverse", "neutral"})
 
 
@@ -39,6 +40,7 @@ STANCES = frozenset({"support", "adverse", "neutral"})
 class Brief:
     issue: str
     purpose: str
+    extra: str = ""
 
 
 def _json_object(text: str) -> Any:
@@ -124,13 +126,16 @@ def render_findings(name: str, findings: Findings) -> str:
 
 def read_brief(description: str) -> Brief:
     issue, purpose = "", ""
+    extra: list[str] = []
     for line in description.splitlines():
         text = line.strip()
-        if text.startswith(ISSUE_HEAD) and not issue:
+        if extra or text.startswith(REREAD_HEADS):
+            extra.append(text)
+        elif text.startswith(ISSUE_HEAD) and not issue:
             issue = text[len(ISSUE_HEAD) :].strip()
         elif text.startswith(PURPOSE_HEAD) and not purpose:
             purpose = text[len(PURPOSE_HEAD) :].strip()
-    return Brief(issue or description.strip(), JUDGE_PURPOSE if purpose.startswith(JUDGE_PURPOSE) else "조회")
+    return Brief(issue or description.strip(), JUDGE_PURPOSE if purpose.startswith(JUDGE_PURPOSE) else "조회", " ".join(extra))
 
 
 def route_hint(issue: str, routes: Mapping[str, Sequence[str]]) -> str:
@@ -192,7 +197,7 @@ class SubagentGate(AgentMiddleware):
             return await handler(request)
         ledger = current_ledger()
         brief = read_brief(str(args.get("description", "")))
-        seen_key = f"{name}\x00{normalize(brief.issue)}"
+        seen_key = f"{name}\x00{normalize(brief.issue)}\x00{normalize(brief.extra)}"
         seen = ledger.delegations.get(seen_key)
         if seen is not None:
             log.info("subagent issue repeated name=%s", name)

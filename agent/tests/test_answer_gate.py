@@ -1,6 +1,6 @@
 import asyncio
 
-from semantic_agent.api.answer_gate import NOTICE, SentenceGate, check_sentence
+from semantic_agent.api.answer_gate import SentenceGate, check_sentence
 from semantic_agent.ledger import Ledger
 
 
@@ -184,18 +184,18 @@ def test_tags_become_code_built_display() -> None:
     )
 
 
-def test_stream_releases_sentences_and_notice_once() -> None:
+def test_stream_drops_unread_sentences_silently_and_keeps_line_breaks() -> None:
     gate = SentenceGate(_ledger(), checker=_fake_reads)
     text = _run_gate(gate, ["국가가 배상", "합니다 [근", "거 1]. 민법 제7", "50조가 적용됩니다. 헌법 제10조도", " 봅니다.\n처분일은 2023. 1. 5. 입니다", "."])
-    assert text == f"국가가 배상합니다 국가배상법 제2조(시행 2017-10-31). {NOTICE} \n처분일은 2023. 1. 5. 입니다."
+    assert text == "국가가 배상합니다 국가배상법 제2조(시행 2017-10-31). \n처분일은 2023. 1. 5. 입니다."
     assert len(gate.drops) == 2
 
 
-def test_notice_appears_once_per_answer_even_for_separated_drops() -> None:
+def test_separated_drops_leave_no_notice_and_no_double_spaces() -> None:
     gate = SentenceGate(_ledger(), checker=_fake_reads)
     text = _run_gate(gate, ["민법 제750조가 적용됩니다. 국가가 배상합니다 [근거 1]. 헌법 제10조도 봅니다. 끝입니다."])
-    assert text.count(NOTICE) == 1, text
-    assert "국가배상법 제2조" in text and "끝입니다." in text
+    assert text == "국가가 배상합니다 국가배상법 제2조(시행 2017-10-31). 끝입니다."
+    assert "뺐습니다" not in text
     assert len(gate.drops) == 2
 
 
@@ -241,12 +241,13 @@ def test_tool_names_are_scrubbed_and_ordinary_brackets_stay() -> None:
     assert changed == []
 
 
-def test_notice_says_search_failed_when_it_did() -> None:
+def test_dropped_sentence_leaves_no_notice_even_when_search_failed() -> None:
     ledger = _ledger()
     ledger.search_failed = True
     gate = SentenceGate(ledger)
     out = _run_gate(gate, ["민법 제750조가 적용됩니다.\n"])
-    assert out.startswith("법령·판례 검색이 지금 되지 않아")
+    assert out == "\n"
+    assert len(gate.drops) == 1
 
 
 def test_material_wrapper_marks_do_not_reach_the_answer() -> None:

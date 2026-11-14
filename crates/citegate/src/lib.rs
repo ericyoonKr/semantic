@@ -5,7 +5,6 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_SENTENCE: usize = 400;
-pub const NOTICE: &str = "확인하지 못한 근거를 든 문장을 뺐습니다.";
 
 pub const UNIT_NOT_READ: &str = "unit_not_read";
 pub const CASE_NOT_READ: &str = "case_not_read";
@@ -51,6 +50,14 @@ pub fn asserts_law(sentence: &str) -> bool {
         return false;
     }
     EFFECT_WORDS.iter().any(|w| s.contains(w))
+}
+
+static DOC_REF: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[「\[][^「」\[\]\n]{1,200}?\.(?i:pdf|docx|hwpx)\s*·\s*\d[\d\-–~, ]*쪽[」\]]").expect("document reference pattern")
+});
+
+pub fn cites_document(sentence: &str) -> bool {
+    DOC_REF.is_match(sentence)
 }
 
 fn is_ordinance(name: &str) -> bool {

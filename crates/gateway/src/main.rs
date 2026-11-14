@@ -98,7 +98,7 @@ async fn serve(cfg: Config) -> Result<(), GatewayError> {
     let http = reqwest::Client::builder().build().map_err(|_| GatewayError::Internal)?;
     let state = AppState {
         limiter: Arc::new(LoginLimiter::new(cfg.login_per_minute)),
-        quota: Arc::new(AskQuota::new(cfg.ask_global, cfg.ask_wait)),
+        quota: Arc::new(AskQuota::new(cfg.ask_global, cfg.ask_wait, cfg.ask_queue_wait)),
         cfg: Arc::new(cfg.clone()),
         store,
         audit,

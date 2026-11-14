@@ -43,6 +43,7 @@ pub async fn fake_agent() -> Option<SocketAddr> {
             }),
         )
         .route("/session/{id}/ask", post(fake_ask))
+        .route("/session/{id}/retry", post(fake_retry))
         .route("/session/{id}", axum::routing::delete(|| async { StatusCode::NO_CONTENT }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
     let addr = listener.local_addr().ok()?;
@@ -73,6 +74,10 @@ pub async fn fake_ask(headers: HeaderMap, axum::Json(body): axum::Json<Value>) -
         Ok::<_, std::io::Error>(text.to_string())
     });
     axum::response::Response::new(axum::body::Body::from_stream(stream))
+}
+
+pub async fn fake_retry(headers: HeaderMap) -> axum::response::Response {
+    fake_ask(headers, axum::Json(json!({}))).await
 }
 
 pub trait Parts {
@@ -117,6 +122,7 @@ pub async fn fixture() -> Option<Fixture> {
         login_per_minute: 10,
         hidden_spans: vec![("<think>".into(), "</think>".into())],
         ask_wait: Duration::from_millis(300),
+        ask_queue_wait: Duration::from_millis(1500),
         ask_global: 4,
         memory_floor_bytes: 0,
         memory_every: Duration::from_secs(30),
@@ -124,7 +130,7 @@ pub async fn fixture() -> Option<Fixture> {
     let audit = AuditStore::open(pool.clone(), &cfg.audit_schema).await.ok()?;
     let state = AppState {
         limiter: Arc::new(LoginLimiter::new(cfg.login_per_minute)),
-        quota: Arc::new(AskQuota::new(cfg.ask_global, cfg.ask_wait)),
+        quota: Arc::new(AskQuota::new(cfg.ask_global, cfg.ask_wait, cfg.ask_queue_wait)),
         memory: Arc::new(MemoryGuard::new(cfg.memory_floor_bytes)),
         cfg: Arc::new(cfg),
         store: store.clone(),

@@ -5,7 +5,6 @@ import pytest
 from conftest import answer, call, delegate, make_agent, run_config, tool_messages
 from langchain_core.messages import AIMessage
 
-from semantic_agent.api.answer_gate import NOTICE
 from semantic_agent.api.sse import to_sse
 from semantic_agent.config import Settings
 
@@ -64,6 +63,6 @@ def test_streamed_answer_shows_checked_sources_only() -> None:
         assert "가짜법 제1조(시행 2000-01-01)" in tokens
         assert "[근거 1]" not in tokens
         assert "민법 제750조" not in tokens
-        assert NOTICE in tokens
+        assert "뺐습니다" not in tokens
 
     asyncio.run(scenario())

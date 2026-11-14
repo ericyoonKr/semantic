@@ -2,8 +2,9 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { Fold } from "../../shared/ui/Fold";
 import { Icon } from "../../shared/ui/Icon";
 import type { Source } from "./events";
-import { useSourceView } from "./sourceView";
+import { type DocRef, useSourceView } from "./sourceView";
 import { type BoxTable, markSpans, splitBody, tableWidth } from "../../shared/webtext";
+import { pageOf } from "../upload/files";
 import { citeNames, toBlocks, toSegments } from "./rich";
 
 export const LONG_ANSWER_CHARS = 1500;
@@ -18,15 +19,39 @@ type LineProps = {
   text: string;
   names: { name: string; source: number }[];
   open: (source: number) => void;
+  openDoc?: ((ref: DocRef) => void) | undefined;
 };
 
-function Line({ text, names, open }: LineProps) {
+function Line({ text, names, open, openDoc }: LineProps) {
   return (
     <>
       {toSegments(text, names).map((s, i) => {
         if (s.doc !== undefined) {
+          const doc = s.doc;
+          if (!openDoc) {
+            return (
+              <span key={i} className="doc-ref" title={doc}>
+                <Icon name="doc" />
+                {s.text}
+              </span>
+            );
+          }
+          const go = () => openDoc({ filename: doc, page: pageOf(s.text) });
           return (
-            <span key={i} className="doc-ref" title={s.doc}>
+            <span
+              key={i}
+              role="button"
+              tabIndex={0}
+              className="doc-ref doc-ref-link"
+              title={doc + " 원문 보기"}
+              onClick={go}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  go();
+                }
+              }}
+            >
               <Icon name="doc" />
               {s.text}
             </span>
@@ -140,12 +165,13 @@ type RichProps = {
   text: string;
   names?: { name: string; source: number }[];
   open?: (source: number) => void;
+  openDoc?: ((ref: DocRef) => void) | undefined;
 };
 
 const NO_NAMES: { name: string; source: number }[] = [];
 const IGNORE = (_source: number) => undefined;
 
-export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps) {
+export function RichBlocks({ text, names = NO_NAMES, open = IGNORE, openDoc }: RichProps) {
   const setShown = open;
   return (
     <>
@@ -154,13 +180,13 @@ export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps)
         case "para":
           return (
             <p key={i}>
-              <Line text={b.text} names={names} open={setShown} />
+              <Line text={b.text} names={names} open={setShown} openDoc={openDoc} />
             </p>
           );
         case "heading":
           return (
             <p key={i} className={"answer-heading answer-heading-" + Math.min(b.level, 4)} role="heading" aria-level={Math.min(b.level + 2, 6)}>
-              <Line text={b.text} names={names} open={setShown} />
+              <Line text={b.text} names={names} open={setShown} openDoc={openDoc} />
             </p>
           );
         case "rule":
@@ -174,7 +200,7 @@ export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps)
                     <tr>
                       {b.header.map((c, j) => (
                         <th key={j} scope="col">
-                          <Line text={c} names={names} open={setShown} />
+                          <Line text={c} names={names} open={setShown} openDoc={openDoc} />
                         </th>
                       ))}
                     </tr>
@@ -185,7 +211,7 @@ export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps)
                     <tr key={r}>
                       {row.map((c, j) => (
                         <td key={j}>
-                          <Line text={c} names={names} open={setShown} />
+                          <Line text={c} names={names} open={setShown} openDoc={openDoc} />
                         </td>
                       ))}
                     </tr>
@@ -201,7 +227,7 @@ export function RichBlocks({ text, names = NO_NAMES, open = IGNORE }: RichProps)
             <ul key={i}>
               {b.items.map((item, j) => (
                 <li key={j}>
-                  <Line text={item} names={names} open={setShown} />
+                  <Line text={item} names={names} open={setShown} openDoc={openDoc} />
                 </li>
               ))}
             </ul>
@@ -283,7 +309,7 @@ export function AnswerText({ text, streaming = false, sources = [] }: Props) {
   return (
     <Fold long={!streaming && text.length > LONG_ANSWER_CHARS}>
       <div className="answer-text">
-        <RichBlocks text={text} names={names} open={open} />
+        <RichBlocks text={text} names={names} open={open} openDoc={view?.openDoc} />
       </div>
       {sources.length > 0 ? (
         <ol className="source-list" aria-label="근거">

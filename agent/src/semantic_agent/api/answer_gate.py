@@ -9,8 +9,6 @@ from semantic_agent.turn import Turn
 
 log = logging.getLogger(__name__)
 
-NOTICE = "확인하지 못한 근거를 든 문장을 뺐습니다."
-NOTICE_SEARCH = "법령·판례 검색이 지금 되지 않아 근거를 확인하지 못한 문장을 뺐습니다."
 TOOL_LABELS = {
     "read_file": "문서", "write_file": "메모", "edit_file": "메모", "grep": "문서", "glob": "문서", "ls": "문서",
     "search_laws": "법령 검색", "search_cases": "판례 검색", "read_law": "법령", "read_case": "판례",
@@ -151,9 +149,6 @@ class SentenceGate:
     on_drop: Callable[[tuple[str, ...], tuple[int, ...]], None] = lambda reasons, refs: None
     checker: Checker = unreachable
     buf: str = ""
-    dropped_last: bool = False
-    noticed: bool = False
-    check_failed: bool = False
     drops: list[tuple[str, ...]] = field(default_factory=list)
     cited: list[tuple[int, int | None, str]] = field(default_factory=list)
 
@@ -161,7 +156,6 @@ class SentenceGate:
         asks = [p for p in pieces if p.strip()]
         got = await self.checker(asks) if asks else []
         if got is None or len(got) != len(asks):
-            self.check_failed = True
             got = offline_verdicts(asks)
         answers = iter(got)
         return [next(answers) if p.strip() else {"ok": True, "cites": []} for p in pieces]
@@ -172,19 +166,13 @@ class SentenceGate:
         checked = check_sentence(piece, self.ledger)
         reasons = checked.reasons if verdict.get("ok") else (*checked.reasons, NOT_READ)
         if not reasons and checked.text is not None:
-            self.dropped_last = False
             cites = [*checked.cites, *server_cites(self.ledger, list(verdict.get("cites") or []))]
             self.cited.extend((ref, paragraph, piece) for ref, paragraph in dict.fromkeys(cites))
             return [checked.text]
         self.drops.append(reasons)
         self.on_drop(reasons, tuple(dict.fromkeys(int(m.group(1)) for m in TAG.finditer(piece))))
-        if self.dropped_last or self.noticed:
-            self.dropped_last = True
-            return [_trailing_space(piece)] if _trailing_space(piece) else []
-        self.dropped_last = True
-        self.noticed = True
-        notice = NOTICE_SEARCH if self.ledger.search_failed or self.check_failed else NOTICE
-        return [notice + (_trailing_space(piece) or " ")]
+        tail = _trailing_space(piece)
+        return [tail] if "\n" in tail else []
 
     async def _emit_all(self, pieces: list[str]) -> list[str]:
         pieces = [MATERIAL_MARK.sub("", p) for p in pieces]

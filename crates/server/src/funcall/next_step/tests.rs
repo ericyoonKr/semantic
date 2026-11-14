@@ -22,7 +22,7 @@ fn small_documents_are_read_large_ones_searched_then_research_once() {
     let q = ask("r1", "낙찰률은 무엇인가?");
     assert_eq!(log.next("t", &q, true, &docs, &[], &no_ctx()), Step::ReadFile { file_path: "/uploads/small.md".into(), limit: WHOLE_READ_LINES });
     assert_eq!(log.next("t", &q, true, &docs, &[], &no_ctx()), Step::SearchDocument { query: "낙찰률은 무엇인가?".into() });
-    let want = format!("쟁점: 낙찰률은 무엇인가?\n목적: 조회\n{EXCERPT_HEAD}\n감사 결과 「지방계약법」 제16조에 따라 검사한다.");
+    let want = format!("쟁점: 낙찰률은 무엇인가?\n목적: 조회\n{EXCERPT_HEAD}\n감사 결과 「지방계약법」 제16조에 따라 검사한다.\n먼저 읽을 조문: 지방계약법 제16조");
     assert_eq!(log.next("t", &q, true, &docs, &[], &no_ctx()), Step::Task { description: want, subagent_type: "researcher".into() });
     assert_eq!(log.next("t", &q, true, &docs, &[], &no_ctx()), Step::Model);
     assert!(matches!(log.next("t", &ask("r2", "과징금은?"), true, &docs, &[], &no_ctx()), Step::Task { .. }));
@@ -38,6 +38,15 @@ fn an_answer_citing_unread_articles_is_sent_back_to_read_them_once() {
     assert_eq!(log.after_answer("t", &q, &unread, &[], 0, &no_ctx()), Step::Model);
     assert_eq!(log.after_answer("t", &ask("r2", "또?"), &[], &[], 0, &no_ctx()), Step::Model);
     assert!(matches!(log.after_answer("t", &ask("r3", "또?"), &unread, &[], 0, &no_ctx()), Step::Task { .. }));
+    let uncited = vec!["총 12건을 목적 외로 집행하여 손해를 발생시켰습니다.".to_string()];
+    let plain = log.after_answer("t", &ask("r4", "개요?"), &[], &uncited, 0, &no_ctx());
+    assert!(matches!(&plain, Step::Task { description, .. } if description.contains(super::UNCITED_HEAD) && !description.contains(super::DOC_CITE_LINE)));
+    let with_docs = StepLog::default();
+    let docs = [doc("small", 3_000, 2, "감사 결과\n「지방계약법」 제16조에 따라 검사한다.")];
+    assert!(matches!(with_docs.next("d", &ask("r5", "이 사건의 개요 뭐야"), true, &docs, &[], &no_ctx()), Step::ReadFile { .. }));
+    let paged = with_docs.after_answer("d", &ask("r5", "이 사건의 개요 뭐야"), &[], &uncited, 0, &no_ctx());
+    assert!(matches!(&paged, Step::Task { description, .. } if description.ends_with(super::DOC_CITE_LINE)));
+    assert_eq!(super::doc_units(&docs), vec!["지방계약법 제16조".to_string()]);
 }
 
 #[test]
@@ -51,7 +60,7 @@ fn an_answer_with_no_citation_but_legal_claims_is_sent_back_once_with_the_claims
     assert!(matches!(log.after_answer("t", &ask("r2", "무슨 법?"), &[], &claims, 2, &no_ctx()), Step::Task { .. }));
     assert_eq!(log.after_answer("t", &ask("r3", "무슨 법?"), &[], &[], 0, &no_ctx()), Step::Model);
     assert!(log.flagged("t").is_empty());
-    let both = super::reread_brief("무슨 법?", &["식품위생법 제75조".to_string()], &claims[..1], &no_ctx());
+    let both = super::reread_brief("무슨 법?", &["식품위생법 제75조".to_string()], &claims[..1], &no_ctx(), false);
     assert!(both.contains("먼저 읽을 조문: 식품위생법 제75조\n근거 없이 쓴 문장"), "{both}");
 }
 

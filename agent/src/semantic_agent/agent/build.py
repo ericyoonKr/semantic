@@ -9,6 +9,8 @@ from deepagents import (
     register_harness_profile,
 )
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
+from deepagents.backends.protocol import BackendProtocol
+from deepagents.middleware import SummarizationMiddleware
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
@@ -88,6 +90,16 @@ def _prefs_namespace(_runtime: Any) -> tuple[str, ...]:
     return prefs_namespace(str(user_id))
 
 
+SUMMARY_TRIGGER_TOKENS = 20_000
+SUMMARY_KEEP_MESSAGES = 8
+
+
+def make_summarization(model: BaseChatModel, backend: BackendProtocol) -> SummarizationMiddleware:
+    return SummarizationMiddleware(
+        model, backend=backend, trigger=("tokens", SUMMARY_TRIGGER_TOKENS), keep=("messages", SUMMARY_KEEP_MESSAGES)
+    )
+
+
 def _disable_general_purpose(model: BaseChatModel) -> None:
     provider = model._get_ls_params().get("ls_provider")
     if not provider:
@@ -134,6 +146,7 @@ def build_agent(
         ],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
+            make_summarization(model, backend),
             *([FirstStep(client)] if research.first else []),
             QuestionBudget(),
             ScopeGuard(),

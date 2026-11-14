@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../shared/api/client";
 import { messageOf } from "../../shared/api/errors";
 import { ErrorNote } from "../../shared/ui/ErrorNote";
@@ -10,6 +10,58 @@ type Props = {
   sessionId: string;
   version: number;
 };
+
+type ViewProps = {
+  sessionId: string;
+  file: StoredFile;
+  text: FileText | null;
+  page: number | null;
+  close: () => void;
+};
+
+export function FileView({ sessionId, file, text, page, close }: ViewProps) {
+  const target = useRef<HTMLElement>(null);
+  useEffect(() => {
+    target.current?.scrollIntoView?.({ block: "start" });
+  }, [file, text, page]);
+  const original = showsOriginal(file);
+  const src = originalUrl(sessionId, file.fileId) + (page !== null ? "#page=" + page : "");
+  return (
+    <div className="file-view" aria-label={file.filename + " 원문"}>
+      <header className="source-head">
+        <strong>{file.filename}</strong>
+        <span className="source-note">
+          {file.pages > 0 ? file.pages + "쪽 · " : ""}
+          {original ? "원본" : "추출한 글"}
+          {page !== null ? " · " + page + "쪽" : ""}
+        </span>
+        <a className="file-download" href={originalUrl(sessionId, file.fileId)} download={file.filename}>
+          원본 내려받기
+        </a>
+        <button type="button" className="source-close" onClick={close} aria-label="닫기">
+          ×
+        </button>
+      </header>
+      {original ? (
+        <iframe className="file-original" src={src} title={file.filename + " 원본"} />
+      ) : (
+        <div className="file-body">
+          {toPages(text?.text ?? "").map((p, i) => {
+            const hit = page !== null && p.page === page;
+            return (
+              <section key={i} ref={hit ? (target as RefObject<HTMLElement>) : undefined} className={hit ? "file-page is-target" : "file-page"}>
+                {p.page !== null ? <p className="file-page-mark">{p.page}쪽</p> : null}
+                <div className="answer-text file-page-text">
+                  <RichBlocks text={p.text} />
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function UploadedFiles({ client, sessionId, version }: Props) {
   const [files, setFiles] = useState<StoredFile[]>([]);
@@ -59,37 +111,7 @@ export function UploadedFiles({ client, sessionId, version }: Props) {
         ))}
       </ul>
       <ErrorNote message={error} />
-      {open ? (
-        <div className="file-view" aria-label={open.filename + " 원문"}>
-          <header className="source-head">
-            <strong>{open.filename}</strong>
-            <span className="source-note">
-              {open.pages > 0 ? open.pages + "쪽 · " : ""}
-              {showsOriginal(open) ? "원본" : "추출한 글"}
-            </span>
-            <a className="file-download" href={originalUrl(sessionId, open.fileId)} download={open.filename}>
-              원본 내려받기
-            </a>
-            <button type="button" className="source-close" onClick={() => setOpen(null)} aria-label="닫기">
-              ×
-            </button>
-          </header>
-          {showsOriginal(open) ? (
-            <iframe className="file-original" src={originalUrl(sessionId, open.fileId)} title={open.filename + " 원본"} />
-          ) : (
-          <div className="file-body">
-            {toPages(text?.text ?? "").map((p, i) => (
-              <section key={i} className="file-page">
-                {p.page !== null ? <p className="file-page-mark">{p.page}쪽</p> : null}
-                <div className="answer-text file-page-text">
-                  <RichBlocks text={p.text} />
-                </div>
-              </section>
-            ))}
-          </div>
-          )}
-        </div>
-      ) : null}
+      {open ? <FileView sessionId={sessionId} file={open} text={text} page={null} close={() => setOpen(null)} /> : null}
     </section>
   );
 }

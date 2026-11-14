@@ -36,6 +36,14 @@ class SessionRegistry:
             if slot.running_ask is not None and not slot.running_ask.done():
                 slot.running_ask.cancel()
 
+    async def cancel(self, session_id: str) -> None:
+        slot = self._slots.get(session_id)
+        running = slot.running_ask if slot is not None else None
+        if running is not None and not running.done():
+            running.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await running
+
     def live(self, session_id: str) -> RunLog | None:
         slot = self._slots.get(session_id)
         log = slot.log if slot is not None else None

@@ -417,3 +417,18 @@ fn short_names_count_as_the_law_that_was_read() -> Result<(), lawnames::Error> {
     assert_eq!(let_through, Vec::<&str>::new());
     Ok(())
 }
+
+#[test]
+fn page_references_to_uploaded_documents_are_recognised() {
+    let pass = [
+        "총 12건을 목적 외로 집행하였습니다 「감사보고서.pdf · 25쪽」.",
+        "허가 구역을 벗어나 사용하였습니다 [보고서.docx · 9쪽].",
+        "두 쪽에 걸쳐 적혀 있습니다 「문서.hwpx · 3-4쪽」.",
+        "「처분서.PDF · 2, 3쪽」에 따르면 사전통지가 없었습니다.",
+    ];
+    let block = ["25쪽에 적혀 있습니다.", "「지방계약법」 제16조에 따라 감독합니다.", "문서.pdf를 보세요.", "「문서.pdf」 25쪽입니다."];
+    let missed: Vec<&str> = pass.iter().copied().filter(|s| !super::cites_document(s)).collect();
+    let wrongly: Vec<&str> = block.iter().copied().filter(|s| super::cites_document(s)).collect();
+    assert_eq!(missed, Vec::<&str>::new());
+    assert_eq!(wrongly, Vec::<&str>::new());
+}

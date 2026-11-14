@@ -16,21 +16,19 @@ async fn busy_thread_user_share_usage_and_audit() -> Result<(), Box<dyn std::err
 
     let slow = ask(&f, &a, &first_sid, "slow").await?;
     assert_eq!(slow.status().as_u16(), 200);
-    let busy = ask(&f, &a, &first_sid, "q").await?;
-    assert_eq!(busy.status().as_u16(), 409);
-    let busy_body: Value = busy.json().await?;
-    assert_eq!(busy_body, json!({ "message": "이 대화에서 답을 쓰는 중입니다" }));
-    let waited = ask(&f, &a, &other_sid, "q").await?;
-    assert_eq!(waited.status().as_u16(), 429);
+    let queued = ask(&f, &a, &first_sid, "q").await?;
+    assert_eq!(queued.status().as_u16(), 200);
+    let other = ask(&f, &a, &other_sid, "q").await?;
+    assert_eq!(other.status().as_u16(), 200);
     let text = slow.text().await?;
     assert!(text.contains("visible answer"));
     assert!(!text.contains("Usage") && !text.contains("Audit") && !text.contains("1234") && !text.contains("guard_block"));
-
-    let again = ask(&f, &a, &other_sid, "q").await?;
-    assert_eq!(again.status().as_u16(), 200);
-    let _ = again.text().await?;
+    let queued_text = queued.text().await?;
+    assert!(queued_text.contains("앞 질문의 답을 기다리는 중") && queued_text.contains("visible answer"), "{queued_text}");
+    let other_text = other.text().await?;
+    assert!(other_text.contains("visible answer"));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(f.store.tokens_today(f.a_id).await?, 2468);
+    assert_eq!(f.store.tokens_today(f.a_id).await?, 3 * 1234);
 
     f.store.add_tokens(f.a_id, 3_000_000).await?;
     let over = ask(&f, &a, &other_sid, "q").await?;
@@ -51,7 +49,7 @@ async fn busy_thread_user_share_usage_and_audit() -> Result<(), Box<dyn std::err
     for want in ["login_fail", "login", "ask", "guard_block", "delete"] {
         assert!(kinds.iter().any(|k| k == want), "missing {want} in {kinds:?}");
     }
-    assert_eq!(kinds.iter().filter(|k| *k == "ask").count(), 2);
+    assert_eq!(kinds.iter().filter(|k| *k == "ask").count(), 3);
     assert_eq!(kinds.iter().filter(|k| *k == "guard_block").count(), 3);
     drop_schema(&f.pool, &f.schema).await;
     Ok(())

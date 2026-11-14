@@ -35,3 +35,22 @@ export function dropPending(items: HistoryItem[], question: string): HistoryItem
   const last = items[items.length - 1];
   return last && last.role === "user" && last.text.trim() === question.trim() ? items.slice(0, -1) : items;
 }
+
+export function lastQuestion(items: HistoryItem[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.role === "user") {
+      return item.text;
+    }
+  }
+  return null;
+}
+
+export function dropLastTurn(items: HistoryItem[]): HistoryItem[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.role === "user") {
+      return [...items.slice(0, i), ...items.slice(i + 1).filter((item) => item.role === "upload")];
+    }
+  }
+  return items;
+}

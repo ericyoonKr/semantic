@@ -149,14 +149,18 @@ struct Progress {
 }
 
 pub const UNCITED_HEAD: &str = "근거 없이 쓴 문장(조문·판례를 찾아 붙이거나 뺀다):";
+pub const DOC_CITE_LINE: &str = "올린 문서에서 가져온 사실에는 「파일명 · N쪽」을 붙인다.";
 
-pub fn reread_brief(question: &str, unread: &[String], uncited: &[String], ctx: &Context) -> String {
+pub fn reread_brief(question: &str, unread: &[String], uncited: &[String], ctx: &Context, has_docs: bool) -> String {
     let mut out = brief(question, &[], "", ctx);
     if !unread.is_empty() {
         out.push_str(&format!("\n{MUST_READ_HEAD} {}", unread.join(", ")));
     }
     if !uncited.is_empty() {
         out.push_str(&format!("\n{UNCITED_HEAD}\n{}", uncited.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")));
+        if has_docs {
+            out.push_str(&format!("\n{DOC_CITE_LINE}"));
+        }
     }
     out
 }
@@ -255,6 +259,35 @@ pub fn brief(question: &str, laws: &[String], excerpt: &str, ctx: &Context) -> S
     out
 }
 
+pub const DOC_UNITS_MAX: usize = 8;
+
+pub fn doc_units(docs: &[Doc]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for text in law_lines(docs).lines() {
+        for m in citegate::mentions(text) {
+            if let Mention::Unit { law: Some(law), unit, .. } = m {
+                let label = format!("{} {unit}", citegate::canonical(&law));
+                if !out.contains(&label) {
+                    out.push(label);
+                }
+                if out.len() >= DOC_UNITS_MAX {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn task_brief(question: &str, laws: &[String], docs: &[Doc], ctx: &Context) -> String {
+    let mut out = brief(question, laws, &law_lines(docs), ctx);
+    let units = doc_units(docs);
+    if !units.is_empty() {
+        out.push_str(&format!("\n{MUST_READ_HEAD} {}", units.join(", ")));
+    }
+    out
+}
+
 fn readable_whole(doc: &Doc) -> bool {
     !doc.processing && doc.chars <= WHOLE_READ_CHARS
 }
@@ -275,7 +308,8 @@ impl StepLog {
         }
         progress.reread = true;
         progress.flagged = uncited.iter().map(|s| citegate::compact(s)).collect();
-        Step::Task { description: reread_brief(&req.question, unread, uncited, ctx), subagent_type: RESEARCHER.into() }
+        let has_docs = !progress.docs.is_empty();
+        Step::Task { description: reread_brief(&req.question, unread, uncited, ctx, has_docs), subagent_type: RESEARCHER.into() }
     }
 
     pub fn flagged(&self, thread: &str) -> Vec<String> {
@@ -331,7 +365,7 @@ impl StepLog {
             return Step::SearchDocument { query: req.question.split_whitespace().collect::<Vec<_>>().join(" ") };
         }
         progress.done = true;
-        Step::Task { description: brief(&req.question, laws, &law_lines(docs), ctx), subagent_type: RESEARCHER.into() }
+        Step::Task { description: task_brief(&req.question, laws, docs, ctx), subagent_type: RESEARCHER.into() }
     }
 }
 

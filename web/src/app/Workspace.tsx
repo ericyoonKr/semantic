@@ -39,7 +39,6 @@ export function Workspace({ client, onStreaming, account }: Props) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(readSelected);
   const [busy, setBusy] = useState(false);
-  const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -61,7 +60,6 @@ export function Workspace({ client, onStreaming, account }: Props) {
 
   const streaming = useCallback(
     (on: boolean) => {
-      setLocked(on);
       onStreaming(on);
       if (!on) {
         refresh().catch(() => undefined);
@@ -142,7 +140,7 @@ export function Workspace({ client, onStreaming, account }: Props) {
             <Icon name="close" />
           </button>
         </div>
-        <SessionList sessions={sessions} selected={selected} locked={locked} busy={busy} onSelect={choose} onCreate={create} onDelete={remove} onRename={rename} />
+        <SessionList sessions={sessions} selected={selected} busy={busy} onSelect={choose} onCreate={create} onDelete={remove} onRename={rename} />
         <div className="sidebar-error">
           <ErrorNote message={error} />
         </div>
@@ -162,7 +160,7 @@ export function Workspace({ client, onStreaming, account }: Props) {
               <div className="chat-column">
                 <div className="chat-empty">
                   <p className="chat-empty-title">대화를 고르거나 새 대화를 만드세요.</p>
-                  <button type="button" className="button-primary" onClick={create} disabled={locked || busy}>
+                  <button type="button" className="button-primary" onClick={create} disabled={busy}>
                     <Icon name="plus" />
                     <span>새 대화</span>
                   </button>

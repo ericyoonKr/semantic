@@ -60,6 +60,10 @@ async def saved_answers(store: BaseStore, user_id: str, session_id: str) -> dict
     return {item.key: item.value for item in found}
 
 
+async def delete_answer(store: BaseStore, user_id: str, session_id: str, message_id: str) -> None:
+    await store.adelete(answers_namespace(user_id, session_id), message_id)
+
+
 async def delete_answers(store: BaseStore, user_id: str, session_id: str) -> int:
     namespace = answers_namespace(user_id, session_id)
     found = await store.asearch(namespace, limit=ANSWER_LIMIT)
