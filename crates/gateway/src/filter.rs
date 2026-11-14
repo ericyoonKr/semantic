@@ -20,7 +20,7 @@ fn status_for(tool: &str) -> &'static str {
     }
 }
 
-const SOURCE_BODY_MAX: usize = 20_000;
+const SOURCE_BODY_MAX: usize = 400_000;
 
 fn source_item(v: &Value) -> Option<Value> {
     let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);

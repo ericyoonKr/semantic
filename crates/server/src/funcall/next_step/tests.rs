@@ -46,8 +46,11 @@ fn an_answer_with_no_citation_but_legal_claims_is_sent_back_once_with_the_claims
     let claims = vec!["식품위생법에 따라 영업정지 처분을 받을 수 있습니다.".to_string(), "그런 조례는 존재하지 않습니다.".to_string()];
     let want = format!("쟁점: 무슨 법?\n목적: 조회\n{}\n- 식품위생법에 따라 영업정지 처분을 받을 수 있습니다.\n- 그런 조례는 존재하지 않습니다.", super::UNCITED_HEAD);
     assert_eq!(log.after_answer("t", &ask("r1", "무슨 법?"), &[], &claims, 0, &no_ctx()), Step::Task { description: want, subagent_type: "researcher".into() });
+    assert_eq!(log.flagged("t"), claims.iter().map(|c| citegate::compact(c)).collect::<Vec<_>>());
     assert_eq!(log.after_answer("t", &ask("r1", "무슨 법?"), &[], &claims, 0, &no_ctx()), Step::Model);
-    assert_eq!(log.after_answer("t", &ask("r2", "무슨 법?"), &[], &claims, 2, &no_ctx()), Step::Model);
+    assert!(matches!(log.after_answer("t", &ask("r2", "무슨 법?"), &[], &claims, 2, &no_ctx()), Step::Task { .. }));
+    assert_eq!(log.after_answer("t", &ask("r3", "무슨 법?"), &[], &[], 0, &no_ctx()), Step::Model);
+    assert!(log.flagged("t").is_empty());
     let both = super::reread_brief("무슨 법?", &["식품위생법 제75조".to_string()], &claims[..1], &no_ctx());
     assert!(both.contains("먼저 읽을 조문: 식품위생법 제75조\n근거 없이 쓴 문장"), "{both}");
 }

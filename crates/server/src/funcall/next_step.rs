@@ -145,6 +145,7 @@ struct Progress {
     reread: bool,
     legal: bool,
     cites: u32,
+    flagged: Vec<String>,
 }
 
 pub const UNCITED_HEAD: &str = "근거 없이 쓴 문장(조문·판례를 찾아 붙이거나 뺀다):";
@@ -266,13 +267,20 @@ impl StepLog {
             progress.turn = req.request_id.clone();
             progress.done = true;
             progress.reread = false;
+            progress.flagged.clear();
         }
-        let fine = unread.is_empty() && (cites > 0 || uncited.is_empty());
-        if fine || progress.reread {
+        let _ = cites;
+        if (unread.is_empty() && uncited.is_empty()) || progress.reread {
             return Step::Model;
         }
         progress.reread = true;
+        progress.flagged = uncited.iter().map(|s| citegate::compact(s)).collect();
         Step::Task { description: reread_brief(&req.question, unread, uncited, ctx), subagent_type: RESEARCHER.into() }
+    }
+
+    pub fn flagged(&self, thread: &str) -> Vec<String> {
+        let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(thread).map(|p| p.flagged.clone()).unwrap_or_default()
     }
 
     pub fn new_turn(&self, thread: &str, request_id: &str) -> bool {
@@ -306,6 +314,7 @@ impl StepLog {
             progress.reread = false;
             progress.legal = legal;
             progress.cites = 0;
+            progress.flagged.clear();
         }
         if keyword(&req.question).is_none() || progress.done || !legal {
             progress.done = true;

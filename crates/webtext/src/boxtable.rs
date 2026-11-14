@@ -33,18 +33,76 @@ fn is_separator(line: &str) -> bool {
     line.chars().any(|c| c == '─' || c == '━') && !line.chars().any(char::is_alphanumeric)
 }
 
-fn line_cells(line: &str) -> Vec<String> {
+const RULES: [char; 15] = ['─', '━', '┬', '┴', '┼', '├', '┤', '┨', '┠', '┣', '┫', '┏', '┓', '┗', '┛'];
+const ITEM_MARKS: [char; 4] = ['○', '▪', '•', '※'];
+const CONNECTORS: [char; 8] = ['·', 'ㆍ', '・', '/', '~', '-', '(', ')'];
+const WORD_STARTS: [&str; 5] = ["및", "또는", "그리고", "다만", "단,"];
+
+fn raw_cells(line: &str) -> Vec<String> {
     let edge = |c: char| c == '┃' || c == '│';
     let t = line.trim();
     let t = t.strip_prefix(edge).unwrap_or(t);
     let t = t.strip_suffix(edge).unwrap_or(t);
-    t.split(edge).map(|c| c.trim().to_string()).collect()
+    t.split(edge).map(str::to_string).collect()
+}
+
+fn ruled(cell: &str) -> bool {
+    cell.chars().any(|c| RULES.contains(&c))
+}
+
+fn before_rule(cell: &str) -> String {
+    clean(cell.find(|c| RULES.contains(&c)).map_or(cell, |at| &cell[..at]))
+}
+
+fn clean(cell: &str) -> String {
+    cell.chars().map(|ch| if RULES.contains(&ch) { ' ' } else { ch }).collect::<String>().trim().to_string()
+}
+
+fn cjk(c: char) -> bool {
+    ('가'..='힣').contains(&c) || ('一'..='鿿').contains(&c) || ('ㄱ'..='ㆎ').contains(&c)
+}
+
+fn starts_item(text: &str) -> bool {
+    let mut chars = text.chars();
+    let (Some(first), second) = (chars.next(), chars.next()) else { return false };
+    if ITEM_MARKS.contains(&first) {
+        return true;
+    }
+    let digits: String = text.chars().take_while(char::is_ascii_digit).collect();
+    if !digits.is_empty() {
+        return matches!(text[digits.len()..].chars().next(), Some(')') | Some('.'));
+    }
+    cjk(first) && matches!(second, Some('.') | Some(')'))
+}
+
+fn join_cell(parts: &[&str]) -> String {
+    let mut out = String::new();
+    for part in parts {
+        if out.is_empty() {
+            out.push_str(part);
+            continue;
+        }
+        let prev = out.chars().next_back();
+        let next = part.chars().next();
+        let glued = prev.is_some_and(|p| CONNECTORS.contains(&p)) || next.is_some_and(|n| CONNECTORS.contains(&n));
+        let wrapped = prev.is_some_and(|p| cjk(p) || p.is_ascii_digit()) && next.is_some_and(cjk) && !WORD_STARTS.iter().any(|w| part.starts_with(w));
+        if starts_item(part) {
+            out.push('\n');
+        } else if !(glued || wrapped) {
+            out.push(' ');
+        }
+        out.push_str(part);
+    }
+    out
 }
 
 fn row_of(group: &[Vec<String>]) -> Vec<String> {
     let width = group.iter().map(Vec::len).max().unwrap_or(0);
     (0..width)
-        .map(|j| group.iter().filter_map(|g| g.get(j)).filter(|c| !c.is_empty()).cloned().collect::<Vec<_>>().join("\n"))
+        .map(|j| {
+            let parts: Vec<&str> = group.iter().filter_map(|g| g.get(j)).filter(|c| !c.is_empty()).map(String::as_str).collect();
+            join_cell(&parts)
+        })
         .collect()
 }
 
@@ -72,7 +130,16 @@ pub fn parse_box_table(lines: &[&str]) -> BoxTable {
             in_body |= is_body_start(line);
             continue;
         }
-        let cells = line_cells(line);
+        let raw = raw_cells(line);
+        let cells: Vec<String> = raw.iter().map(|c| clean(c)).collect();
+        if raw.iter().any(|c| ruled(c)) {
+            let carried: Vec<String> = raw.iter().zip(&cells).map(|(r, c)| if ruled(r) { before_rule(r) } else { c.clone() }).collect();
+            if carried.iter().any(|c| !c.is_empty()) {
+                group.push(carried);
+            }
+            flush(&mut group, in_body, &mut head, &mut rows);
+            continue;
+        }
         if cells.iter().all(String::is_empty) {
             flush(&mut group, in_body, &mut head, &mut rows);
             continue;

@@ -56,6 +56,36 @@ pub fn drop_uncited_claims(sentences: &[String], verdicts: &mut [Verdict]) -> us
     dropped
 }
 
+const FLAGGED_OVERLAP: f32 = 0.8;
+
+fn contained(a: &str, b: &str) -> f32 {
+    let chars: Vec<char> = a.chars().collect();
+    if chars.len() < 10 {
+        return 0.0;
+    }
+    let pairs: Vec<String> = chars.windows(2).map(|w| w.iter().collect()).collect();
+    let hits = pairs.iter().filter(|p| b.contains(p.as_str())).count();
+    hits as f32 / pairs.len() as f32
+}
+
+fn same_claim(flagged: &str, sentence: &str) -> bool {
+    let s = citegate::compact(sentence);
+    s == flagged || contained(&s, flagged).max(contained(flagged, &s)) >= FLAGGED_OVERLAP
+}
+
+pub fn drop_flagged_claims(sentences: &[String], verdicts: &mut [Verdict], flagged: &[String]) -> usize {
+    let mut dropped = 0;
+    for (sentence, verdict) in sentences.iter().zip(verdicts.iter_mut()) {
+        let cited = sentence.contains(REF_TAG) || !verdict.cites.is_empty();
+        if verdict.ok && !cited && flagged.iter().any(|f| same_claim(f, sentence)) {
+            verdict.ok = false;
+            verdict.reasons.push(UNCITED_CLAIM);
+            dropped += 1;
+        }
+    }
+    dropped
+}
+
 pub fn split(text: &str) -> Vec<String> {
     let mut rest = text.to_string();
     let mut out = Vec::new();
@@ -148,10 +178,14 @@ pub async fn check_sentences(state: &AppState, req: &CheckRequest) -> CheckReply
         settled
     };
     let cites = state.steps.count_cites(thread, cites_in(&req.sentences, &results));
-    if cites == 0 && state.steps.is_legal(thread) {
-        let dropped = drop_uncited_claims(&req.sentences, &mut results);
+    if state.steps.is_legal(thread) {
+        let flagged = state.steps.flagged(thread);
+        let mut dropped = drop_flagged_claims(&req.sentences, &mut results, &flagged);
+        if cites == 0 {
+            dropped += drop_uncited_claims(&req.sentences, &mut results);
+        }
         if dropped > 0 {
-            tracing::info!(dropped, "answer.uncited_claims_dropped");
+            tracing::info!(dropped, flagged = flagged.len(), "answer.uncited_claims_dropped");
         }
     }
     CheckReply { results }
@@ -295,6 +329,23 @@ mod tests {
         let mut fine = vec![super::passed()];
         assert_eq!(super::cites_in(&tagged, &fine), 1);
         assert_eq!(super::drop_uncited_claims(&tagged, &mut fine), 0);
+    }
+
+    #[test]
+    fn claims_sent_back_once_and_still_uncited_are_dropped_even_when_the_answer_cites_elsewhere() {
+        let flagged = vec![citegate::compact("해고된 날부터 3개월 이내에 지방노동위원회에 구제 신청을 할 수 있습니다.")];
+        let sentences: Vec<String> = [
+            "부당해고 구제 신청: 해고가 발생한 날부터 3개월 이내에 관할 지방노동위원회에 구제 신청을 할 수 있습니다.",
+            "사용자는 정당한 이유 없이 해고하지 못합니다 [근거 1].",
+            "증거를 모아 두세요.",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let mut verdicts = vec![super::passed(), super::passed(), super::passed()];
+        assert_eq!(super::drop_flagged_claims(&sentences, &mut verdicts, &flagged), 1);
+        assert_eq!(verdicts.iter().map(|v| v.ok).collect::<Vec<_>>(), vec![false, true, true]);
+        assert_eq!(super::drop_flagged_claims(&sentences, &mut vec![super::passed(); 3], &[]), 0);
     }
 
     #[tokio::test]
