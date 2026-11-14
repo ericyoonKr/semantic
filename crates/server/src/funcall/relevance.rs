@@ -3,7 +3,7 @@ use std::time::Duration;
 use llm::{CallOptions, LlmClient};
 use serde::{Deserialize, Serialize};
 
-pub const SYSTEM: &str = "법률 쟁점과 근거 원문 목록을 받아, 각 원문이 그 쟁점에 답하는지(쟁점의 요건·효과·절차·대상을 직접 정하거나 판단하는지) 판정한다. 쟁점과 무관한 일반 조문, 다른 사안의 판례, 절차만 적은 규정은 아님이다. JSON {\"keep\": [맞는 원문의 번호]} 하나만 낸다.";
+pub const SYSTEM: &str = "법률 쟁점과 근거 원문 목록을 받아, 각 원문이 그 쟁점에 쓰이는지 판정한다. 맞음: 쟁점의 요건·효과·절차·대상을 직접 정하거나 판단하는 원문, 그리고 쟁점의 전제가 되는 의무·금지·정의·적용 범위를 정한 원문(그 위반이나 해당 여부가 쟁점의 제재·효과로 이어지는 것). 아님: 쟁점과 다른 사안을 다루는 원문, 쟁점과 무관한 일반 조문, 다른 사안의 판례. 판단이 서지 않으면 맞음으로 둔다. JSON {\"keep\": [맞는 원문의 번호]} 하나만 낸다.";
 const DEADLINE: Duration = Duration::from_secs(20);
 const MAX_TOKENS: u32 = 64;
 pub const MAX_ITEMS: usize = 12;
