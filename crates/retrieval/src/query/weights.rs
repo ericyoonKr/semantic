@@ -46,8 +46,8 @@ impl LawWeights {
 
     pub fn sql(&self, kind: &str, law_type: &str) -> String {
         format!(
-            "(CASE WHEN {kind} = 'law' AND {law_type} = '법률' THEN {:.4} WHEN {kind} = 'law' AND {law_type} = '대통령령' THEN {:.4} WHEN {kind} = 'law' THEN {:.4} ELSE {:.4} END)",
-            self.statute, self.decree, self.rule, self.admin_rule
+            "(CASE WHEN {kind} = 'law' AND {law_type} = '법률' THEN {:.4} WHEN {kind} = 'law' AND {law_type} = '대통령령' THEN {:.4} WHEN {kind} = 'law' THEN {:.4} WHEN {kind} = 'rule' THEN {:.4} ELSE {:.4} END)",
+            self.statute, self.decree, self.rule, self.rule, self.admin_rule
         )
     }
 
@@ -55,7 +55,7 @@ impl LawWeights {
         match (kind, law_type) {
             ("law", "법률") => self.statute,
             ("law", "대통령령") => self.decree,
-            ("law", _) => self.rule,
+            ("law", _) | ("rule", _) => self.rule,
             _ => self.admin_rule,
         }
     }
@@ -122,6 +122,9 @@ mod tests {
         assert_eq!(w.of("law", "부령"), 0.8);
         assert_eq!(w.of("law", "대법원규칙"), 0.8);
         assert_eq!(w.of("admrul", "고시"), 0.5);
+        assert_eq!(w.of("rule", "학칙"), 0.8);
+        assert_eq!(w.of("ordin", "조례"), 0.5);
+        assert!(w.sql("l.kind", "l.law_type").contains("WHEN l.kind = 'rule' THEN 0.8000"));
         assert!(LawWeights::parse("1,0.9,0.8").is_none());
         assert!(LawWeights::parse("1,0.9,0.8,0").is_none());
         assert!(LawWeights::parse("1,0.9,0.8,x").is_none());
