@@ -49,7 +49,8 @@ def test_main_delegates_to_researcher_and_answers_from_result() -> None:
     assert "찾지 못한 것:\n- 가짜법 제2조" in result.content
     assert client.calls == [("GET", "/laws/unit")]
     main_tools, sub_tools = set(model.bound[0]), set(model.bound[1])
-    assert {"task", "judge", "write_todos", "read_file", "write_file"} <= main_tools
+    assert {"task", "judge", "read_file"} <= main_tools
+    assert not main_tools & {"write_todos", "write_file", "edit_file", "delete", "ls", "glob", "grep", "execute"}
     assert not main_tools & RESEARCHER_TOOLS
     assert sub_tools == RESEARCHER_TOOLS
 
@@ -78,7 +79,7 @@ def test_main_holds_kg_tools_and_offers_only_researcher() -> None:
 
     messages, client = asyncio.run(scenario())
     main_tools = set(model.bound[0])
-    assert {"kg_find", "kg_expand", "task", "judge", "ls", "grep", "read_file"} <= main_tools
+    assert {"kg_find", "kg_expand", "task", "judge", "read_file"} <= main_tools
     assert not main_tools & RESEARCHER_TOOLS
     task_text = model.task_text[0]
     assert f"- researcher: {RESEARCHER_DESCRIPTION}" in task_text
