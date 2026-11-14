@@ -215,6 +215,10 @@ pub async fn law_names(pool: &PgPool) -> Result<Vec<String>, RetrievalError> {
     Ok(sqlx::query_scalar::<_, String>("SELECT regexp_replace(name, '\\s', '', 'g') FROM law").fetch_all(pool).await?)
 }
 
+pub async fn law_name_kinds(pool: &PgPool) -> Result<Vec<(String, String)>, RetrievalError> {
+    Ok(sqlx::query_as::<_, (String, String)>("SELECT regexp_replace(name, '\\s', '', 'g'), kind FROM law").fetch_all(pool).await?)
+}
+
 pub async fn resolve_law(pool: &PgPool, law: &str) -> Result<Option<(String, String, String)>, RetrievalError> {
     let law = law_of_unit_id(law.trim());
     if law.is_empty() {
@@ -239,10 +243,6 @@ pub async fn resolve_law(pool: &PgPool, law: &str) -> Result<Option<(String, Str
         .await?)
 }
 
-pub async fn direct_candidates(
-    pool: &PgPool,
-    direct: &Direct,
-    as_of: Option<NaiveDate>,
 pub fn law_of_unit_id(law: &str) -> &str {
     let id = law.split_once('@').map_or(law, |(head, _)| head);
     match id.rsplit_once(':') {
@@ -251,6 +251,10 @@ pub fn law_of_unit_id(law: &str) -> &str {
     }
 }
 
+pub async fn direct_candidates(
+    pool: &PgPool,
+    direct: &Direct,
+    as_of: Option<NaiveDate>,
 ) -> Result<Vec<UnitRef>, RetrievalError> {
     let Some((law_id, _, _)) = resolve_law(pool, &direct.law).await? else {
         return Ok(Vec::new());
@@ -556,7 +560,6 @@ mod tests {
         assert!(!deleted("제4조", "제4조(정의) 이 법에서 삭제란 ..."));
         assert!(!deleted("제4조", "① 국가는 ..."));
     }
-}
 
     #[test]
     fn unit_ids_fall_back_to_their_law_id() {
@@ -569,3 +572,4 @@ mod tests {
         assert_eq!(super::law_of_unit_id("단국대학교 학칙"), "단국대학교 학칙");
         assert_eq!(super::law_of_unit_id(":000100"), ":000100");
     }
+}

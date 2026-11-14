@@ -45,8 +45,10 @@ fn source_item(v: &Value) -> Option<Value> {
         .map(|a| a.iter().filter_map(Value::as_str).filter(|s| !s.is_empty()).map(|s| json!(s)).collect())
         .unwrap_or_default();
     let kind = text("kind").filter(|k| k == "law" || k == "case")?;
+    let norm = if kind == "law" { norms::label(text("norm_kind").as_deref().unwrap_or("law")) } else { "판례" };
     Some(json!({
         "kind": kind,
+        "norm": norm,
         "label": text("label")?,
         "note": text("note").unwrap_or_default(),
         "displays": displays,

@@ -7,7 +7,8 @@ use crate::funcall::check::{CheckReply, CheckRequest, MAX_SENTENCES, UnreadReply
 use crate::funcall::coverage::{CoverageParams, CoverageReply};
 use crate::funcall::docindex::{DocSearchReply, DocSearchRequest, search};
 use crate::funcall::docs::session_docs;
-use crate::funcall::holdings::{notes_for, scope_for};
+use crate::funcall::holdings::{guidance_for, notes_for, scope_for};
+use crate::funcall::known::law_of_label;
 use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_format, asks_for_law, keyword, question_laws};
 use crate::funcall::quotes::{QuotesReply, QuotesRequest, match_quotes};
 use crate::funcall::relevance::{JudgeReply, JudgeRequest, judge, unjudged};
@@ -77,6 +78,7 @@ pub async fn next_step(
     let notes = notes_for(&req.question, state.holdings.get());
     let mut ctx = Context::new(&req, &state.reads.snapshot(sid.as_str()));
     ctx.scope = scope_for(&notes);
+    let read_kinds: Vec<String> = ctx.read.iter().filter_map(|l| law_of_label(l)).filter_map(|law| state.known.kind_of(law)).collect();
     if let Some(text) = req.answer.as_deref() {
         let ask = UnreadRequest { thread_id: sid.as_str().to_string(), text: text.to_string() };
         let found = unread_in_corpus(&state, &ask).await;
@@ -88,7 +90,8 @@ pub async fn next_step(
             reread = matches!(step, Step::Task { .. }),
             "next_step.after_answer"
         );
-        return Ok(Json(StepReply { step, notes }));
+        let guidance = guidance_for(&req.question, read_kinds.iter().map(String::as_str));
+        return Ok(Json(StepReply { step, notes, guidance }));
     }
     let db = state.db.clone();
     let session = sid.as_str().to_string();
@@ -113,10 +116,20 @@ pub async fn next_step(
     }
     state.coverage.require(&req.request_id, &laws);
     let step = state.steps.next(sid.as_str(), &req, legal, &docs, &laws, &ctx);
+    let mut kinds = read_kinds;
+    kinds.extend(laws.iter().filter_map(|law| state.known.kind_of(law)));
+    let guidance = guidance_for(&req.question, kinds.iter().map(String::as_str));
     if let Step::Task { description, .. } = &step {
-        tracing::info!(history = ctx.history.len(), read = ctx.read.len(), notes = notes.len(), chars = description.chars().count(), "next_step.task");
+        tracing::info!(
+            history = ctx.history.len(),
+            read = ctx.read.len(),
+            notes = notes.len(),
+            guidance = guidance.len(),
+            chars = description.chars().count(),
+            "next_step.task"
+        );
     }
-    Ok(Json(StepReply { step, notes }))
+    Ok(Json(StepReply { step, notes, guidance }))
 }
 
 pub async fn answer_check(

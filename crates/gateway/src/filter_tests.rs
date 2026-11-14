@@ -99,8 +99,11 @@ fn sources_pass_with_checked_spans_and_drop_bad_items() {
     assert_eq!(items[0]["spans"], serde_json::json!([[1, 3]]));
     assert_eq!(items[0]["displays"][0], "정부조직법 제1조(시행 2021-12-30)");
     assert_eq!(items[0]["verified"], false);
+    assert_eq!(items[0]["norm"], "법령");
     let checked = f.push(&ev("Sources", r#"{"items":[{"kind":"case","label":"대법원 2020두1 판결","body":"본문","id":"77","verified":true}]}"#));
-    assert!(checked[0].contains(r#""verified":true"#) && checked[0].contains(r#""id":"77""#));
+    assert!(checked[0].contains(r#""verified":true"#) && checked[0].contains(r#""id":"77""#) && checked[0].contains(r#""norm":"판례""#));
+    let rule = f.push(&ev("Sources", r#"{"items":[{"kind":"law","label":"단국대학교 학칙 제4조","body":"본문","norm_kind":"rule"}]}"#));
+    assert!(rule[0].contains(r#""norm":"기관 규정""#), "{rule:?}");
     assert!(f.push(&ev("Sources", r#"{"items":[]}"#)).is_empty());
 }
 

@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+norms = { workspace = true }
 lawnames = { path = "../lawnames" }
 docmodel = { workspace = true }
 parsers = { workspace = true }

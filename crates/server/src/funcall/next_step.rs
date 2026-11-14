@@ -22,7 +22,7 @@ pub const HISTORY_MAX: usize = 5;
 pub const HISTORY_CHARS: usize = 200;
 pub const LAST_ANSWER_CHARS: usize = 1500;
 pub const READ_MAX: usize = 12;
-const LAW_WORDS: [&str; 15] = ["법", "법령", "법률", "조례", "자치법규", "판례", "조문", "조항", "근거", "규정", "시행령", "시행규칙", "학칙", "세칙", "시행세칙"];
+const GENERIC_LAW_WORDS: [&str; 4] = ["판례", "조문", "조항", "근거"];
 const LAW_NAME_MIN: usize = 3;
 const ALIAS_WORDS: usize = 3;
 pub const RESEARCHER: &str = "researcher";
@@ -61,6 +61,7 @@ pub struct StepReply {
     #[serde(flatten)]
     pub step: Step,
     pub notes: Vec<String>,
+    pub guidance: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,7 +128,7 @@ pub fn asks_for_law(question: &str) -> bool {
     let raw: Vec<&str> = question.split_whitespace().map(|w| w.trim_matches(STRIP)).collect();
     let named = raw.iter().enumerate().any(|(i, w)| match strip_particle(w) {
         "법" => i == 0 || !MODIFIER_TAILS.iter().any(|t| raw[i - 1].ends_with(t)),
-        word => LAW_WORDS.contains(&word),
+        word => GENERIC_LAW_WORDS.contains(&word) || norms::question_words().contains(&word),
     });
     named || !question_laws(question).is_empty()
 }
@@ -251,7 +252,6 @@ pub fn question_laws(question: &str) -> Vec<String> {
             push(citegate::compact(word));
         }
     }
-    }
     for n in (1..=ALIAS_WORDS).rev() {
         for start in 0..words.len().saturating_sub(n - 1) {
             let phrase = words[start..start + n].join(" ");
@@ -264,6 +264,7 @@ pub fn question_laws(question: &str) -> Vec<String> {
                 push(canon);
             }
         }
+    }
     out
 }
 

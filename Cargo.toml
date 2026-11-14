@@ -16,6 +16,7 @@ members = [
     "crates/lawtime",
     "crates/lawnames",
     "crates/citegate",
+    "crates/norms",
     "crates/webtext",
 ]
 
@@ -32,6 +33,7 @@ checks = { path = "crates/checks" }
 llm = { path = "crates/llm" }
 retrieval = { path = "crates/retrieval" }
 citegate = { path = "crates/citegate" }
+norms = { path = "crates/norms" }
 engine = { path = "crates/engine" }
 sessdb = { path = "crates/sessdb" }
 kg = { path = "crates/kg" }

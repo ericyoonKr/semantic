@@ -44,20 +44,29 @@ impl LawWeights {
         if self.annexes { self.sql(kind, law_type) } else { "1.0".to_string() }
     }
 
+    fn value(&self, slot: norms::Weight) -> f64 {
+        match slot {
+            norms::Weight::Statute => self.statute,
+            norms::Weight::Decree => self.decree,
+            norms::Weight::Rule | norms::Weight::ByLawType => self.rule,
+            norms::Weight::AdminRule => self.admin_rule,
+        }
+    }
+
     pub fn sql(&self, kind: &str, law_type: &str) -> String {
-        format!(
-            "(CASE WHEN {kind} = 'law' AND {law_type} = '법률' THEN {:.4} WHEN {kind} = 'law' AND {law_type} = '대통령령' THEN {:.4} WHEN {kind} = 'law' THEN {:.4} WHEN {kind} = 'rule' THEN {:.4} ELSE {:.4} END)",
-            self.statute, self.decree, self.rule, self.rule, self.admin_rule
-        )
+        let mut arms = vec![
+            format!("WHEN {kind} = 'law' AND {law_type} = '법률' THEN {:.4}", self.statute),
+            format!("WHEN {kind} = 'law' AND {law_type} = '대통령령' THEN {:.4}", self.decree),
+            format!("WHEN {kind} = 'law' THEN {:.4}", self.rule),
+        ];
+        for k in norms::KINDS.iter().filter(|k| k.kind != "law") {
+            arms.push(format!("WHEN {kind} = '{}' THEN {:.4}", k.kind, self.value(k.weight)));
+        }
+        format!("(CASE {} ELSE {:.4} END)", arms.join(" "), self.admin_rule)
     }
 
     pub fn of(&self, kind: &str, law_type: &str) -> f64 {
-        match (kind, law_type) {
-            ("law", "법률") => self.statute,
-            ("law", "대통령령") => self.decree,
-            ("law", _) | ("rule", _) => self.rule,
-            _ => self.admin_rule,
-        }
+        self.value(norms::weight_slot(kind, law_type))
     }
 }
 
@@ -123,8 +132,10 @@ mod tests {
         assert_eq!(w.of("law", "대법원규칙"), 0.8);
         assert_eq!(w.of("admrul", "고시"), 0.5);
         assert_eq!(w.of("rule", "학칙"), 0.8);
-        assert_eq!(w.of("ordin", "조례"), 0.5);
-        assert!(w.sql("l.kind", "l.law_type").contains("WHEN l.kind = 'rule' THEN 0.8000"));
+        assert_eq!(w.of("ordin", "조례"), 0.8);
+        assert_eq!(w.of("mystery", ""), 0.5);
+        let sql = w.sql("l.kind", "l.law_type");
+        assert!(sql.contains("WHEN l.kind = 'rule' THEN 0.8000") && sql.contains("WHEN l.kind = 'ordin' THEN 0.8000") && sql.contains("WHEN l.kind = 'admrul' THEN 0.5000"));
         assert!(LawWeights::parse("1,0.9,0.8").is_none());
         assert!(LawWeights::parse("1,0.9,0.8,0").is_none());
         assert!(LawWeights::parse("1,0.9,0.8,x").is_none());

@@ -3,7 +3,6 @@ use retrieval::Corpus;
 use serde::{Deserialize, Serialize};
 
 use super::docs::session_docs;
-use super::holdings::NO_ORDINANCE_NOTE;
 use super::known::{KnownLaws, law_of_label};
 use crate::state::AppState;
 
@@ -166,7 +165,7 @@ pub async fn check_sentences(state: &AppState, req: &CheckRequest) -> CheckReply
     let thread = req.thread_id.trim();
     let set = state.reads.snapshot(thread);
     let verdicts: Vec<Verdict> =
-        req.sentences.iter().map(|s| if s.trim() == NO_ORDINANCE_NOTE { passed() } else { citegate::check(s, &set) }).collect();
+        req.sentences.iter().map(|s| if norms::is_missing_note(s) { passed() } else { citegate::check(s, &set) }).collect();
     let mut results = if verdicts.iter().all(|v| v.ok) {
         verdicts
     } else {

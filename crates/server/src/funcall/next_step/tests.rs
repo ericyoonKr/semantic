@@ -114,9 +114,14 @@ fn earlier_questions_the_last_answer_and_read_items_go_into_the_brief() {
 
 #[test]
 fn the_reply_carries_the_step_and_the_notes_side_by_side() {
-    let reply = super::StepReply { step: Step::Model, notes: vec!["조례는 자료에 없음".into()] };
-    assert_eq!(serde_json::to_value(&reply).ok(), serde_json::json!({"tool": "model", "notes": ["조례는 자료에 없음"]}).into());
-    let task = super::StepReply { step: Step::Task { description: "쟁점: x".into(), subagent_type: "researcher".into() }, notes: vec![] };
+    let reply = super::StepReply { step: Step::Model, notes: vec!["조례는 자료에 없음".into()], guidance: vec![] };
+    assert_eq!(serde_json::to_value(&reply).ok(), serde_json::json!({"tool": "model", "notes": ["조례는 자료에 없음"], "guidance": []}).into());
+    let task = super::StepReply {
+        step: Step::Task { description: "쟁점: x".into(), subagent_type: "researcher".into() },
+        notes: vec![],
+        guidance: vec![norms::RULE_WRITING_NOTE.into()],
+    };
+    assert_eq!(serde_json::to_value(&task).unwrap_or_default()["guidance"][0], norms::RULE_WRITING_NOTE);
     let value = serde_json::to_value(&task).unwrap_or_default();
     assert_eq!(value["tool"], "task");
     assert_eq!(value["args"]["subagent_type"], "researcher");

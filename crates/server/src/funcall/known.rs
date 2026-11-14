@@ -9,24 +9,31 @@ const MAX_NAMES: usize = 20_000;
 #[derive(Default)]
 pub struct KnownLaws {
     names: OnceCell<HashSet<String>>,
+    kinds: OnceCell<HashMap<String, String>>,
     cache: Mutex<HashMap<String, bool>>,
 }
 
 impl KnownLaws {
     pub fn preset(names: &[&str]) -> Self {
         let set: HashSet<String> = names.iter().map(|n| citegate::canonical(n)).collect();
-        Self { names: OnceCell::new_with(Some(set)), cache: Mutex::default() }
+        Self { names: OnceCell::new_with(Some(set)), kinds: OnceCell::new(), cache: Mutex::default() }
     }
 
     pub async fn load(&self, corpus: &Corpus) {
-        match retrieval::query::laws::law_names(corpus.pool()).await {
-            Ok(names) => {
-                let set: HashSet<String> = names.iter().map(|n| citegate::canonical(n)).collect();
+        match retrieval::query::laws::law_name_kinds(corpus.pool()).await {
+            Ok(rows) => {
+                let kinds: HashMap<String, String> = rows.iter().map(|(n, k)| (citegate::canonical(n), k.clone())).collect();
+                let set: HashSet<String> = kinds.keys().cloned().collect();
                 tracing::info!(names = set.len(), "known_laws.loaded");
                 let _ = self.names.set(set);
+                let _ = self.kinds.set(kinds);
             }
             Err(error) => tracing::warn!(%error, "known_laws.load_failed"),
         }
+    }
+
+    pub fn kind_of(&self, law: &str) -> Option<String> {
+        self.kinds.get().and_then(|m| m.get(&citegate::canonical(law)).cloned())
     }
 
     async fn lookup(&self, corpus: Option<&Corpus>, law: &str) -> Option<bool> {
@@ -62,10 +69,8 @@ impl KnownLaws {
     }
 }
 
-const LAW_ENDINGS: [&str; 6] = ["법", "법률", "령", "규칙", "조례", "규정"];
-
 pub fn names_a_law(word: &str) -> bool {
-    LAW_ENDINGS.iter().any(|e| word.ends_with(e))
+    norms::names_a_norm(word)
 }
 
 pub fn law_of_label(label: &str) -> Option<&str> {
