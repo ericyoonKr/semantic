@@ -162,7 +162,10 @@ impl SseFilter {
             "Usage" => {
                 let tokens = value.get("tokens").and_then(Value::as_i64)?;
                 self.side.push(SideEvent::Usage { tokens: tokens.max(0) });
-                None
+                let used = value.get("context").and_then(Value::as_i64)?;
+                let limit = value.get("context_limit").and_then(Value::as_i64)?;
+                let summary_at = value.get("summary_at").and_then(Value::as_i64).unwrap_or(0);
+                (used > 0 && limit > 0).then(|| frame("Context", json!({ "used": used, "limit": limit, "summary_at": summary_at })))
             }
             "Audit" => {
                 let kind = value.get("kind").and_then(Value::as_str)?;

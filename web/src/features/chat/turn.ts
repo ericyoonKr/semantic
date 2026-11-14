@@ -1,4 +1,4 @@
-import type { ChatEvent, Source } from "./events";
+import type { ChatEvent, ContextUse, Source } from "./events";
 
 export const BROKEN_TEXT = "연결이 끊겼습니다";
 
@@ -14,11 +14,12 @@ export type Turn = {
   warnings: string[];
   sources: Source[];
   error: { message: string; requestId: string } | null;
+  context: ContextUse | null;
   state: TurnState;
 };
 
 export function startTurn(id: number, question: string): Turn {
-  return { id, question, status: null, answer: "", verdicts: [], asks: [], warnings: [], sources: [], error: null, state: "streaming" };
+  return { id, question, status: null, answer: "", verdicts: [], asks: [], warnings: [], sources: [], error: null, context: null, state: "streaming" };
 }
 
 function addOnce(list: string[], item: string): string[] {
@@ -32,6 +33,8 @@ export function applyEvent(turn: Turn, event: ChatEvent): Turn {
   switch (event.kind) {
     case "status":
       return { ...turn, status: event.text };
+    case "context":
+      return { ...turn, context: { used: event.used, limit: event.limit, summaryAt: event.summaryAt } };
     case "token":
       return { ...turn, answer: turn.answer + event.text };
     case "verdict":

@@ -134,3 +134,14 @@ fn model_down_error_says_why() {
     let out = f.push(&ev("Error", r#"{"message":"x","kind":"failed"}"#));
     assert!(out[0].contains("답을 만들지 못했습니다. 잠시 뒤"));
 }
+
+#[test]
+fn usage_with_context_becomes_a_context_frame_and_a_side_event() {
+    let mut f = filter();
+    let out = f.push(&ev("Usage", r#"{"tokens": 1234, "calls": 3, "context": 22204, "context_limit": 32768, "summary_at": 20000}"#));
+    assert_eq!(out, vec![super::frame("Context", serde_json::json!({ "used": 22204, "limit": 32768, "summary_at": 20000 }))]);
+    assert_eq!(f.take_side(), vec![super::SideEvent::Usage { tokens: 1234 }]);
+    let plain = f.push(&ev("Usage", r#"{"tokens": 5, "calls": 1}"#));
+    assert!(plain.is_empty());
+    assert_eq!(f.take_side(), vec![super::SideEvent::Usage { tokens: 5 }]);
+}

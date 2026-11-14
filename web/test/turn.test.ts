@@ -78,3 +78,11 @@ describe("history and upload shapes", () => {
     expect(uploadLabel("[업로드] a.pdf, 3쪽")).toBe("a.pdf, 3쪽");
   });
 });
+
+describe("turn context", () => {
+  it("keeps the latest context usage on the turn", () => {
+    const t = applyEvent(startTurn(1, "q"), { kind: "context", used: 22204, limit: 32768, summaryAt: 20000 });
+    expect(t.context).toEqual({ used: 22204, limit: 32768, summaryAt: 20000 });
+    expect(startTurn(2, "q").context).toBeNull();
+  });
+});

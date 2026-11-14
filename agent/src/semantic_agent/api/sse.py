@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
 from semantic_agent.agent.budget import BudgetExceeded
+from semantic_agent.agent.build import SUMMARY_TRIGGER_TOKENS
 from semantic_agent.agent.injection import INJECTION_KIND
 from semantic_agent.api.answer_gate import SentenceGate, log_drop
 from semantic_agent.api.sources import build_sources
@@ -107,8 +108,20 @@ def turn_events(turn: Turn) -> list[str]:
     return out
 
 
-def usage_event(turn: Turn) -> str:
-    return event("Usage", {"tokens": turn.tokens, "calls": turn.calls})
+DEFAULT_CONTEXT_LIMIT = 32_768
+
+
+def usage_event(turn: Turn, context_limit: int = DEFAULT_CONTEXT_LIMIT) -> str:
+    return event(
+        "Usage",
+        {
+            "tokens": turn.tokens,
+            "calls": turn.calls,
+            "context": turn.context_tokens,
+            "context_limit": context_limit,
+            "summary_at": SUMMARY_TRIGGER_TOKENS,
+        },
+    )
 
 
 async def sources_event(gate: SentenceGate, client: ToolClient | None) -> list[str]:
@@ -146,6 +159,7 @@ async def to_sse(
     timeout_s: float,
     client: ToolClient | None = None,
     ledger: Ledger | None = None,
+    context_limit: int = DEFAULT_CONTEXT_LIMIT,
 ) -> AsyncIterator[str]:
     request_id = str(cfg.get("configurable", {}).get("request_id", "-"))
     REQUEST_ID.set(request_id)
@@ -187,7 +201,7 @@ async def to_sse(
             raise
         except Exception as exc:
             log.error("ask failed type=%s request_id=%s", type(exc).__name__, request_id)
-            for item in [*turn_events(turn), usage_event(turn)]:
+            for item in [*turn_events(turn), usage_event(turn, context_limit)]:
                 yield item
             kind = "model_unreachable" if model_unreachable(exc) else "failed"
             yield event("Error", {"message": "답을 만들지 못했습니다", "kind": kind, "request_id": request_id})
@@ -198,6 +212,6 @@ async def to_sse(
         yield event("Token", {"text": piece})
     for item in await sources_event(gate, client):
         yield item
-    for item in [*turn_events(turn), usage_event(turn)]:
+    for item in [*turn_events(turn), usage_event(turn, context_limit)]:
         yield item
     yield event("Done", {"request_id": request_id})

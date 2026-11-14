@@ -63,7 +63,7 @@ def test_usage_is_sent_before_done() -> None:
     events = asyncio.run(_run(script))
     names = [name for name, _ in events]
     assert names[-2:] == ["Usage", "Done"]
-    assert events[-2][1] == {"tokens": 1500, "calls": 2}
+    assert {k: events[-2][1][k] for k in ("tokens", "calls")} == {"tokens": 1500, "calls": 2}
     verdicts = [data for name, data in events if name == "Audit" and data["kind"] == "verdict"]
     assert verdicts == [{"kind": "verdict", "detail": {"outcome": "Unknown", "scope": "가짜"}}]
 
@@ -104,7 +104,7 @@ def test_token_budget_inside_subagent_continues_from_the_checkpoint_without_syst
     assert "끝" in texts and "제한" not in texts
     assert not [data for name, data in events if name == "Warning"]
     assert [name for name, _ in events][-2:] == ["Usage", "Done"]
-    assert events[-2][1] == {"tokens": 350_000, "calls": 4}
+    assert {k: events[-2][1][k] for k in ("tokens", "calls")} == {"tokens": 350_000, "calls": 4}
     assert _continues(events) == [{"round": 1, "device": "토큰 예산", "wrap_up": False}]
     assert model.calls == 4
     resumed = any(isinstance(m, ToolMessage) and m.name == "search_laws" for m in model.seen[2])
@@ -140,7 +140,7 @@ def test_last_round_finishes_without_tools() -> None:
     assert [c["wrap_up"] for c in _continues(events)] == [False, False, True]
     assert any("도구를 더 부르지 말고" in str(getattr(m, "content", "")) for m in model.seen[-1])
     assert not any("도구를 더 부르지 말고" in str(getattr(m, "content", "")) for m in model.seen[-2])
-    assert events[-2][1] == {"tokens": 900_000, "calls": 4}
+    assert {k: events[-2][1][k] for k in ("tokens", "calls")} == {"tokens": 900_000, "calls": 4}
 
 
 def test_usage_log_counts_cached_input_separately() -> None:

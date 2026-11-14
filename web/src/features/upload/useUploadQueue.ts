@@ -9,6 +9,7 @@ export type UploadQueueState = {
   notice: string | null;
   offer: (files: readonly File[]) => void;
   dismiss: (id: number) => void;
+  dismissFinished: () => void;
   cancel: (id: number) => void;
 };
 
@@ -57,9 +58,13 @@ export function useUploadQueue(client: ApiClient, sessionId: string, blocked: bo
     queue.current?.dismiss(id);
   }, []);
 
+  const dismissFinished = useCallback(() => {
+    queue.current?.dismissFinished();
+  }, []);
+
   const cancel = useCallback((id: number) => {
     queue.current?.cancel(id);
   }, []);
 
-  return { items, busy, notice, offer, dismiss, cancel };
+  return { items, busy, notice, offer, dismiss, dismissFinished, cancel };
 }

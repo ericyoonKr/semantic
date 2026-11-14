@@ -11,6 +11,7 @@ import { UploadSummaryView } from "../upload/UploadSummaryView";
 import { useUploadQueue } from "../upload/useUploadQueue";
 import { SourceDetail } from "./AnswerText";
 import { AskForm } from "./AskForm";
+import { ContextBar } from "./ContextBar";
 import type { Source } from "./events";
 import { LiveTurn } from "./LiveTurn";
 import { MessageList } from "./MessageList";
@@ -78,6 +79,7 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
               <span>근거·파일 {uploadLines.length > 0 ? uploadLines.length : ""}</span>
             </button>
           </header>
+          <ContextBar context={c.context} />
           <div className="chat-scroll">
             <div className="chat-column">
               {c.notice ? (
@@ -128,7 +130,10 @@ export function ChatView({ client, sessionId, title, onStreaming, nav }: Props) 
                 sessionId={sessionId}
                 disabled={files.busy || c.loading}
                 waitText={files.busy ? "파일을 올리는 중" : "보내기"}
-                onAsk={c.submit}
+                onAsk={(question) => {
+                  files.dismissFinished();
+                  c.submit(question);
+                }}
                 above={
                   <>
                     <FileChips items={files.items} onDismiss={files.dismiss} onCancel={files.cancel} />

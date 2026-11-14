@@ -33,3 +33,12 @@ describe("toChatEvent", () => {
     expect(ev("Error", "{}")).toEqual({ kind: "error", message: STREAM_ERROR_TEXT, requestId: "" });
   });
 });
+
+describe("Context event", () => {
+  it("maps context usage and drops empty or malformed ones", () => {
+    expect(ev("Context", '{"used":22204,"limit":32768,"summary_at":20000}')).toEqual({ kind: "context", used: 22204, limit: 32768, summaryAt: 20000 });
+    expect(ev("Context", '{"used":100,"limit":32768}')).toEqual({ kind: "context", used: 100, limit: 32768, summaryAt: 0 });
+    expect(ev("Context", '{"used":0,"limit":32768}')).toBeNull();
+    expect(ev("Context", '{"used":"많이","limit":32768}')).toBeNull();
+  });
+});

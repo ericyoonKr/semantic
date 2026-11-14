@@ -14,8 +14,11 @@ export type Source = {
   verifyNote: string;
 };
 
+export type ContextUse = { used: number; limit: number; summaryAt: number };
+
 export type ChatEvent =
   | { kind: "status"; text: string }
+  | { kind: "context"; used: number; limit: number; summaryAt: number }
   | { kind: "token"; text: string }
   | { kind: "verdict"; text: string }
   | { kind: "needed"; asks: string[] }
@@ -79,12 +82,33 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+function count(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+}
+
+export function toContextUse(value: unknown): ContextUse | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const v = value as Record<string, unknown>;
+  const used = count(v.used);
+  const limit = count(v.limit);
+  if (used === null || limit === null || used === 0 || limit === 0) {
+    return null;
+  }
+  return { used, limit, summaryAt: count(v.summary_at) ?? 0 };
+}
+
 export function toChatEvent(message: SseMessage): ChatEvent | null {
   const data = parse(message.data);
   switch (message.event) {
     case "Status": {
       const t = text(data?.text);
       return t ? { kind: "status", text: t } : null;
+    }
+    case "Context": {
+      const c = toContextUse(data);
+      return c ? { kind: "context", ...c } : null;
     }
     case "Token": {
       const t = text(data?.text);

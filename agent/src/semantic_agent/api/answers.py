@@ -40,6 +40,17 @@ def rendered(items: list[str]) -> tuple[str, list[dict[str, Any]]]:
     return "".join(text), sources
 
 
+def context_of(items: list[str]) -> dict[str, int] | None:
+    for item in items:
+        name, data = _event(item)
+        if name != "Usage" or not isinstance(data, dict):
+            continue
+        used, limit, summary_at = data.get("context"), data.get("context_limit"), data.get("summary_at")
+        if isinstance(used, int) and isinstance(limit, int) and used > 0 and limit > 0:
+            return {"used": used, "limit": limit, "summary_at": summary_at if isinstance(summary_at, int) else 0}
+    return None
+
+
 def last_answer_id(messages: list[Any]) -> str | None:
     for message in reversed(messages):
         if isinstance(message, AIMessage) and not message.tool_calls and message.text:
@@ -51,7 +62,11 @@ async def save_answer(store: BaseStore, user_id: str, session_id: str, message_i
     text, sources = rendered(items)
     if not text.strip():
         return False
-    await store.aput(answers_namespace(user_id, session_id), message_id, {"text": text, "sources": sources})
+    value: dict[str, Any] = {"text": text, "sources": sources}
+    context = context_of(items)
+    if context is not None:
+        value["context"] = context
+    await store.aput(answers_namespace(user_id, session_id), message_id, value)
     return True
 
 

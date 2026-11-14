@@ -1654,3 +1654,41 @@ button:disabled {
     scroll-behavior: auto !important;
   }
 }
+
+.context-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.context-bar-label {
+  white-space: nowrap;
+}
+
+.context-bar-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-2);
+}
+
+.context-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.context-bar-mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 10px;
+  background: var(--ink-3);
+}

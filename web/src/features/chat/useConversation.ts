@@ -3,8 +3,8 @@ import type { ApiClient } from "../../shared/api/client";
 import { messageOf } from "../../shared/api/errors";
 import type { UploadSummary } from "../upload/api";
 import { type AskEnd, ask, attachLive, loadHistory, retry as retryAsk } from "./api";
-import type { ChatEvent } from "./events";
-import { dropLastTurn, dropPending, lastQuestion, type HistoryItem } from "./history";
+import type { ChatEvent, ContextUse } from "./events";
+import { dropLastTurn, dropPending, lastQuestion, latestContext, type HistoryItem } from "./history";
 import { BROKEN_TEXT, applyEvent, breakTurn, startTurn, type Turn } from "./turn";
 
 export type Conversation = {
@@ -15,6 +15,7 @@ export type Conversation = {
   streaming: boolean;
   notice: string | null;
   uploads: UploadSummary[];
+  context: ContextUse | null;
   canRetry: boolean;
   submit: (question: string) => void;
   retry: () => void;
@@ -203,6 +204,7 @@ export function useConversation(client: ApiClient, sessionId: string, onStreamin
   }, []);
 
   const canRetry = !streaming && !loading && retryTarget(turns, history) !== null;
+  const context = latestContext(turns, history);
 
-  return { history, loading, loadError, turns, streaming, notice, uploads, canRetry, submit, retry, addUpload, reload };
+  return { history, loading, loadError, turns, streaming, notice, uploads, context, canRetry, submit, retry, addUpload, reload };
 }

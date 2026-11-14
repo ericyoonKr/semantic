@@ -1,4 +1,4 @@
-import { toSource, type Source } from "./events";
+import { toContextUse, toSource, type ContextUse, type Source } from "./events";
 
 export type HistoryRole = "user" | "assistant" | "verdict" | "upload";
 
@@ -6,6 +6,7 @@ export type HistoryItem = {
   role: HistoryRole;
   text: string;
   sources?: Source[];
+  context?: ContextUse;
 };
 
 const ROLES: ReadonlySet<string> = new Set<HistoryRole>(["user", "assistant", "verdict", "upload"]);
@@ -25,7 +26,15 @@ export function toHistory(body: unknown): HistoryItem[] {
     if (typeof role === "string" && ROLES.has(role) && typeof text === "string") {
       const raw: unknown = "sources" in item ? item.sources : null;
       const sources = Array.isArray(raw) ? raw.map(toSource).filter((s): s is Source => s !== null) : [];
-      out.push(sources.length > 0 ? { role: role as HistoryRole, text, sources } : { role: role as HistoryRole, text });
+      const entry: HistoryItem = { role: role as HistoryRole, text };
+      if (sources.length > 0) {
+        entry.sources = sources;
+      }
+      const context = toContextUse("context" in item ? item.context : null);
+      if (context) {
+        entry.context = context;
+      }
+      out.push(entry);
     }
   }
   return out;
@@ -53,4 +62,20 @@ export function dropLastTurn(items: HistoryItem[]): HistoryItem[] {
     }
   }
   return items;
+}
+
+export function latestContext(turns: readonly { context: ContextUse | null }[], items: HistoryItem[]): ContextUse | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const c = turns[i]?.context;
+    if (c) {
+      return c;
+    }
+  }
+  for (let i = items.length - 1; i >= 0; i--) {
+    const c = items[i]?.context;
+    if (c) {
+      return c;
+    }
+  }
+  return null;
 }

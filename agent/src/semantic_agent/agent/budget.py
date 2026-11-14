@@ -11,6 +11,7 @@ from semantic_agent.turn import Turn, current_turn
 
 log = logging.getLogger(__name__)
 
+MAIN = "main"
 QUESTION_TOKENS = 300_000
 QUESTION_CALLS = 40
 ERROR_WRAP = 3
@@ -91,6 +92,8 @@ class QuestionBudget(AgentMiddleware):
         response = await handler(request)
         used = usage_of(response)
         turn.tokens += used["total"]
+        if self._name == MAIN and used["input"] > 0:
+            turn.context_tokens = used["input"] + used["output"]
         log.info(
             "model_call agent=%s call=%d input=%d cache_read=%d output=%d total=%d cumulative=%d",
             self._name,

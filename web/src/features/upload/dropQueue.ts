@@ -92,6 +92,15 @@ export class UploadQueue {
     this.emit();
   }
 
+  dismissFinished(): void {
+    const kept = this.items.filter((i) => i.state === "waiting" || i.state === "uploading");
+    if (kept.length === this.items.length) {
+      return;
+    }
+    this.items = kept;
+    this.emit();
+  }
+
   cancel(id: number): void {
     if (this.pending.some((p) => p.id === id)) {
       this.pending = this.pending.filter((p) => p.id !== id);

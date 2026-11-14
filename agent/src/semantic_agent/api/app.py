@@ -111,7 +111,10 @@ def history_items(messages: list[Any], saved: dict[str, dict[str, Any]] | None =
         elif isinstance(message, AIMessage) and not message.tool_calls and message.text:
             kept = saved.get(message.id or "")
             if kept:
-                items.append({"role": "assistant", "text": kept["text"], "sources": kept.get("sources", [])})
+                item: dict[str, Any] = {"role": "assistant", "text": kept["text"], "sources": kept.get("sources", [])}
+                if isinstance(kept.get("context"), dict):
+                    item["context"] = kept["context"]
+                items.append(item)
             else:
                 items.append({"role": "assistant", "text": message.text})
     return items
@@ -297,7 +300,9 @@ def create_app(
             try:
                 if before is not None:
                     await before()
-                async for item in to_sse(state.agent, question, cfg, settings.ask_timeout_s, state.client, slot.ledger):
+                async for item in to_sse(
+                    state.agent, question, cfg, settings.ask_timeout_s, state.client, slot.ledger, settings.model_context_tokens
+                ):
                     run.add(item)
                 await keep_answer(state, cfg, user_id, sid, run.items)
                 await keep_ledger(state, user_id, sid, slot.ledger)

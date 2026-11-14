@@ -271,3 +271,21 @@ describe("guardWindow", () => {
     stop();
   });
 });
+
+describe("dismissFinished", () => {
+  it("clears finished chips but keeps the ones still waiting or uploading", async () => {
+    const h = harness();
+    h.queue.offer([file("a.pdf"), file("b.docx"), file("c.hwpx")], false);
+    await tick();
+    h.started[0]?.release();
+    await tick();
+    const before = h.snapshots[h.snapshots.length - 1] ?? [];
+    expect(before.map((i) => i.state)).toEqual(["done", "uploading", "waiting"]);
+    h.queue.dismissFinished();
+    const after = h.snapshots[h.snapshots.length - 1] ?? [];
+    expect(after.map((i) => i.name)).toEqual(["b.docx", "c.hwpx"]);
+    const count = h.snapshots.length;
+    h.queue.dismissFinished();
+    expect(h.snapshots.length).toBe(count);
+  });
+});

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("")
     llm_model: str = ""
     llm_max_tokens: int = 8000
+    model_context_tokens: int = 32768
     llm_connect_timeout_s: float = 5.0
     llm_read_timeout_s: float = 240.0
     llm_max_retries: int = 1
