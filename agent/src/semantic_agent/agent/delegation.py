@@ -11,7 +11,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from semantic_agent.agent.citations import Finding, Findings, check_research, judge_relevance
+from semantic_agent.agent.citations import Finding, Findings, check_research_relaxed, judge_relevance
 from semantic_agent.agent.guards import result_text
 from semantic_agent.agent.intent import IntentScope
 from semantic_agent.agent.issues import flag, parse_issues, render_issues
@@ -172,6 +172,7 @@ class SubagentGate(AgentMiddleware):
     ) -> None:
         super().__init__()
         self._judge = ReadCheck(client).judge
+        self._quotes = ReadCheck(client).quotes
         self._names = frozenset(names)
         self._limit = limit
         self._deadline_s = deadline_s
@@ -272,7 +273,8 @@ class SubagentGate(AgentMiddleware):
                 note = RETRY_NOTE
             else:
                 if name == RESEARCHER:
-                    findings = await judge_relevance(check_research(findings, ledger), ledger, self._judge, brief.issue)
+                    checked = await check_research_relaxed(findings, ledger, self._quotes)
+                    findings = await judge_relevance(checked, ledger, self._judge, brief.issue)
                     if brief.purpose == JUDGE_PURPOSE and not reverse_ok(findings, ledger.queries[start:]):
                         adverse += 1
                         log.info(

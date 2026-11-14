@@ -135,6 +135,32 @@ class JudgingClient(FakeClient):
         return await super().fetch(method, path, **kw)
 
 
+class QuoteRelaxingClient(FakeClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.asked: list[dict[str, str]] = []
+
+    async def fetch(self, method: str, path: str, **kw: Any) -> tuple[Any, str | None]:
+        if path == "/research/quotes":
+            self.asked.extend(kw["json"]["items"])
+            return {"matched": [True for _ in kw["json"]["items"]]}, None
+        return await super().fetch(method, path, **kw)
+
+
+def test_quotes_the_search_server_accepts_are_kept_even_when_not_verbatim() -> None:
+    client = QuoteRelaxingClient()
+    loose = QUOTE.replace("고정 문장이다", "고정 문장…이다")
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": loose}]),
+        AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1].\n"),
+    ]
+    _, model = asyncio.run(_ask(script, "가짜법 제1조가 뭐야?", client))
+    assert client.asked and client.asked[0]["quote"] == loose
+    task = next(m for m in model.seen[-1] if isinstance(m, ToolMessage) and m.name == "task")
+    assert "목적 조항이다" in str(task.content) and "- 없음" not in str(task.content).split("찾지 못한 것")[0]
+
+
 def test_sources_judged_off_the_issue_are_dropped_and_counted() -> None:
     client = JudgingClient()
     script = [

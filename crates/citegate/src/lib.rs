@@ -99,6 +99,52 @@ pub fn canonical(name: &str) -> String {
     short
 }
 
+const QUOTE_MIN: usize = 20;
+const QUOTE_OVERLAP: f32 = 0.95;
+const FRAGMENT_MIN: usize = 8;
+const QUOTE_MARKS: [char; 31] = [
+    '「', '」', '『', '』', '"', '\'', '“', '”', '‘', '’', '·', 'ㆍ', '・', '…', ',', '.', '(', ')', '[', ']', '{', '}', ':', ';', '!', '?', '-', '–', '—',
+    '/', '~',
+];
+const ELLIPSES: [&str; 4] = ["…", "...", "(중략)", "[중략]"];
+
+fn plain(text: &str) -> String {
+    compact(text).chars().filter(|c| !QUOTE_MARKS.contains(c)).collect()
+}
+
+fn fragments(quote: &str) -> Vec<String> {
+    let mut parts = vec![quote.to_string()];
+    for mark in ELLIPSES {
+        parts = parts.iter().flat_map(|p| p.split(mark).map(str::to_string).collect::<Vec<_>>()).collect();
+    }
+    parts.iter().map(|p| plain(p)).filter(|p| p.chars().count() >= FRAGMENT_MIN).collect()
+}
+
+pub fn quote_match(body: &str, quote: &str) -> bool {
+    let body_plain = plain(body);
+    let parts = fragments(quote);
+    let mut at = 0;
+    if !parts.is_empty()
+        && parts.iter().all(|p| match body_plain[at..].find(p.as_str()) {
+            Some(i) => {
+                at += i + p.len();
+                true
+            }
+            None => false,
+        })
+    {
+        return true;
+    }
+    let q: Vec<char> = compact(quote).chars().collect();
+    if q.len() < QUOTE_MIN {
+        return false;
+    }
+    let b = compact(body);
+    let pairs: Vec<String> = q.windows(2).map(|w| w.iter().collect()).collect();
+    let hits = pairs.iter().filter(|p| b.contains(p.as_str())).count();
+    hits as f32 / pairs.len() as f32 >= QUOTE_OVERLAP
+}
+
 pub fn suffixes(name: &str) -> Vec<String> {
     let words: Vec<&str> = name.split_whitespace().collect();
     let mut out: Vec<String> = Vec::new();

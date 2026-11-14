@@ -7,6 +7,7 @@ CHECK_PATH = "/answer/check"
 COVERAGE_PATH = "/research/coverage"
 REVIEW_PATH = "/research/review"
 JUDGE_PATH = "/research/judge"
+QUOTES_PATH = "/research/quotes"
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,13 @@ class ReadCheck:
         data, err = await self.client.fetch("POST", REVIEW_PATH, kind="search", fail=SEARCH_FAIL, json=body)
         note = data.get("note") if isinstance(data, dict) and not err else None
         return str(note) if note else None
+
+    async def quotes(self, items: list[dict[str, str]]) -> list[bool] | None:
+        if self.client is None or not items:
+            return None
+        data, err = await self.client.fetch("POST", QUOTES_PATH, kind="search", fail=SEARCH_FAIL, json={"items": items})
+        matched = data.get("matched") if isinstance(data, dict) and not err else None
+        return [bool(m) for m in matched] if isinstance(matched, list) and len(matched) == len(items) else None
 
     async def judge(self, issue: str, items: list[dict[str, Any]]) -> list[int] | None:
         if self.client is None or not items:

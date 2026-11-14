@@ -9,6 +9,7 @@ use crate::funcall::docindex::{DocSearchReply, DocSearchRequest, search};
 use crate::funcall::docs::session_docs;
 use crate::funcall::holdings::{notes_for, scope_for};
 use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_format, asks_for_law, keyword, question_laws};
+use crate::funcall::quotes::{QuotesReply, QuotesRequest, match_quotes};
 use crate::funcall::relevance::{JudgeReply, JudgeRequest, judge, unjudged};
 use crate::funcall::review::{ReviewReply, ReviewRequest, review};
 use crate::funcall::route::is_legal;
@@ -26,6 +27,13 @@ pub async fn docs_search(
         return Err(ApiError::bad_request("인자 오류: query"));
     }
     Ok(Json(search(&state, sid.as_str(), &req).await))
+}
+
+pub async fn research_quotes(body: Result<Json<QuotesRequest>, JsonRejection>) -> Result<Json<QuotesReply>, ApiError> {
+    let Json(req) = body.map_err(|_| ApiError::bad_request("인자 오류: items"))?;
+    let reply = match_quotes(&req);
+    tracing::info!(items = req.items.len(), matched = reply.matched.iter().filter(|m| **m).count(), "research.quotes");
+    Ok(Json(reply))
 }
 
 pub async fn research_judge(

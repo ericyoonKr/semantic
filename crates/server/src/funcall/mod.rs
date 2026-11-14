@@ -6,6 +6,7 @@ pub mod docsearch;
 pub mod holdings;
 pub mod known;
 pub mod next_step;
+pub mod quotes;
 pub mod readlog;
 pub mod relevance;
 pub mod review;

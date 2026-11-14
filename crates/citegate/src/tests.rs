@@ -348,6 +348,28 @@ const CLAIMS: [&str; 30] = [
 ];
 
 #[test]
+fn quotes_lifted_from_the_body_match_even_with_marks_or_gaps_but_made_up_ones_do_not() {
+    let body = "① 식품의약품안전처장 또는 시장·군수·구청장은 영업자가 다음 각 호의 어느 하나에 해당하는 경우에는 영업허가를 취소하거나 6개월 이내의 기간을 정하여 영업의 전부 또는 일부를 정지할 수 있다.\n② 제1항에 따른 처분의 세부 기준은 총리령으로 정한다.";
+    let pass = [
+        "시장ㆍ군수ㆍ구청장은 영업자가 다음 각 호의 어느 하나에 해당하는 경우",
+        "영업허가를 취소하거나 ... 영업의 전부 또는 일부를 정지할 수 있다.",
+        "「영업허가를 취소하거나」 6개월 이내의 기간을 정하여",
+        "영업의 전부 또는 일부를 정지할 수 있다. 제1항에 따른 처분의 세부 기준은 총리령으로 정한다",
+        "영업자가 다음 각 호의 어느 하나에 해당하는 경우에는 영업허가를 취소하거나 6개월 이내의 기간을 정하여 영업을 정지할 수 있다",
+    ];
+    let block = [
+        "영업자는 과태료를 내야 한다",
+        "구청장은 영업자에게 1년 이내의 영업정지를 명한다",
+        "짧은 글",
+        "영업자가 청소년에게 주류를 판매한 경우 영업허가를 취소한다",
+    ];
+    let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|q| !super::quote_match(body, q)).collect();
+    let let_through: Vec<&str> = block.iter().copied().filter(|q| super::quote_match(body, q)).collect();
+    assert_eq!(wrongly_blocked, Vec::<&str>::new());
+    assert_eq!(let_through, Vec::<&str>::new());
+}
+
+#[test]
 fn legal_effect_claims_are_told_apart_from_plain_sentences() {
     let false_alarms: Vec<&str> = PLAIN.iter().copied().filter(|s| super::asserts_law(s)).collect();
     let missed: Vec<&str> = CLAIMS.iter().copied().filter(|s| !super::asserts_law(s)).collect();

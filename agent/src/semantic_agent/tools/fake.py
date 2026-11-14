@@ -248,6 +248,8 @@ class FakeClient:
             return {"note": None}, None
         if path == "/research/judge":
             return {"keep": [i.get("ref") for i in (json or {}).get("items", [])], "judged": False}, None
+        if path == "/research/quotes":
+            return {"matched": [False for _ in (json or {}).get("items", [])]}, None
         self.calls.append((method, path))
         if path == "/answer/check":
             return _fake_check(json), None

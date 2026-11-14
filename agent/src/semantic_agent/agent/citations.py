@@ -105,13 +105,25 @@ def _shown(authority: Authority) -> str:
     return f"[근거 {authority.ref}] {authority.display()}"
 
 
-def check_research(findings: Findings, ledger: Ledger) -> Findings:
+Quotes = Callable[[list[dict[str, str]]], Awaitable[list[bool] | None]]
+
+
+def _mismatched(ledger: Ledger, findings: Findings) -> list[tuple[Finding, Authority]]:
+    out: list[tuple[Finding, Authority]] = []
+    for item in findings.found:
+        authority = _authority(ledger, item.source)
+        if authority is not None and not authority.has_quote(item.quote):
+            out.append((item, authority))
+    return out
+
+
+def check_research(findings: Findings, ledger: Ledger, relaxed: frozenset[str] = frozenset()) -> Findings:
     def judge(item: Finding) -> Finding | None:
         authority = _authority(ledger, item.source)
         if authority is None:
             log.info("quote_mismatch kind=no_ref source=%r", item.source[:20])
             return None
-        if not authority.has_quote(item.quote):
+        if not authority.has_quote(item.quote) and item.quote not in relaxed:
             log.info(
                 "quote_mismatch kind=%s ref=%d quote_chars=%d overlap=%.2f normalized=%s",
                 authority.kind,
@@ -128,3 +140,12 @@ def check_research(findings: Findings, ledger: Ledger) -> Findings:
         return _shown(authority) if authority else None
 
     return replace(_keep(findings, judge), issues=check_refs(findings.issues, ref))
+
+
+async def check_research_relaxed(findings: Findings, ledger: Ledger, quotes: Quotes) -> Findings:
+    pairs = _mismatched(ledger, findings)
+    matched = await quotes([{"body": a.body, "quote": f.quote} for f, a in pairs]) if pairs else None
+    relaxed = frozenset(f.quote for (f, _), ok in zip(pairs, matched or [], strict=False) if ok)
+    if relaxed:
+        log.info("quote_relaxed count=%d of=%d", len(relaxed), len(pairs))
+    return check_research(findings, ledger, relaxed)
