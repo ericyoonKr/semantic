@@ -36,6 +36,11 @@ const NAME_TAILS: [&str; 4] = ["법률", "법", "령", "규칙"];
 const NAME_WORDS: usize = 6;
 const REGION_TAILS: [&str; 8] = ["특별자치시", "특별자치도", "특별시", "광역시", "시", "도", "군", "구"];
 const NOT_HELD: [&str; 2] = ["자료에 없", "확인하지 못"];
+const NO_SUCH: [&str; 4] = ["없습니다", "없다", "존재하지 않", "없는 것으로"];
+
+fn denies_an_ordinance(sentence: &str) -> bool {
+    (sentence.contains("조례") || sentence.contains("자치법규")) && NO_SUCH.iter().any(|p| sentence.contains(p))
+}
 
 const EFFECT_WORDS: [&str; 16] =
     ["처벌", "처분", "영업정지", "과태료", "과징금", "위반", "의무", "허가", "취소", "위임", "적용", "해당", "책임", "존재하지 않", "금지", "벌금"];
@@ -398,6 +403,9 @@ pub fn check(sentence: &str, reads: &ReadSet) -> Verdict {
     let mut named: Vec<String> = Vec::new();
     let mut cites: Vec<Cite> = Vec::new();
     let not_held = NOT_HELD.iter().any(|p| sentence.contains(p));
+    if !not_held && denies_an_ordinance(sentence) {
+        reasons.push(ORDINANCE_NOT_READ);
+    }
     for m in mentions(sentence) {
         if let Mention::Named(name) = &m {
             if is_ordinance(name) {

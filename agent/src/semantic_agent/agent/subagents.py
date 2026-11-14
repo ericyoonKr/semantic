@@ -6,7 +6,7 @@ from typing import Any
 from deepagents import FilesystemPermission, SubAgent
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware import AgentMiddleware, ClearToolUsesEdit, ContextEditingMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 
@@ -24,6 +24,15 @@ SUB_STEP_LIMIT = 20
 SUB_DEADLINE_S = 120.0
 LLM_CALL_S = 45.0
 LIMIT_MARK = "제한에 걸림"
+CONTEXT_TRIGGER = 12_000
+CONTEXT_KEEP = 2
+KEPT_TOOLS = ("read_law", "read_case")
+CLEARED_NOTE = "앞선 검색 결과는 치웠다. 근거 번호는 그대로 쓸 수 있고, 원문이 필요하면 read_law·read_case로 다시 읽는다."
+
+
+def context_editing() -> ContextEditingMiddleware:
+    edit = ClearToolUsesEdit(trigger=CONTEXT_TRIGGER, keep=CONTEXT_KEEP, exclude_tools=KEPT_TOOLS, placeholder=CLEARED_NOTE)
+    return ContextEditingMiddleware(edits=[edit])
 
 SUB_DEADLINE: ContextVar[float | None] = ContextVar("sub_deadline", default=None)
 
@@ -115,6 +124,7 @@ def make_subagents(
                 FilesystemMiddleware(backend=backend, tools=["read_file"], _permissions=NO_FILES),
                 ToolAllowlist([t.name for t in search_tools]),
                 ToolGuard(),
+                context_editing(),
                 ResearchGate(client, LIMIT_MARK),
                 SubagentLimit(deadline_s=deadline_s),
             ],

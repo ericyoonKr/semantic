@@ -4,9 +4,11 @@ from collections.abc import Awaitable, Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
+from semantic_agent.agent.budget import usage_of
 from semantic_agent.agent.context import append_system
 from semantic_agent.funcall.readcheck import ReadCheck
 from semantic_agent.tools.client import ToolClient
+from semantic_agent.turn import current_turn
 
 log = logging.getLogger(__name__)
 
@@ -63,5 +65,6 @@ class ResearchGate(AgentMiddleware):
         note = await self._check.review(searched_in(messages), task_lines(messages))
         if not note:
             return response
+        current_turn().tokens += usage_of(response)["total"]
         log.info("research review sends the researcher back head=%s", note[:12])
         return await handler(request.override(system_message=append_system(request.system_message, note)))

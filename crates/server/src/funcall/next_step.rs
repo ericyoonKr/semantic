@@ -119,9 +119,21 @@ impl Context {
     }
 }
 
+const MODIFIER_TAILS: [&str; 5] = ["는", "은", "할", "을", "던"];
+const FORMAT_WORDS: [&str; 10] = ["표로", "영어로", "요약", "짧게", "길게", "다시 말해", "존댓말", "번역", "한 문장으로", "말투"];
+
 pub fn asks_for_law(question: &str) -> bool {
-    question.split_whitespace().map(|w| strip_particle(w.trim_matches(STRIP))).any(|w| LAW_WORDS.contains(&w))
-        || !question_laws(question).is_empty()
+    let raw: Vec<&str> = question.split_whitespace().map(|w| w.trim_matches(STRIP)).collect();
+    let named = raw.iter().enumerate().any(|(i, w)| match strip_particle(w) {
+        "법" => i == 0 || !MODIFIER_TAILS.iter().any(|t| raw[i - 1].ends_with(t)),
+        word => LAW_WORDS.contains(&word),
+    });
+    named || !question_laws(question).is_empty()
+}
+
+pub fn asks_for_format(question: &str) -> bool {
+    let flat = question.split_whitespace().collect::<Vec<_>>().join(" ");
+    FORMAT_WORDS.iter().any(|w| flat.contains(w))
 }
 
 #[derive(Debug, Default)]

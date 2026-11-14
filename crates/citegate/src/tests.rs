@@ -271,6 +271,9 @@ fn ordinances_named_with_a_region_are_blocked_unless_the_sentence_says_they_are_
         "성남시 단란주점 조례를 위반했습니다.",
         "강남구 조례(식품위생)에 따릅니다.",
         "제주특별자치도 조례가 근거입니다.",
+        "이 사건의 제재 근거가 되는 조례는 없습니다.",
+        "그런 조례는 존재하지 않습니다.",
+        "관련 자치법규는 없는 것으로 보입니다.",
     ];
     let wrongly_blocked: Vec<&str> = pass.iter().copied().filter(|s| !check(s, &r).ok).collect();
     let let_through: Vec<&str> = block.iter().filter(|s| !check(s, &r).reasons.contains(&ORDINANCE_NOT_READ)).copied().collect();

@@ -8,7 +8,7 @@ use crate::funcall::coverage::{CoverageParams, CoverageReply};
 use crate::funcall::docindex::{DocSearchReply, DocSearchRequest, search};
 use crate::funcall::docs::session_docs;
 use crate::funcall::holdings::{notes_for, scope_for};
-use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_law, keyword, question_laws};
+use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_format, asks_for_law, keyword, question_laws};
 use crate::funcall::relevance::{JudgeReply, JudgeRequest, judge, unjudged};
 use crate::funcall::review::{ReviewReply, ReviewRequest, review};
 use crate::funcall::route::is_legal;
@@ -74,7 +74,7 @@ pub async fn next_step(
         let found = unread_in_corpus(&state, &ask).await;
         let step = state.steps.after_answer(sid.as_str(), &req, &found.unread, &found.uncited, found.cites, &ctx);
         tracing::info!(
-            unread = found.unread.len(),
+            unread = ?found.unread,
             uncited = found.uncited.len(),
             cites = found.cites,
             reread = matches!(step, Step::Task { .. }),
@@ -88,6 +88,9 @@ pub async fn next_step(
     let mut legal = true;
     if state.cfg.route_legal && keyword(&req.question).is_some() && state.steps.new_turn(sid.as_str(), &req.request_id) {
         if asks_for_law(&req.question) {
+            tracing::info!(legal, by = "word", history = ctx.history.len(), "route.legal");
+        } else if asks_for_format(&req.question) {
+            legal = false;
             tracing::info!(legal, by = "word", history = ctx.history.len(), "route.legal");
         } else if let Some(parts) = state.engine.as_ref() {
             legal = is_legal(&parts.llm, &req.question, !docs.is_empty(), &ctx.history, ctx.last_answer.as_deref()).await.unwrap_or(true);
