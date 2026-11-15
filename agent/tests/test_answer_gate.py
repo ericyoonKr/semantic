@@ -270,3 +270,7 @@ def test_grouped_ref_tags_are_expanded_and_checked() -> None:
     assert expand_groups("기준입니다 [근거 1, 근거 2].") == "기준입니다 [근거 1], [근거 2]."
     assert expand_groups("[근거 3, 4 제2항]") == "[근거 3], [근거 4 제2항]"
     assert expand_groups("[근거 5]") == "[근거 5]"
+    assert expand_groups("학적을 보유합니다 [근거 2 제22조].") == "학적을 보유합니다 [근거 2]."
+    assert expand_groups("[근거 1 제21조 제1항]") == "[근거 1 제1항]"
+    assert expand_groups("[근거 3 제2항 제1호]") == "[근거 3 제2항]"
+    assert expand_groups("[근거 4 제10조의2]") == "[근거 4]"

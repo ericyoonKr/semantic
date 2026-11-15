@@ -49,12 +49,24 @@ TAG_GROUP = re.compile(r"\[\s*근거\s*\d+(?:\s*제\s*\d+\s*항)?(?:\s*[,·]\s*(
 TAG_PART = re.compile(r"(\d+)(?:\s*제\s*(\d+)\s*항)?")
 
 
+TAG_LOOSE = re.compile(r"\[근거\s*(\d+)((?:\s*제\s*\d+\s*(?:조(?:의\s*\d+)?|항|호|목))+)\s*\]")
+TAG_PARAGRAPH = re.compile(r"제\s*(\d+)\s*항")
+
+
+def tighten_tags(text: str) -> str:
+    def one(match: re.Match[str]) -> str:
+        paragraph = TAG_PARAGRAPH.search(match.group(2))
+        return f"[근거 {match.group(1)} 제{paragraph.group(1)}항]" if paragraph else f"[근거 {match.group(1)}]"
+
+    return TAG_LOOSE.sub(one, text)
+
+
 def expand_groups(text: str) -> str:
     def one(match: re.Match[str]) -> str:
         parts = TAG_PART.findall(match.group(0))
         return ", ".join(f"[근거 {n} 제{p}항]" if p else f"[근거 {n}]" for n, p in parts)
 
-    return TAG_GROUP.sub(one, text)
+    return TAG_GROUP.sub(one, tighten_tags(text))
 
 
 CASE_CODES = (
