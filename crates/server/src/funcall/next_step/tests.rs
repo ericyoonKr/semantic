@@ -1,8 +1,20 @@
 use super::{
-    Context, Doc, EXCERPT_HEAD, KG_FOUND_HEAD, KG_HEAD, KG_HITS_MAX, KG_ISSUES_HEAD, KG_MAX, QUESTION_LAWS_HEAD, Step, StepLog, StepRequest,
-    ToolCall, WHOLE_READ_LINES, asks_for_law, brief, keyword, kg_found_line, kg_hits, kg_issues_line, kg_line, kg_terms, law_lines,
+    BRIEF_HEAD, Context, Doc, EXCERPT_HEAD, KG_FOUND_HEAD, KG_HEAD, KG_HITS_MAX, KG_ISSUES_HEAD, KG_MAX, QUESTION_LAWS_HEAD, Step, StepLog, StepRequest,
+    ToolCall, WHOLE_READ_LINES, asks_for_brief, asks_for_law, brief, brief_line, keyword, kg_found_line, kg_hits, kg_issues_line, kg_line, kg_terms, law_lines,
     question_laws,
 };
+
+#[test]
+fn brief_requests_are_recognised_by_kind_and_a_writing_verb() {
+    assert_eq!(asks_for_brief("답변서 써줘"), Some("답변서"));
+    assert_eq!(asks_for_brief("항소 답변서 초안 작성해 줘"), Some("항소답변서"));
+    assert_eq!(asks_for_brief("소장을 만들어 줘"), Some("소장"));
+    assert_eq!(asks_for_brief("답변서 제출 기한은?"), None);
+    assert_eq!(asks_for_brief("소장이 뭐야"), None);
+    assert_eq!(asks_for_brief("고마워요"), None);
+    let line = brief_line("답변서");
+    assert!(line.starts_with(BRIEF_HEAD) && line.contains("brief_rules") && line.contains("「답변서」"));
+}
 
 #[test]
 fn knowledge_graph_terms_hits_and_the_first_researcher_call() {

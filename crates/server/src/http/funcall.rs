@@ -10,8 +10,8 @@ use crate::funcall::docs::session_docs;
 use crate::funcall::holdings::{guidance_for, notes_for, scope_for};
 use crate::funcall::known::law_of_label;
 use crate::funcall::next_step::{
-    Context, KG_FIND_LIMIT, Step, StepReply, StepRequest, ToolCall, asks_for_format, asks_for_law, keyword, kg_found_line, kg_hits, kg_issues_line, kg_terms,
-    question_laws,
+    BRIEF_WRITING_NOTE, Context, KG_FIND_LIMIT, Step, StepReply, StepRequest, ToolCall, asks_for_brief, asks_for_format, asks_for_law, brief_line,
+    keyword, kg_found_line, kg_hits, kg_issues_line, kg_terms, question_laws,
 };
 use crate::funcall::quotes::{QuotesReply, QuotesRequest, match_quotes};
 use crate::funcall::relevance::{JudgeReply, JudgeRequest, judge, unjudged};
@@ -104,9 +104,10 @@ pub async fn next_step(
     let session = sid.as_str().to_string();
     let docs = tokio::task::spawn_blocking(move || session_docs(&db, &session)).await.unwrap_or_default();
     let (hits, first) = kg_lookup(&state, &graphs, &req.question).await;
+    let brief_kind = asks_for_brief(&req.question);
     let mut legal = true;
     if state.cfg.route_legal && keyword(&req.question).is_some() && state.steps.new_turn(sid.as_str(), &req.request_id) {
-        if asks_for_law(&req.question) {
+        if asks_for_law(&req.question) || brief_kind.is_some() {
             tracing::info!(legal, by = "word", history = ctx.history.len(), "route.legal");
         } else if asks_for_format(&req.question) {
             legal = false;
@@ -129,11 +130,17 @@ pub async fn next_step(
         ctx.scope.push(line);
         ctx.scope.extend(kg_issues_line(&hits));
     }
+    if let Some(kind) = brief_kind {
+        ctx.scope.push(brief_line(kind));
+    }
     let step = state.steps.next(sid.as_str(), &req, legal, &docs, &laws, &ctx);
     let researcher_first = if matches!(step, Step::Task { .. }) { first } else { None };
     let mut kinds = read_kinds;
     kinds.extend(laws.iter().filter_map(|law| state.known.kind_of(law)));
-    let guidance = guidance_for(&req.question, kinds.iter().copied());
+    let mut guidance = guidance_for(&req.question, kinds.iter().copied());
+    if brief_kind.is_some() {
+        guidance.push(BRIEF_WRITING_NOTE.to_string());
+    }
     if let Step::Task { description, .. } = &step {
         tracing::info!(
             history = ctx.history.len(),

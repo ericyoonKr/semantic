@@ -164,6 +164,51 @@ pub fn kg_issues_line(hits: &[(String, String)]) -> Option<String> {
     (!names.is_empty()).then(|| format!("{KG_ISSUES_HEAD} {}", names.join(" / ")))
 }
 
+pub const BRIEF_KINDS: [&str; 23] = [
+    "가압류·가처분 신청서",
+    "강제경매신청서",
+    "고소장",
+    "답변서",
+    "배당요구서",
+    "보전처분 이의신청서",
+    "사실조회신청서",
+    "상고이유서",
+    "상고장",
+    "소송비용액확정신청서",
+    "소장",
+    "유체동산 강제집행신청서",
+    "의견서",
+    "준비서면",
+    "집행정지 신청서",
+    "채권압류 및 전부명령 신청서",
+    "채권압류 및 추심명령 신청서",
+    "추완항소장",
+    "항고이유서",
+    "항고장",
+    "항소답변서",
+    "항소이유서",
+    "항소장",
+];
+const WRITE_WORDS: [&str; 7] = ["써", "작성", "초안", "만들어", "적어", "작성해", "작성하"];
+pub const BRIEF_HEAD: &str = "서면:";
+pub const BRIEF_WRITING_NOTE: &str = "서면 초안은 글 답변 안에 쓴다: 서면 규칙 그래프에서 읽은 필수 기재사항 순서로 항목을 두고 항목마다 근거 번호를 단다. 사실은 사용자 진술과 올린 문서에서만 가져오고 모르는 사실은 「[확인 필요: 무엇]」으로 비워 둔다. 법령 조문은 read_law로 읽은 것만 인용하고, 파일로 만들지 않는다.";
+
+fn squeeze(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+pub fn asks_for_brief(question: &str) -> Option<&'static str> {
+    let flat = squeeze(question);
+    let kind = BRIEF_KINDS.iter().filter(|k| flat.contains(&squeeze(k))).max_by_key(|k| k.chars().count())?;
+    WRITE_WORDS.iter().any(|w| flat.contains(w)).then_some(*kind)
+}
+
+pub fn brief_line(kind: &str) -> String {
+    format!(
+        "{BRIEF_HEAD} {kind} — 서면 규칙 그래프(brief_rules)에서 「{kind}」를 kg_find로 찾아 cites로 달린 조문을 모두 read_law로 읽고 필수 기재사항·제출 기한·형식을 모은다. 청구의 요건은 요건 나무(claims)에서 찾는다."
+    )
+}
+
 pub fn kg_found_line(hits: &[(String, String)]) -> Option<String> {
     if hits.is_empty() {
         return None;
