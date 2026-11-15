@@ -4,6 +4,7 @@ use gateway::GatewayError;
 use gateway::auth::password::HashCost;
 use gateway::audit::{AuditStore, Event};
 use gateway::store::login::Attempt;
+use gateway::store::users::{Profile, UserStatus};
 use gateway::store::{AuthPolicy, AuthStore};
 use serde_json::json;
 use sqlx::PgPool;
@@ -141,6 +142,45 @@ async fn audit_rows_keep_only_given_fields_and_old_rows_go() -> Result<(), Gatew
     assert_eq!(audit.purge_older_than_year().await?, 1);
     assert_eq!(audit.kinds_of_user(user).await?, vec!["guard_block".to_string(), "verdict".to_string()]);
     drop_schema(&pool, &audit_schema).await;
+    drop_schema(&pool, &schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn signup_is_pending_until_approved_then_disabled_or_rejected() -> Result<(), GatewayError> {
+    let Some((pool, schema, store)) = fixture(AuthPolicy::default()).await else { return Ok(()) };
+    let id = store.signup_user("newbie", "신입", "eight888", cheap()).await?;
+    assert!(matches!(store.signup_user("newbie", "신입", "eight888", cheap()).await, Err(GatewayError::Duplicate)));
+    assert!(matches!(store.signup_user("other", "짧은", "seven77", cheap()).await, Err(GatewayError::Invalid(_))));
+    assert!(matches!(store.add_user("newbie", PASSWORD, cheap()).await, Err(GatewayError::Duplicate)));
+    let row = store.find_user("newbie").await?.ok_or(GatewayError::Internal)?;
+    assert_eq!((row.user_id, row.status, row.is_master, row.display_name.as_str()), (id, UserStatus::Pending, false, "신입"));
+    assert_eq!(store.user_id("newbie").await?, Some(id));
+    assert!(matches!(store.login("newbie", "eight888").await, Err(GatewayError::Pending)));
+    assert!(matches!(store.attempt("newbie", "eight888").await?, Attempt::Pending { user_id } if user_id == id));
+    assert!(matches!(store.login("newbie", "wrong password!!").await, Err(GatewayError::LoginFailed)));
+    assert!(store.approve_user("newbie").await?);
+    assert!(store.login("newbie", "eight888").await.is_ok());
+    assert_eq!(store.profile(id).await?, Profile { login_id: "newbie".into(), display_name: "신입".into(), is_master: false });
+    assert!(!store.is_master(id).await?);
+    assert!(store.set_master("newbie").await?);
+    assert!(store.is_master(id).await?);
+    assert!(!store.set_master("nobody").await?);
+    store.add_user("grader8", PASSWORD, cheap()).await?;
+    store.signup_user("late", "늦은", "eight888", cheap()).await?;
+    let listed = store.list_users().await?;
+    assert_eq!(listed.iter().map(|u| u.login_id.as_str()).collect::<Vec<_>>(), vec!["late", "newbie", "grader8"]);
+    assert_eq!(listed.iter().map(|u| u.status).collect::<Vec<_>>(), vec![UserStatus::Pending, UserStatus::Active, UserStatus::Active]);
+    assert!(listed[0].requested_at.ends_with('Z'));
+    assert!(store.disable_user("newbie").await?);
+    assert_eq!(store.find_user("newbie").await?.map(|u| u.status), Some(UserStatus::Disabled));
+    assert!(matches!(store.login("newbie", "eight888").await, Err(GatewayError::LoginFailed)));
+    assert!(store.approve_user("newbie").await?);
+    assert!(store.login("newbie", "eight888").await.is_ok());
+    assert!(store.reject_user("late").await?);
+    assert!(!store.reject_user("late").await?);
+    assert_eq!(store.user_id("late").await?, None);
+    assert!(!store.approve_user("nobody").await?);
     drop_schema(&pool, &schema).await;
     Ok(())
 }

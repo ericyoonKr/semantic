@@ -9,6 +9,7 @@ use crate::model::{LawHit, LawQuery, LawUnit, LawVersion};
 use crate::query::annex::{AnnexName, annex_label};
 use crate::query::direct::{Direct, Target};
 use crate::query::fusion::CANDIDATES;
+use crate::query::reflow::reflow_wrapped;
 use crate::query::terms::{Terms, compact};
 use crate::query::weights::LawWeights;
 
@@ -465,6 +466,23 @@ fn annex_sql() -> String {
     )
 }
 
+pub fn article_unit(unit: &str) -> String {
+    let body = unit.strip_prefix('제').unwrap_or(unit);
+    let number: String = body.chars().take_while(char::is_ascii_digit).collect();
+    let Some(rest) = body[number.len()..].strip_prefix('조').filter(|_| !number.is_empty()) else {
+        return unit.to_string();
+    };
+    let mut out = format!("제{number}조");
+    if let Some(after) = rest.strip_prefix('의') {
+        let branch: String = after.chars().take_while(char::is_ascii_digit).collect();
+        if !branch.is_empty() {
+            out.push('의');
+            out.push_str(&branch);
+        }
+    }
+    out
+}
+
 pub async fn read_law_unit(
     pool: &PgPool,
     law: &str,
@@ -481,6 +499,7 @@ pub async fn read_law_unit(
     if let Some(name) = AnnexName::parse(&unit) {
         return read_annex_unit(pool, &law_id, &name, as_of).await;
     }
+    let unit = article_unit(&unit);
     let row = sqlx::query(AssertSqlSafe(article_sql()))
         .bind(as_of)
         .bind(&law_id)
@@ -526,7 +545,7 @@ async fn read_annex_unit(
         .fetch_optional(pool)
         .await?
         .ok_or(RetrievalError::NotFound("law unit"))?;
-    let body: String = row.try_get(2)?;
+    let body = reflow_wrapped(&row.try_get::<String, _>(2)?);
     let urls: Vec<Value> = [10, 11, 12]
         .iter()
         .filter_map(|i| row.try_get::<Option<String>, _>(*i).ok().flatten())
@@ -579,5 +598,18 @@ mod tests {
         assert_eq!(super::law_of_unit_id("rule:dku:hakchik"), "rule:dku:hakchik");
         assert_eq!(super::law_of_unit_id("단국대학교 학칙"), "단국대학교 학칙");
         assert_eq!(super::law_of_unit_id(":000100"), ":000100");
+    }
+
+    #[test]
+    fn article_units_drop_paragraph_tails_and_take_the_je_prefix() {
+        assert_eq!(super::article_unit("제47조제1항"), "제47조");
+        assert_eq!(super::article_unit("제47조①"), "제47조");
+        assert_eq!(super::article_unit("47조"), "제47조");
+        assert_eq!(super::article_unit("제47조의2제3항제1호"), "제47조의2");
+        assert_eq!(super::article_unit("제47조의2"), "제47조의2");
+        assert_eq!(super::article_unit("제47조"), "제47조");
+        assert_eq!(super::article_unit("별표2"), "별표2");
+        assert_eq!(super::article_unit("부칙제2조"), "부칙제2조");
+        assert_eq!(super::article_unit("제조"), "제조");
     }
 }

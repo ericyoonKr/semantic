@@ -9,7 +9,10 @@ use crate::funcall::docindex::{DocSearchReply, DocSearchRequest, search};
 use crate::funcall::docs::session_docs;
 use crate::funcall::holdings::{guidance_for, notes_for, scope_for};
 use crate::funcall::known::law_of_label;
-use crate::funcall::next_step::{Context, Step, StepReply, StepRequest, asks_for_format, asks_for_law, keyword, question_laws};
+use crate::funcall::next_step::{
+    Context, KG_FIND_LIMIT, Step, StepReply, StepRequest, ToolCall, asks_for_format, asks_for_law, keyword, kg_found_line, kg_hits, kg_terms,
+    question_laws,
+};
 use crate::funcall::quotes::{QuotesReply, QuotesRequest, match_quotes};
 use crate::funcall::relevance::{JudgeReply, JudgeRequest, judge, unjudged};
 use crate::funcall::review::{ReviewReply, ReviewRequest, review};
@@ -78,6 +81,10 @@ pub async fn next_step(
     let notes = notes_for(&req.question, state.holdings.get());
     let mut ctx = Context::new(&req, &state.reads.snapshot(sid.as_str()));
     ctx.scope = scope_for(&notes);
+    let graphs: Vec<(String, String)> = state.kg.catalog().into_iter().map(|e| (e.graph, e.shape)).collect();
+    if let Some(line) = crate::funcall::next_step::kg_line(&graphs) {
+        ctx.scope.push(line);
+    }
     let read_kinds: Vec<norms::Kind> = ctx.read.iter().filter_map(|l| law_of_label(l)).filter_map(|law| state.known.kind_of(law)).collect();
     if let Some(text) = req.answer.as_deref() {
         let ask = UnreadRequest { thread_id: sid.as_str().to_string(), text: text.to_string() };
@@ -91,11 +98,12 @@ pub async fn next_step(
             "next_step.after_answer"
         );
         let guidance = guidance_for(&req.question, read_kinds.iter().copied());
-        return Ok(Json(StepReply { step, notes, guidance }));
+        return Ok(Json(StepReply { step, notes, guidance, researcher_first: None }));
     }
     let db = state.db.clone();
     let session = sid.as_str().to_string();
     let docs = tokio::task::spawn_blocking(move || session_docs(&db, &session)).await.unwrap_or_default();
+    let (hits, first) = kg_lookup(&state, &graphs, &req.question).await;
     let mut legal = true;
     if state.cfg.route_legal && keyword(&req.question).is_some() && state.steps.new_turn(sid.as_str(), &req.request_id) {
         if asks_for_law(&req.question) {
@@ -103,6 +111,8 @@ pub async fn next_step(
         } else if asks_for_format(&req.question) {
             legal = false;
             tracing::info!(legal, by = "word", history = ctx.history.len(), "route.legal");
+        } else if !hits.is_empty() {
+            tracing::info!(legal, by = "graph", hits = hits.len(), history = ctx.history.len(), "route.legal");
         } else if let Some(parts) = state.engine.as_ref() {
             legal = is_legal(&parts.llm, &req.question, !docs.is_empty(), &ctx.history, ctx.last_answer.as_deref()).await.unwrap_or(true);
             tracing::info!(legal, by = "model", history = ctx.history.len(), "route.legal");
@@ -115,7 +125,11 @@ pub async fn next_step(
         }
     }
     state.coverage.require(&req.request_id, &laws);
+    if legal && let Some(line) = kg_found_line(&hits) {
+        ctx.scope.push(line);
+    }
     let step = state.steps.next(sid.as_str(), &req, legal, &docs, &laws, &ctx);
+    let researcher_first = if matches!(step, Step::Task { .. }) { first } else { None };
     let mut kinds = read_kinds;
     kinds.extend(laws.iter().filter_map(|law| state.known.kind_of(law)));
     let guidance = guidance_for(&req.question, kinds.iter().copied());
@@ -129,7 +143,26 @@ pub async fn next_step(
             "next_step.task"
         );
     }
-    Ok(Json(StepReply { step, notes, guidance }))
+    Ok(Json(StepReply { step, notes, guidance, researcher_first }))
+}
+
+async fn kg_lookup(state: &AppState, graphs: &[(String, String)], question: &str) -> (Vec<(String, String)>, Option<ToolCall>) {
+    let names: Vec<String> = graphs.iter().map(|(graph, _)| graph.clone()).collect();
+    let terms = kg_terms(question);
+    if names.is_empty() || terms.is_empty() {
+        return (Vec::new(), None);
+    }
+    let kg = state.kg.clone();
+    let out = tokio::task::spawn_blocking(move || {
+        kg_hits(&names, &terms, |graph, term| {
+            let q = kg::FindQuery { by: kg::FindBy::Text(term), kind: None, limit: KG_FIND_LIMIT, as_of: None };
+            kg.find(graph, &q).map(|found| found.nodes.into_iter().map(|n| n.name).collect()).unwrap_or_default()
+        })
+    })
+    .await
+    .unwrap_or_default();
+    tracing::info!(hits = out.0.len(), first = out.1.is_some(), "next_step.kg");
+    out
 }
 
 pub async fn answer_check(

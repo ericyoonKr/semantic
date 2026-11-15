@@ -21,7 +21,8 @@ EXCERPT = "이 조문은 가짜 도구가 돌려주는 고정 문장이다."
 KEPT = {"claim": "가짜법 제1조는 목적 조항이다", "source": "근거 1", "quote": LAW_BODY}
 SHOWN_SOURCE = "[근거 1] 가짜법 제1조(시행 2000-01-01)"
 UNSOURCED = {"claim": "출처 없는 가짜 주장", "source": "", "quote": LAW_BODY}
-RESEARCHER_TOOLS = {"search_laws", "search_cases", "read_law", "read_case", "case_citations", "list_annexes", "annex_lookup", "annex_compute"}
+KG_SHARED = {"kg_find", "kg_expand"}
+RESEARCHER_TOOLS = {"search_laws", "search_cases", "read_law", "read_case", "case_citations", "list_annexes", "annex_lookup", "annex_compute"} | KG_SHARED
 READ = {"law": "가짜법", "unit": "제1조"}
 
 
@@ -51,7 +52,7 @@ def test_main_delegates_to_researcher_and_answers_from_result() -> None:
     main_tools, sub_tools = set(model.bound[0]), set(model.bound[1])
     assert {"task", "judge", "read_file"} <= main_tools
     assert not main_tools & {"write_todos", "write_file", "edit_file", "delete", "ls", "glob", "grep", "execute"}
-    assert not main_tools & RESEARCHER_TOOLS
+    assert not main_tools & (RESEARCHER_TOOLS - KG_SHARED)
     assert sub_tools == RESEARCHER_TOOLS
 
 
@@ -80,7 +81,7 @@ def test_main_holds_kg_tools_and_offers_only_researcher() -> None:
     messages, client = asyncio.run(scenario())
     main_tools = set(model.bound[0])
     assert {"kg_find", "kg_expand", "task", "judge", "read_file"} <= main_tools
-    assert not main_tools & RESEARCHER_TOOLS
+    assert not main_tools & (RESEARCHER_TOOLS - KG_SHARED)
     task_text = model.task_text[0]
     assert f"- researcher: {RESEARCHER_DESCRIPTION}" in task_text
     assert "doc_reader" not in task_text and "kg_explorer" not in task_text

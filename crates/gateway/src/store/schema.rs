@@ -13,6 +13,14 @@ pub fn ddl(schema: &str) -> Vec<String> {
             )"
         ),
         format!(
+            "ALTER TABLE {schema}.app_user ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'
+             CHECK (status IN ('pending', 'active', 'disabled'))"
+        ),
+        format!("ALTER TABLE {schema}.app_user ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT ''"),
+        format!("ALTER TABLE {schema}.app_user ADD COLUMN IF NOT EXISTS is_master boolean NOT NULL DEFAULT false"),
+        format!("ALTER TABLE {schema}.app_user ADD COLUMN IF NOT EXISTS requested_at timestamptz NOT NULL DEFAULT now()"),
+        format!("UPDATE {schema}.app_user SET status = 'disabled' WHERE disabled AND status <> 'disabled'"),
+        format!(
             "CREATE TABLE IF NOT EXISTS {schema}.login_session (
                 token_hash char(64) PRIMARY KEY,
                 user_id uuid NOT NULL REFERENCES {schema}.app_user ON DELETE CASCADE,

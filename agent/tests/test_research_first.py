@@ -254,3 +254,24 @@ def test_writing_guidance_from_the_search_server_reaches_the_model_but_not_the_a
     assert text.startswith("가짜법 제1조"), text
     assert RULE_GUIDANCE not in text
     assert any(RULE_GUIDANCE in str(getattr(m, "content", "")) for m in model.seen[-1])
+
+
+def test_the_first_researcher_call_is_the_graph_lookup_the_search_server_chose() -> None:
+    class KgClient(FakeClient):
+        def _next_step(self, body: dict[str, Any]) -> dict[str, Any]:
+            step = super()._next_step(body)
+            if step.get("tool") == "task":
+                step["researcher_first"] = {"tool": "kg_find", "args": {"graph": "fake-graph", "text": "국가배상"}}
+            return step
+
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+        AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1].\n"),
+    ]
+    events, model = asyncio.run(_ask(script, "국가배상 요건이 뭐야?", KgClient()))
+    first_seen = [m.name for m in model.seen[0] if isinstance(m, ToolMessage)]
+    assert first_seen == ["kg_find"], first_seen
+    assert any(isinstance(m, ToolMessage) and m.name == "read_law" for m in model.seen[1])
+    assert model.calls == 3
+    assert "가짜법 제1조(시행 2000-01-01)" in _tokens(events)

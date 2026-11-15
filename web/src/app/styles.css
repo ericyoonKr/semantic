@@ -29,6 +29,10 @@
   --warn: #8a5a00;
   --warn-soft: rgb(214 150 0 / 0.14);
   --mark: rgb(255 214 10 / 0.38);
+  --mark-line: rgb(214 170 0 / 0.9);
+  --find: rgb(255 138 0 / 0.36);
+  --find-strong: rgb(255 120 0 / 0.62);
+  --find-ring: rgb(214 92 0 / 0.9);
   --radius-control: 8px;
   --radius-card: 12px;
   --radius-panel: 16px;
@@ -77,6 +81,10 @@
     --warn: #f5c451;
     --warn-soft: rgb(245 196 81 / 0.12);
     --mark: rgb(255 214 10 / 0.25);
+    --mark-line: rgb(255 214 10 / 0.7);
+    --find: rgb(255 160 60 / 0.3);
+    --find-strong: rgb(255 160 60 / 0.55);
+    --find-ring: rgb(255 170 80 / 0.9);
   }
 }
 
@@ -1408,6 +1416,88 @@ button:disabled {
   border-radius: 3px;
   background: var(--mark);
   color: inherit;
+}
+
+.source-body mark.is-find {
+  background: var(--find);
+}
+
+.source-body mark.is-cite.is-find {
+  box-shadow: inset 0 -3px 0 var(--mark-line);
+}
+
+.source-body mark.is-current {
+  background: var(--find-strong);
+  box-shadow: 0 0 0 1.5px var(--find-ring);
+}
+
+.source-body mark.is-cite.is-current {
+  box-shadow: 0 0 0 1.5px var(--find-ring), inset 0 -3px 0 var(--mark-line);
+}
+
+.source-top {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--line);
+}
+
+.source-top .source-head {
+  position: static;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 0;
+  padding-bottom: 6px;
+}
+
+.source-find {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 12px 10px 16px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--fill-1);
+}
+
+.source-find:focus-within {
+  border-color: var(--accent-line);
+}
+
+.source-find-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  outline: none;
+}
+
+.source-find-input::placeholder {
+  color: var(--ink-4);
+}
+
+.source-find-count {
+  flex: none;
+  padding: 0 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.source-find .icon-button {
+  width: 26px;
+  height: 26px;
+}
+
+.source-find .icon-button:disabled {
+  color: var(--ink-4);
 }
 
 .source-modal-backdrop {

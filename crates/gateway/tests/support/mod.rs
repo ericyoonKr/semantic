@@ -120,6 +120,7 @@ pub async fn fixture() -> Option<Fixture> {
         call_deadline: Duration::from_secs(10),
         upload_limit_bytes: 1024 * 1024,
         login_per_minute: 10,
+        signup_per_hour: 10,
         hidden_spans: vec![("<think>".into(), "</think>".into())],
         ask_wait: Duration::from_millis(300),
         ask_queue_wait: Duration::from_millis(1500),
@@ -130,6 +131,7 @@ pub async fn fixture() -> Option<Fixture> {
     let audit = AuditStore::open(pool.clone(), &cfg.audit_schema).await.ok()?;
     let state = AppState {
         limiter: Arc::new(LoginLimiter::new(cfg.login_per_minute)),
+        signup_limiter: Arc::new(LoginLimiter::within(cfg.signup_per_hour, Duration::from_secs(3600))),
         quota: Arc::new(AskQuota::new(cfg.ask_global, cfg.ask_wait, cfg.ask_queue_wait)),
         memory: Arc::new(MemoryGuard::new(cfg.memory_floor_bytes)),
         cfg: Arc::new(cfg),
@@ -167,6 +169,27 @@ pub async fn login(f: &Fixture, id: &str, password: &str) -> Result<(StatusCode,
     let body: Value = res.json().await.unwrap_or(Value::Null);
     let csrf = body.get("csrf_token").and_then(Value::as_str).map(str::to_string);
     Ok((status, cookie.zip(csrf).map(|(cookie, csrf)| Signed { cookie, csrf })))
+}
+
+pub async fn signup(f: &Fixture, id: &str, password: &str, name: &str) -> Result<(StatusCode, Value), reqwest::Error> {
+    let res = f
+        .http
+        .post(format!("{}/api/auth/signup", f.base))
+        .json(&json!({ "login_id": id, "password": password, "name": name }))
+        .send()
+        .await?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let body: Value = res.json().await.unwrap_or(Value::Null);
+    Ok((status, body))
+}
+
+pub async fn admin(f: &Fixture, s: &Signed, action: &str, login_id: &str) -> Result<reqwest::Response, reqwest::Error> {
+    f.http
+        .post(format!("{}/api/admin/users/{login_id}/{action}", f.base))
+        .header("cookie", &s.cookie)
+        .header("x-csrf-token", &s.csrf)
+        .send()
+        .await
 }
 
 pub async fn new_session(f: &Fixture, s: &Signed) -> Result<String, Box<dyn std::error::Error>> {

@@ -15,6 +15,7 @@ class Turn:
     context_tokens: int = 0
     notes: list[str] = field(default_factory=list)
     guidance: list[str] = field(default_factory=list)
+    researcher_first: dict[str, Any] | None = None
     warned: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
     audits: list[dict[str, Any]] = field(default_factory=list)

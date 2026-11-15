@@ -11,10 +11,20 @@ pub enum GatewayError {
     LoginFailed,
     #[error("account locked")]
     Locked,
+    #[error("waiting for approval")]
+    Pending,
     #[error("not signed in")]
     Unauthenticated,
     #[error("csrf token mismatch")]
     Csrf,
+    #[error("not allowed")]
+    Forbidden,
+    #[error("login id already taken")]
+    Duplicate,
+    #[error("no such user")]
+    NoSuchUser,
+    #[error("invalid field: {0}")]
+    Invalid(&'static str),
     #[error("not found")]
     NotFound,
     #[error("too many requests")]
@@ -40,8 +50,13 @@ impl GatewayError {
         match self {
             GatewayError::WeakPassword => (StatusCode::BAD_REQUEST, "비밀번호는 12자 이상이어야 합니다"),
             GatewayError::LoginFailed | GatewayError::Locked => (StatusCode::UNAUTHORIZED, "아이디 또는 비밀번호가 맞지 않습니다"),
+            GatewayError::Pending => (StatusCode::FORBIDDEN, "승인 대기 중입니다"),
             GatewayError::Unauthenticated => (StatusCode::UNAUTHORIZED, "로그인이 필요합니다"),
             GatewayError::Csrf => (StatusCode::FORBIDDEN, "요청을 처리할 수 없습니다"),
+            GatewayError::Forbidden => (StatusCode::FORBIDDEN, "권한이 없습니다"),
+            GatewayError::Duplicate => (StatusCode::CONFLICT, "이미 있는 아이디입니다"),
+            GatewayError::NoSuchUser => (StatusCode::NOT_FOUND, "그런 사용자가 없습니다"),
+            GatewayError::Invalid(text) => (StatusCode::BAD_REQUEST, *text),
             GatewayError::NotFound => (StatusCode::NOT_FOUND, "없는 대화입니다"),
             GatewayError::TooMany => (StatusCode::TOO_MANY_REQUESTS, "잠시 뒤 다시 시도해 주세요"),
             GatewayError::Busy => (StatusCode::CONFLICT, "앞 질문의 답을 기다리다 시간이 지났습니다. 다시 보내 주세요"),
@@ -63,6 +78,10 @@ impl GatewayError {
 impl IntoResponse for GatewayError {
     fn into_response(self) -> Response {
         let (status, text) = self.status_and_text();
-        (status, Json(json!({ "message": text }))).into_response()
+        let body = match self {
+            GatewayError::Pending => json!({ "error": text, "message": text }),
+            _ => json!({ "message": text }),
+        };
+        (status, Json(body)).into_response()
     }
 }

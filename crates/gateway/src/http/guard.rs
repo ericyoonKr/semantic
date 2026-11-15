@@ -30,6 +30,23 @@ impl FromRequestParts<AppState> for Signed {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Master {
+    pub signed: Signed,
+}
+
+impl FromRequestParts<AppState> for Master {
+    type Rejection = GatewayError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let signed = Signed::from_request_parts(parts, state).await?;
+        if !state.store.is_master(signed.user_id).await? {
+            return Err(GatewayError::Forbidden);
+        }
+        Ok(Master { signed })
+    }
+}
+
 pub fn thread_id(raw: &str) -> Result<Uuid, GatewayError> {
     Uuid::parse_str(raw).map_err(|_| GatewayError::NotFound)
 }

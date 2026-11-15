@@ -1,4 +1,4 @@
-import init, { initSync, mark_spans, plain_math, split_body } from "../wasm/webtext.js";
+import init, { find_all, initSync, mark_layers, mark_spans, plain_math, split_body } from "../wasm/webtext.js";
 
 export type BoxTable = { head: string[][]; rows: string[][] };
 
@@ -7,6 +7,8 @@ export type BodyPiece =
   | { kind: "table"; table: BoxTable; start: number; end: number };
 
 export type Marked = { text: string; marked: boolean };
+
+export type Layered = { text: string; cite: boolean; find: boolean; current: boolean };
 
 export async function loadWebtext(): Promise<void> {
   await init();
@@ -22,6 +24,14 @@ export function splitBody(body: string): BodyPiece[] {
 
 export function markSpans(body: string, spans: [number, number][]): Marked[] {
   return JSON.parse(mark_spans(body, JSON.stringify(spans))) as Marked[];
+}
+
+export function findAll(body: string, query: string): [number, number][] {
+  return JSON.parse(find_all(body, query)) as [number, number][];
+}
+
+export function markLayers(body: string, cites: [number, number][], finds: [number, number][], current: number | null): Layered[] {
+  return JSON.parse(mark_layers(body, JSON.stringify(cites), JSON.stringify(finds), current ?? -1)) as Layered[];
 }
 
 export function plainMath(text: string): string {

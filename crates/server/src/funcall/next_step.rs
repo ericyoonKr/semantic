@@ -62,6 +62,14 @@ pub struct StepReply {
     pub step: Step,
     pub notes: Vec<String>,
     pub guidance: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub researcher_first: Option<ToolCall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ToolCall {
+    pub tool: String,
+    pub args: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +85,69 @@ pub struct StepRequest {
 }
 
 pub const MUST_READ_HEAD: &str = "먼저 읽을 조문:";
+pub const KG_HEAD: &str = "지식그래프(kg_find로 개념·청구·범죄·절차를 찾고 kg_expand로 요건·항변·근거 조문으로 펼친 뒤 read_law로 읽는다. 없으면 검색):";
+pub const KG_MAX: usize = 16;
+
+pub fn kg_line(graphs: &[(String, String)]) -> Option<String> {
+    if graphs.is_empty() {
+        return None;
+    }
+    let items: Vec<String> = graphs.iter().take(KG_MAX).map(|(name, shape)| format!("{name}({shape})")).collect();
+    Some(format!("{KG_HEAD} {}", items.join(", ")))
+}
+
+pub const KG_FOUND_HEAD: &str = "지식그래프에서 찾은 노드(그 그래프에서 kg_find로 번호를 받아 kg_expand로 펼친다):";
+pub const KG_FIND: &str = "kg_find";
+pub const KG_FIND_LIMIT: usize = 3;
+pub const KG_TERM_MIN: usize = 3;
+pub const KG_TERMS_MAX: usize = 6;
+pub const KG_HITS_MAX: usize = 8;
+const QUESTION_TAILS: [&str; 8] = ["인가요", "입니까", "나요", "까요", "세요", "어요", "는지", "을까"];
+
+pub fn kg_terms(question: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for word in question.split_whitespace() {
+        let word = strip_particle(word.trim_matches(STRIP));
+        if word.chars().count() < KG_TERM_MIN || QUESTION_TAILS.iter().any(|t| word.ends_with(t)) || out.iter().any(|w| w == word) {
+            continue;
+        }
+        out.push(word.to_string());
+    }
+    out.sort_by_key(|w| std::cmp::Reverse(w.chars().count()));
+    out.truncate(KG_TERMS_MAX);
+    out
+}
+
+pub fn kg_hits(
+    graphs: &[String],
+    terms: &[String],
+    mut find: impl FnMut(&str, &str) -> Vec<String>,
+) -> (Vec<(String, String)>, Option<ToolCall>) {
+    let mut hits: Vec<(String, String)> = Vec::new();
+    let mut first: Option<ToolCall> = None;
+    for term in terms {
+        for graph in graphs {
+            for name in find(graph, term) {
+                if hits.len() >= KG_HITS_MAX {
+                    return (hits, first);
+                }
+                if first.is_none() {
+                    first = Some(ToolCall { tool: KG_FIND.to_string(), args: serde_json::json!({ "graph": graph, "text": term }) });
+                }
+                hits.push((graph.clone(), name));
+            }
+        }
+    }
+    (hits, first)
+}
+
+pub fn kg_found_line(hits: &[(String, String)]) -> Option<String> {
+    if hits.is_empty() {
+        return None;
+    }
+    let items: Vec<String> = hits.iter().map(|(graph, name)| format!("{graph}: {name}")).collect();
+    Some(format!("{KG_FOUND_HEAD} {}", items.join(" · ")))
+}
 
 fn one_line(text: &str, max: usize) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()

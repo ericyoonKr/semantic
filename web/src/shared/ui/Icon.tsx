@@ -13,6 +13,8 @@ const PATHS = {
   pen: ["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
   trash: ["M5 7h14", "M9 7V5h6v2", "M7 7l1 12h8l1-12", "M10.5 11v5", "M13.5 11v5"],
   redo: ["M20 12a8 8 0 1 1-2.3-5.7", "M20 4v6h-6"],
+  up: ["M6 15l6-6 6 6"],
+  down: ["M6 9l6 6 6-6"],
 } as const;
 
 export type IconName = keyof typeof PATHS;

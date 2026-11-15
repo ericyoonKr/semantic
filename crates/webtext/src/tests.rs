@@ -1,4 +1,4 @@
-use super::{Marked, Piece, mark_spans, parse_box_table, plain_math, split_body};
+use super::{Layered, Marked, Piece, find_all, mark_layers, mark_spans, parse_box_table, plain_math, split_body};
 
 const BOX: [&str; 13] = [
     "┏━━━━━━━━┯━━━━━━┯━━━━━━━━━━━━━━━━━┓",
@@ -77,6 +77,79 @@ fn marked_spans_follow_characters_not_bytes() {
         Marked { text: "라마".into(), marked: true },
     ];
     assert_eq!(got, want);
+}
+
+#[test]
+fn finding_ignores_spaces_and_line_breaks_on_both_sides() {
+    let body = "영업 정지 1개월\n어느 하\n  나에 해당";
+    assert_eq!(find_all(body, "영업정지"), vec![(0, 5)]);
+    assert_eq!(find_all(body, "하나에"), vec![(13, 19)]);
+    assert_eq!(body.chars().skip(13).take(6).collect::<String>(), "하\n  나에");
+    assert_eq!(find_all("영업정지", "영업 정지"), vec![(0, 4)]);
+    assert_eq!(find_all("영업정지", "영업\t정지\n"), vec![(0, 4)]);
+}
+
+#[test]
+fn finding_ignores_letter_case() {
+    assert_eq!(find_all("Abc ABC abc", "aBC"), vec![(0, 3), (4, 7), (8, 11)]);
+    assert_eq!(find_all("제Ⅰ장 제ⅰ장", "제ⅰ장"), vec![(0, 3), (4, 7)]);
+}
+
+#[test]
+fn empty_or_blank_queries_find_nothing() {
+    assert_eq!(find_all("아무 글", ""), Vec::<(usize, usize)>::new());
+    assert_eq!(find_all("아무 글", " \n\t"), Vec::<(usize, usize)>::new());
+    assert_eq!(find_all("", "가"), Vec::<(usize, usize)>::new());
+}
+
+#[test]
+fn matches_do_not_overlap_and_run_from_the_front() {
+    assert_eq!(find_all("aaaa", "aa"), vec![(0, 2), (2, 4)]);
+    assert_eq!(find_all("aaa", "aa"), vec![(0, 2)]);
+    assert_eq!(find_all("가가 가가가", "가가"), vec![(0, 2), (3, 5)]);
+}
+
+fn layer(text: &str, cite: bool, find: bool, current: bool) -> Layered {
+    Layered { text: text.into(), cite, find, current }
+}
+
+#[test]
+fn overlapping_cite_and_find_pieces_carry_both_layers() {
+    let got = mark_layers("가나다라마바", &[(1, 4)], &[(3, 5)], None);
+    let want = vec![
+        layer("가", false, false, false),
+        layer("나다", true, false, false),
+        layer("라", true, true, false),
+        layer("마", false, true, false),
+        layer("바", false, false, false),
+    ];
+    assert_eq!(got, want);
+}
+
+#[test]
+fn the_current_find_is_flagged_only_at_its_index() {
+    let finds = [(0, 2), (3, 5), (6, 8)];
+    let got = mark_layers("ab ab ab", &[], &finds, Some(1));
+    let want = vec![
+        layer("ab", false, true, false),
+        layer(" ", false, false, false),
+        layer("ab", false, true, true),
+        layer(" ", false, false, false),
+        layer("ab", false, true, false),
+    ];
+    assert_eq!(got, want);
+    assert!(mark_layers("ab ab ab", &[], &finds, Some(5)).iter().all(|l| !l.current));
+    assert!(mark_layers("ab ab ab", &[], &finds, None).iter().all(|l| !l.current));
+}
+
+#[test]
+fn reversed_and_out_of_range_layers_are_ignored() {
+    let got = mark_layers("가나다", &[(2, 1), (0, 9), (1, 1)], &[(1, 2)], Some(0));
+    let want = vec![layer("가", false, false, false), layer("나", false, true, true), layer("다", false, false, false)];
+    assert_eq!(got, want);
+    assert_eq!(got.iter().map(|l| l.text.as_str()).collect::<String>(), "가나다");
+    assert_eq!(mark_layers("", &[(0, 1)], &[], None), Vec::<Layered>::new());
+    assert_eq!(mark_layers("가나", &[], &[], None), vec![layer("가나", false, false, false)]);
 }
 
 #[test]

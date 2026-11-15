@@ -1,6 +1,7 @@
 pub mod login;
 pub mod schema;
 pub mod usage;
+pub mod users;
 
 use std::time::Duration;
 
@@ -55,6 +56,13 @@ pub(crate) fn db(_: sqlx::Error) -> GatewayError {
     GatewayError::Internal
 }
 
+pub(crate) fn insert_error(e: sqlx::Error) -> GatewayError {
+    match e {
+        sqlx::Error::Database(d) if d.is_unique_violation() => GatewayError::Duplicate,
+        _ => GatewayError::Internal,
+    }
+}
+
 pub(crate) fn secs(d: Duration) -> f64 {
     d.as_secs_f64()
 }
@@ -72,14 +80,23 @@ impl AuthStore {
 
     pub async fn add_user(&self, login_id: &str, password: &str, cost: HashCost) -> Result<Uuid, GatewayError> {
         let hash = hash_password(password, cost)?;
+        self.insert_user(login_id, &hash, "", users::UserStatus::Active).await
+    }
+
+    pub(crate) async fn insert_user(&self, login_id: &str, hash: &str, display_name: &str, status: users::UserStatus) -> Result<Uuid, GatewayError> {
         let id = Uuid::new_v4();
-        sqlx::query(AssertSqlSafe(format!("INSERT INTO {}.app_user (user_id, login_id, password_hash) VALUES ($1, $2, $3)", self.schema)))
-            .bind(id)
-            .bind(login_id)
-            .bind(hash)
-            .execute(&self.pool)
-            .await
-            .map_err(db)?;
+        sqlx::query(AssertSqlSafe(format!(
+            "INSERT INTO {}.app_user (user_id, login_id, password_hash, display_name, status) VALUES ($1, $2, $3, $4, $5)",
+            self.schema
+        )))
+        .bind(id)
+        .bind(login_id)
+        .bind(hash)
+        .bind(display_name)
+        .bind(status.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(insert_error)?;
         Ok(id)
     }
 
@@ -181,7 +198,7 @@ impl AuthStore {
     }
 
     pub async fn disable_user(&self, login_id: &str) -> Result<bool, GatewayError> {
-        let done = sqlx::query(AssertSqlSafe(format!("UPDATE {}.app_user SET disabled = true WHERE login_id = $1", self.schema)))
+        let done = sqlx::query(AssertSqlSafe(format!("UPDATE {}.app_user SET disabled = true, status = 'disabled' WHERE login_id = $1", self.schema)))
             .bind(login_id)
             .execute(&self.pool)
             .await

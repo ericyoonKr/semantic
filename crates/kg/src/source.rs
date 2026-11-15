@@ -23,6 +23,13 @@ const FILES: &str = "파일";
 const TREE_GROUP: &str = "판정 관계";
 const TREE_SHAPE: &str = "나무";
 const NET_SHAPE: &str = "연결망";
+const FLOW_SHAPE: &str = "흐름";
+const LIST_SHAPE: &str = "항목 목록";
+const INDEX_SHAPE: &str = "찾아보기";
+const FLOW_KINDS: [&str; 2] = ["procedure_step", "procedure_transition"];
+const INDEX_KIND: &str = "article_map";
+const TERM_KIND: &str = "term";
+const RULE_SUFFIX: &str = "_rule";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
@@ -183,7 +190,7 @@ fn plan(ctx: &Bundle<'_>) -> Result<Vec<Planned>, KgError> {
         if !crate::manifest::plain_name(graph) {
             return Err(KgError::BadName);
         }
-        let Some(shape) = shape_of(&ctx.types, graph) else { continue };
+        let Some(shape) = shape_of(&ctx.types, &ctx.contract, graph) else { continue };
         let contract = ctx
             .contract
             .get("graph_contracts")
@@ -207,7 +214,7 @@ fn names_in(v: Option<&Value>) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-fn shape_of(types: &Value, graph: &str) -> Option<&'static str> {
+fn shape_of(types: &Value, contract: &Value, graph: &str) -> Option<&'static str> {
     let kinds = types.get("graph_types")?.as_object()?;
     for kind in kinds.values() {
         let groups = kind.get("groups").and_then(Value::as_object);
@@ -218,10 +225,30 @@ fn shape_of(types: &Value, graph: &str) -> Option<&'static str> {
             return Some(TREE_SHAPE);
         }
     }
-    let concept = kinds.get("C")?;
-    names_in(concept.get("families"))
-        .contains(&graph)
-        .then_some(NET_SHAPE)
+    if kinds
+        .get("C")
+        .is_some_and(|concept| names_in(concept.get("families")).contains(&graph))
+    {
+        return Some(NET_SHAPE);
+    }
+    shape_by_kinds(contract, graph)
+}
+
+fn shape_by_kinds(contract: &Value, graph: &str) -> Option<&'static str> {
+    let rules = contract.get("graph_contracts")?.get(graph)?;
+    let mut kinds = names_in(rules.get("node_kinds"));
+    kinds.extend(names_in(rules.get("optional_node_kinds")));
+    if kinds.iter().any(|k| FLOW_KINDS.contains(k)) {
+        Some(FLOW_SHAPE)
+    } else if kinds.contains(&INDEX_KIND) {
+        Some(INDEX_SHAPE)
+    } else if kinds.contains(&TERM_KIND) {
+        Some(NET_SHAPE)
+    } else if kinds.iter().any(|k| k.ends_with(RULE_SUFFIX)) {
+        Some(LIST_SHAPE)
+    } else {
+        None
+    }
 }
 
 fn prepare(ctx: &Bundle<'_>, p: &Planned, final_path: &Path) -> Result<(), KgError> {
@@ -408,7 +435,7 @@ fn stream(
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, stream};
+    use super::{Item, shape_of, stream};
 
     const GRAPH: &str = "# kgio-stream/1
 schema_version: test-source/1
@@ -465,5 +492,33 @@ notes: []
         assert_eq!(nodes[1]["record"]["aliases"][0], "다른 잎");
         assert_eq!(edges[0]["target"]["id"], "L");
         Ok(())
+    }
+
+    #[test]
+    fn shapes_follow_judgment_group_then_concept_family_then_node_kinds() {
+        let types = serde_json::json!({ "graph_types": {
+            "R": { "groups": { "판정 관계": ["claims"], "절차 관계": ["notice", "civil_procedure"] } },
+            "C": { "families": ["concept_frame"] }
+        }});
+        let contract = serde_json::json!({ "graph_contracts": {
+            "claims": { "node_kinds": ["rule"] },
+            "concept_frame": { "node_kinds": ["concept"] },
+            "civil_procedure": { "node_kinds": ["procedure_step", "procedure_transition", "law_unit"] },
+            "cpamap": { "node_kinds": ["article_map"], "optional_node_kinds": ["law_unit"] },
+            "term_net": { "node_kinds": ["term", "law_unit"] },
+            "notice": { "node_kinds": ["notice_rule", "law_unit"] },
+            "brief_rules": { "node_kinds": ["brief_rule", "law_unit"] },
+            "tables": { "node_kinds": ["table_row"] }
+        }});
+        let shape = |graph: &str| shape_of(&types, &contract, graph);
+        assert_eq!(shape("claims"), Some("나무"));
+        assert_eq!(shape("concept_frame"), Some("연결망"));
+        assert_eq!(shape("civil_procedure"), Some("흐름"));
+        assert_eq!(shape("cpamap"), Some("찾아보기"));
+        assert_eq!(shape("term_net"), Some("연결망"));
+        assert_eq!(shape("notice"), Some("항목 목록"));
+        assert_eq!(shape("brief_rules"), Some("항목 목록"));
+        assert_eq!(shape("tables"), None);
+        assert_eq!(shape("missing"), None);
     }
 }

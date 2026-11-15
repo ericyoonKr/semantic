@@ -10,6 +10,7 @@ pub enum Attempt {
     Signed(NewSession),
     Failed { user_id: Option<Uuid>, locked_now: bool },
     Locked { user_id: Uuid },
+    Pending { user_id: Uuid },
 }
 
 impl AuthStore {
@@ -18,12 +19,13 @@ impl AuthStore {
             Attempt::Signed(s) => Ok(s),
             Attempt::Failed { .. } => Err(GatewayError::LoginFailed),
             Attempt::Locked { .. } => Err(GatewayError::Locked),
+            Attempt::Pending { .. } => Err(GatewayError::Pending),
         }
     }
 
     pub async fn attempt(&self, login_id: &str, password: &str) -> Result<Attempt, GatewayError> {
         let row = sqlx::query(AssertSqlSafe(format!(
-            "SELECT user_id, password_hash, disabled, (locked_until IS NOT NULL AND locked_until > now()) AS locked
+            "SELECT user_id, password_hash, disabled, status, (locked_until IS NOT NULL AND locked_until > now()) AS locked
              FROM {}.app_user WHERE login_id = $1",
             self.schema
         )))
@@ -36,7 +38,8 @@ impl AuthStore {
         };
         let user_id: Uuid = row.try_get("user_id").map_err(db)?;
         let stored: String = row.try_get("password_hash").map_err(db)?;
-        let disabled: bool = row.try_get("disabled").map_err(db)?;
+        let status: String = row.try_get("status").map_err(db)?;
+        let disabled: bool = row.try_get::<bool, _>("disabled").map_err(db)? || status == "disabled";
         let locked: bool = row.try_get("locked").map_err(db)?;
         if locked {
             return Ok(Attempt::Locked { user_id });
@@ -44,6 +47,9 @@ impl AuthStore {
         if disabled || !verify_password(password, &stored) {
             let locked_now = self.record_failure(user_id).await?;
             return Ok(Attempt::Failed { user_id: Some(user_id), locked_now });
+        }
+        if status == "pending" {
+            return Ok(Attempt::Pending { user_id });
         }
         sqlx::query(AssertSqlSafe(format!("UPDATE {}.app_user SET failed_count = 0, locked_until = NULL WHERE user_id = $1", self.schema)))
             .bind(user_id)

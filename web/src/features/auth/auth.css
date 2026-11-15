@@ -1,0 +1,133 @@
+.auth-hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.auth-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.approval-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(15 23 42 / 0.28);
+}
+
+.approval {
+  width: min(760px, 100%);
+  max-height: 84vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  padding: 20px 24px 24px;
+  border-radius: var(--radius-panel);
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-shine), 0 0 0 1px var(--glass-edge), var(--glass-shadow);
+}
+
+.approval-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.approval-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.approval-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.approval-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.approval-scroll {
+  overflow-x: auto;
+}
+
+.approval-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.approval-table th,
+.approval-table td {
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.approval-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.approval-actions {
+  text-align: right;
+}
+
+.approval-actions .button-primary,
+.approval-actions .button-secondary {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.approval-actions .button-primary + .button-secondary {
+  margin-left: 6px;
+}
+
+.approval-status {
+  font-weight: 600;
+}
+
+.approval-status[data-status="pending"] {
+  color: var(--warn);
+}
+
+.approval-status[data-status="active"] {
+  color: var(--ok);
+}
+
+.approval-status[data-status="disabled"] {
+  color: var(--ink-3);
+}
+
+@media (max-width: 820px) {
+  .approval {
+    padding: 16px;
+  }
+}

@@ -19,6 +19,8 @@ static REGISTRY: &[(&str, &dyn ShapeReader)] = &[
     ("항목 목록", &plain::Plain),
     ("찾아보기", &plain::Plain),
     ("나무", &plain::Plain),
+    ("시점별", &plain::Plain),
+    ("흐름", &plain::Plain),
 ];
 
 pub(crate) fn reader(shape: &str) -> Option<&'static dyn ShapeReader> {

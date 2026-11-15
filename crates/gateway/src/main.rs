@@ -10,6 +10,7 @@ use gateway::http::router;
 use gateway::memory::MemoryGuard;
 use gateway::quota::AskQuota;
 use gateway::state::{AppState, LoginLimiter};
+use gateway::store::users::UserRow;
 use gateway::store::{AuthPolicy, AuthStore};
 use gateway::GatewayError;
 use sqlx::PgPool;
@@ -34,6 +35,55 @@ enum Command {
 enum UserAction {
     Add { login_id: String },
     Disable { login_id: String },
+    Master { login_id: String },
+    Approve { login_id: String },
+    List,
+}
+
+fn wide(c: char) -> bool {
+    matches!(
+        c,
+        '\u{1100}'..='\u{11FF}'
+            | '\u{2E80}'..='\u{A4CF}'
+            | '\u{AC00}'..='\u{D7A3}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{FE30}'..='\u{FE4F}'
+            | '\u{FF00}'..='\u{FF60}'
+            | '\u{FFE0}'..='\u{FFE6}'
+    )
+}
+
+fn width(text: &str) -> usize {
+    text.chars().map(|c| if wide(c) { 2 } else { 1 }).sum()
+}
+
+fn pad(text: &str, to: usize) -> String {
+    let mut out = text.to_string();
+    out.extend(std::iter::repeat_n(' ', to.saturating_sub(width(text))));
+    out
+}
+
+fn user_table(users: &[UserRow]) -> String {
+    let head = ["아이디", "이름", "상태", "마스터"];
+    let rows: Vec<[String; 4]> = users
+        .iter()
+        .map(|u| [u.login_id.clone(), u.display_name.clone(), u.status.label().to_string(), (if u.is_master { "예" } else { "아니요" }).to_string()])
+        .collect();
+    let mut widths = head.map(width);
+    for row in &rows {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(width(cell));
+        }
+    }
+    let line = |cells: [&str; 4]| -> String {
+        let joined = cells.iter().zip(widths).map(|(c, w)| pad(c, w)).collect::<Vec<_>>().join("  ");
+        format!("{}\n", joined.trim_end())
+    };
+    let mut out = line(head);
+    for row in &rows {
+        out.push_str(&line([&row[0], &row[1], &row[2], &row[3]]));
+    }
+    out
 }
 
 async fn open_pool(cfg: &Config) -> Result<PgPool, GatewayError> {
@@ -98,6 +148,7 @@ async fn serve(cfg: Config) -> Result<(), GatewayError> {
     let http = reqwest::Client::builder().build().map_err(|_| GatewayError::Internal)?;
     let state = AppState {
         limiter: Arc::new(LoginLimiter::new(cfg.login_per_minute)),
+        signup_limiter: Arc::new(LoginLimiter::within(cfg.signup_per_hour, Duration::from_secs(3600))),
         quota: Arc::new(AskQuota::new(cfg.ask_global, cfg.ask_wait, cfg.ask_queue_wait)),
         cfg: Arc::new(cfg.clone()),
         store,
@@ -128,6 +179,21 @@ async fn run() -> Result<(), GatewayError> {
         Command::User { action: UserAction::Disable { login_id } } => {
             let done = open_store(&cfg).await?.disable_user(&login_id).await?;
             println!("{}", if done { "사용자를 껐습니다" } else { "그런 사용자가 없습니다" });
+            Ok(())
+        }
+        Command::User { action: UserAction::Master { login_id } } => {
+            let done = open_store(&cfg).await?.set_master(&login_id).await?;
+            println!("{}", if done { "마스터로 지정했습니다" } else { "그런 사용자가 없습니다" });
+            Ok(())
+        }
+        Command::User { action: UserAction::Approve { login_id } } => {
+            let done = open_store(&cfg).await?.approve_user(&login_id).await?;
+            println!("{}", if done { "승인했습니다" } else { "그런 사용자가 없습니다" });
+            Ok(())
+        }
+        Command::User { action: UserAction::List } => {
+            let users = open_store(&cfg).await?.list_users().await?;
+            print!("{}", user_table(&users));
             Ok(())
         }
     }

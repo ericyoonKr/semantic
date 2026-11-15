@@ -14,6 +14,7 @@ from semantic_agent.agent.budget import QuestionBudget
 from semantic_agent.agent.context import append_system
 from semantic_agent.agent.guards import REPEAT_BLOCK, ToolGuard
 from semantic_agent.agent.prompts import RESEARCHER_PROMPT, WRAP_UP_PROMPT
+from semantic_agent.funcall.kg_first import KgFirst
 from semantic_agent.funcall.research_gate import ResearchGate
 from semantic_agent.tools.client import ToolClient
 
@@ -128,6 +129,7 @@ def make_subagents(
                 ),
                 ToolAllowlist([t.name for t in search_tools]),
                 ToolGuard(),
+                KgFirst(),
                 ResearchGate(client, LIMIT_MARK),
                 SubagentLimit(deadline_s=deadline_s),
             ],

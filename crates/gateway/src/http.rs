@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth;
 pub mod chat;
 pub mod files;
@@ -26,8 +27,13 @@ pub fn router(state: AppState) -> Router {
     let limit = state.cfg.upload_limit_bytes;
     let api = Router::new()
         .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/signup", post(auth::signup))
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/auth/me", get(auth::me))
+        .route("/api/admin/users", get(admin::list))
+        .route("/api/admin/users/{login_id}/approve", post(admin::approve))
+        .route("/api/admin/users/{login_id}/reject", post(admin::reject))
+        .route("/api/admin/users/{login_id}/disable", post(admin::disable))
         .route("/api/sessions", get(chat::list))
         .route("/session", post(chat::create))
         .route("/session/{id}/ask", post(chat::ask))

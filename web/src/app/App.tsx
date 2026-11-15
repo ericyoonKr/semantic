@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { logout, me } from "../features/auth/api";
+import { ApprovalPanel } from "../features/auth/ApprovalPanel";
+import { logout, me, type Me } from "../features/auth/api";
 import { LoginForm } from "../features/auth/LoginForm";
 import { PrefsControl } from "../features/prefs/PrefsControl";
 import { guardWindow } from "../features/upload/dropQueue";
@@ -9,7 +10,7 @@ import { sessionStore } from "../shared/api/tokenStore";
 import { Disclaimer } from "../shared/ui/Disclaimer";
 import { Workspace } from "./Workspace";
 
-type Phase = { kind: "checking" } | { kind: "signedOut"; notice: string | null } | { kind: "signedIn"; loginId: string };
+type Phase = { kind: "checking" } | { kind: "signedOut"; notice: string | null } | { kind: "signedIn"; me: Me };
 
 const CSRF_KEY = "csrf";
 
@@ -17,6 +18,7 @@ export function App() {
   const client = useMemo(() => new ApiClient({ tokens: sessionStore(CSRF_KEY) }), []);
   const [phase, setPhase] = useState<Phase>({ kind: "checking" });
   const [streaming, setStreaming] = useState(false);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
 
   const check = useCallback(() => {
     if (!client.hasCsrf()) {
@@ -24,9 +26,11 @@ export function App() {
       return;
     }
     me(client)
-      .then((loginId) => setPhase({ kind: "signedIn", loginId }))
+      .then((who) => setPhase({ kind: "signedIn", me: who }))
       .catch(() => setPhase({ kind: "signedOut", notice: null }));
   }, [client]);
+
+  const closeApprovals = useCallback(() => setApprovalsOpen(false), []);
 
   useEffect(() => guardWindow(window), []);
 
@@ -42,6 +46,7 @@ export function App() {
     } catch {
       client.setCsrf(null);
     }
+    setApprovalsOpen(false);
     setPhase({ kind: "signedOut", notice: "로그아웃했습니다" });
   }
 
@@ -62,11 +67,16 @@ export function App() {
             <>
               <div className="account-who">
                 <span className="avatar" aria-hidden="true">
-                  {phase.loginId.slice(0, 1).toUpperCase()}
+                  {phase.me.loginId.slice(0, 1).toUpperCase()}
                 </span>
-                <span className="who-am-i">{phase.loginId}</span>
+                <span className="who-am-i">{phase.me.loginId}</span>
               </div>
               <div className="account-tools">
+                {phase.me.isMaster ? (
+                  <button type="button" className="button-secondary" onClick={() => setApprovalsOpen(true)} aria-haspopup="dialog" aria-expanded={approvalsOpen}>
+                    가입 승인
+                  </button>
+                ) : null}
                 <PrefsControl client={client} />
                 <button type="button" className="button-secondary" onClick={signOut} disabled={streaming}>
                   로그아웃
@@ -76,6 +86,7 @@ export function App() {
           }
         />
       ) : null}
+      {phase.kind === "signedIn" && phase.me.isMaster && approvalsOpen ? <ApprovalPanel client={client} selfLoginId={phase.me.loginId} onClose={closeApprovals} /> : null}
     </div>
   );
 }

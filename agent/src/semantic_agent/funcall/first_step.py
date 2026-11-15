@@ -117,6 +117,8 @@ class FirstStep(AgentMiddleware):
         guidance = [str(g) for g in ((step or {}).get("guidance") or []) if g]
         if guidance:
             turn.guidance = guidance
+        first = (step or {}).get("researcher_first")
+        turn.researcher_first = first if isinstance(first, dict) and first.get("tool") else None
         forced = self._run(step, "before")
         if forced is not None:
             return forced

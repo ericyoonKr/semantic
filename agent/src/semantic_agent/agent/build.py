@@ -111,7 +111,7 @@ def _disable_general_purpose(model: BaseChatModel) -> None:
 
 
 def researcher_tools(client: ToolClient, research: ResearchOptions) -> list[BaseTool]:
-    tools = [*make_search_tools(client, scoped=research.steps), *make_annex_tools(client)]
+    tools = [*make_search_tools(client, scoped=research.steps), *make_annex_tools(client), *make_kg_tools(client)]
     if research.steps:
         tools += [t for t in make_version_tools(client) if t.name in VERSION_TOOLS]
     return tools

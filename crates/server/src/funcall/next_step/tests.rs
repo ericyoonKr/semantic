@@ -1,7 +1,48 @@
 use super::{
-    Context, Doc, EXCERPT_HEAD, QUESTION_LAWS_HEAD, Step, StepLog, StepRequest, WHOLE_READ_LINES, asks_for_law, brief, keyword, law_lines,
-    question_laws,
+    Context, Doc, EXCERPT_HEAD, KG_FOUND_HEAD, KG_HEAD, KG_HITS_MAX, KG_MAX, QUESTION_LAWS_HEAD, Step, StepLog, StepRequest, ToolCall,
+    WHOLE_READ_LINES, asks_for_law, brief, keyword, kg_found_line, kg_hits, kg_line, kg_terms, law_lines, question_laws,
 };
+
+#[test]
+fn knowledge_graph_terms_hits_and_the_first_researcher_call() {
+    assert_eq!(kg_terms("국가배상 청구가 인정되기 위한 요건은 무엇인가요"), vec!["국가배상".to_string(), "인정되기".to_string()]);
+    assert!(kg_terms("왜?").is_empty());
+    let graphs = vec!["a/claims".to_string(), "b/net".to_string()];
+    let terms = vec!["국가배상".to_string(), "인정되기".to_string()];
+    let (hits, first) = kg_hits(&graphs, &terms, |graph, term| {
+        if graph == "b/net" && term == "국가배상" { vec!["국가배상청구권".to_string(), "국가배상법".to_string()] } else { Vec::new() }
+    });
+    assert_eq!(hits, vec![("b/net".to_string(), "국가배상청구권".to_string()), ("b/net".to_string(), "국가배상법".to_string())]);
+    assert_eq!(first, Some(ToolCall { tool: "kg_find".into(), args: serde_json::json!({"graph": "b/net", "text": "국가배상"}) }));
+    assert_eq!(kg_found_line(&hits), Some(format!("{KG_FOUND_HEAD} b/net: 국가배상청구권 · b/net: 국가배상법")));
+    assert_eq!(kg_found_line(&[]), None);
+    let (many, _) = kg_hits(&graphs, &terms[..1], |_, _| (0..20).map(|i| format!("n{i}")).collect());
+    assert_eq!(many.len(), KG_HITS_MAX);
+    assert!(kg_hits(&graphs, &[], |_, _| vec!["x".into()]).1.is_none());
+    let reply = super::StepReply {
+        step: Step::Model,
+        notes: vec![],
+        guidance: vec![],
+        researcher_first: Some(ToolCall { tool: "kg_find".into(), args: serde_json::json!({"graph": "g", "text": "t"}) }),
+    };
+    let value = serde_json::to_value(&reply).unwrap_or_default();
+    assert_eq!(value["researcher_first"]["tool"], "kg_find");
+    assert_eq!(value["researcher_first"]["args"]["graph"], "g");
+}
+
+#[test]
+fn kg_line_lists_graphs_with_shapes_and_is_absent_without_graphs() {
+    assert_eq!(kg_line(&[]), None);
+    let graphs = vec![("send17/claims".to_string(), "나무".to_string()), ("all/concept_frame".to_string(), "연결망".to_string())];
+    let line = kg_line(&graphs).unwrap();
+    assert!(line.starts_with(KG_HEAD));
+    assert!(line.ends_with("send17/claims(나무), all/concept_frame(연결망)"));
+    let many: Vec<(String, String)> = (0..KG_MAX + 5).map(|i| (format!("g{i}"), "나무".to_string())).collect();
+    assert_eq!(kg_line(&many).unwrap().matches("(나무)").count(), KG_MAX);
+    let mut ctx = Context::default();
+    ctx.scope.push(line.clone());
+    assert!(brief("국가배상 요건은?", &[], "", &ctx).contains(&line));
+}
 
 fn doc(id: &str, chars: u64, at: u64, text: &str) -> Doc {
     Doc { file_id: id.into(), filename: format!("{id}.pdf"), chars, uploaded_at: at, processing: false, text: text.into() }
@@ -114,12 +155,13 @@ fn earlier_questions_the_last_answer_and_read_items_go_into_the_brief() {
 
 #[test]
 fn the_reply_carries_the_step_and_the_notes_side_by_side() {
-    let reply = super::StepReply { step: Step::Model, notes: vec!["조례는 자료에 없음".into()], guidance: vec![] };
+    let reply = super::StepReply { step: Step::Model, notes: vec!["조례는 자료에 없음".into()], guidance: vec![], researcher_first: None };
     assert_eq!(serde_json::to_value(&reply).ok(), serde_json::json!({"tool": "model", "notes": ["조례는 자료에 없음"], "guidance": []}).into());
     let task = super::StepReply {
         step: Step::Task { description: "쟁점: x".into(), subagent_type: "researcher".into() },
         notes: vec![],
         guidance: vec![norms::RULE_WRITING_NOTE.into()],
+        researcher_first: None,
     };
     assert_eq!(serde_json::to_value(&task).unwrap_or_default()["guidance"][0], norms::RULE_WRITING_NOTE);
     let value = serde_json::to_value(&task).unwrap_or_default();

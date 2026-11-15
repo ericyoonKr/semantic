@@ -15,6 +15,7 @@ pub struct AppState {
     pub store: AuthStore,
     pub http: reqwest::Client,
     pub limiter: Arc<LoginLimiter>,
+    pub signup_limiter: Arc<LoginLimiter>,
     pub audit: AuditStore,
     pub quota: Arc<AskQuota>,
     pub memory: Arc<MemoryGuard>,
@@ -22,13 +23,18 @@ pub struct AppState {
 
 #[derive(Debug)]
 pub struct LoginLimiter {
-    per_minute: u32,
+    limit: u32,
+    window: Duration,
     seen: Mutex<HashMap<IpAddr, (Instant, u32)>>,
 }
 
 impl LoginLimiter {
     pub fn new(per_minute: u32) -> Self {
-        Self { per_minute, seen: Mutex::new(HashMap::new()) }
+        Self::within(per_minute, Duration::from_secs(60))
+    }
+
+    pub fn within(limit: u32, window: Duration) -> Self {
+        Self { limit, window, seen: Mutex::new(HashMap::new()) }
     }
 
     pub fn allow(&self, ip: IpAddr) -> bool {
@@ -36,10 +42,10 @@ impl LoginLimiter {
             return false;
         };
         let now = Instant::now();
-        seen.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
+        seen.retain(|_, (start, _)| now.duration_since(*start) < self.window);
         let entry = seen.entry(ip).or_insert((now, 0));
         entry.1 += 1;
-        entry.1 <= self.per_minute
+        entry.1 <= self.limit
     }
 }
 
