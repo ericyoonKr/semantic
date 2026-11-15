@@ -62,7 +62,8 @@ def test_two_tool_errors_end_the_research_run_with_a_wrap_up() -> None:
 
 
 def test_drafting_request_refused_and_definition_question_passes() -> None:
-    assert is_out_of_scope("소장 써 줘")
+    assert is_out_of_scope("임대차 계약서 써 줘")
+    assert not is_out_of_scope("소장 써 줘")
     assert not is_out_of_scope("소장이 뭐야?")
 
 
@@ -72,19 +73,21 @@ def test_official_letters_pass_and_issued_documents_are_refused() -> None:
         "정보공개 청구 결과에 대한 질의 공문 초안 써 줘",
         "민원 회신 공문 초안 만들어 줘",
         "증명서 발급 절차가 뭐야?",
+        "소장 초안 써 줘",
+        "보증금 반환 청구 답변서 작성해 줘",
     ]
     refused = [
         "저 사용 증서 공공기관용으로 다시 작성해 줘",
         "재직 증명서 만들어 줘",
         "납품 확인서 대신 써 줘",
-        "소장 초안 써 줘",
+        "동업 계약서 초안 써 줘",
     ]
     assert [t for t in allowed if is_out_of_scope(t)] == []
     assert [t for t in refused if not is_out_of_scope(t)] == []
 
     async def scenario() -> None:
         agent, model, _ = await make_agent([AIMessage(content="소장은 소를 제기할 때 내는 서면입니다 [가짜법 제1조]")])
-        refused = await agent.ainvoke({"messages": [HumanMessage(content="소장 써 줘")]}, run_config())
+        refused = await agent.ainvoke({"messages": [HumanMessage(content="임대차 계약서 써 줘")]}, run_config())
         assert refused["messages"][-1].content == REFUSAL
         assert model.calls == 0
         passed = await agent.ainvoke({"messages": [HumanMessage(content="소장이 뭐야?")]}, run_config())
