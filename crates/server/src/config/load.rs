@@ -28,6 +28,7 @@ pub struct Config {
     pub law_aliases: Option<PathBuf>,
     pub route_legal: bool,
     pub research_judge: bool,
+    pub kg_first: bool,
 }
 
 fn switch(value: Option<&str>, name: &'static str) -> Result<bool, ConfigError> {
@@ -92,6 +93,11 @@ impl Config {
         let law_aliases = r.text("LAW_ALIASES").map(PathBuf::from);
         let route_legal = switch(r.text("ROUTE_LEGAL").as_deref(), "ROUTE_LEGAL")?;
         let research_judge = switch(r.text("RESEARCH_JUDGE").as_deref(), "RESEARCH_JUDGE")?;
+        let kg_first = match r.text("KG_FIRST").as_deref() {
+            None | Some("on") => true,
+            Some("off") => false,
+            Some(_) => return Err(ConfigError::Invalid("KG_FIRST")),
+        };
         Ok(Self {
             data_dir,
             kg_dir,
@@ -112,6 +118,7 @@ impl Config {
             law_aliases,
             route_legal,
             research_judge,
+            kg_first,
         })
     }
 

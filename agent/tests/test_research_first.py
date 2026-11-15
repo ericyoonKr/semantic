@@ -275,3 +275,19 @@ def test_the_first_researcher_call_is_the_graph_lookup_the_search_server_chose()
     assert any(isinstance(m, ToolMessage) and m.name == "read_law" for m in model.seen[1])
     assert model.calls == 3
     assert "가짜법 제1조(시행 2000-01-01)" in _tokens(events)
+
+
+def test_research_whose_quotes_all_miss_is_sent_back_once_to_quote_verbatim() -> None:
+    from semantic_agent.agent.prompts import QUOTE_NOTE
+
+    script = [
+        call("read_law", {"law": "가짜법", "unit": "제1조"}, "c1"),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": "원문에 없는 문장을 지어낸 인용"}]),
+        answer([{"claim": "목적 조항이다", "source": "근거 1", "quote": QUOTE}]),
+        AIMessage(content="가짜법 제1조는 목적 조항입니다 [근거 1].\n"),
+    ]
+    events, model = asyncio.run(_ask(script, "가짜법 제1조가 뭐야?"))
+    assert any(QUOTE_NOTE[:20] in str(getattr(m, "content", "")) for seen in model.seen for m in seen)
+    task = next(m for m in model.seen[-1] if isinstance(m, ToolMessage) and m.name == "task")
+    assert "목적 조항이다" in str(task.content)
+    assert "가짜법 제1조(시행 2000-01-01)" in _tokens(events)

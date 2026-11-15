@@ -15,7 +15,7 @@ from semantic_agent.agent.citations import Finding, Findings, check_research_rel
 from semantic_agent.agent.guards import result_text
 from semantic_agent.agent.intent import IntentScope
 from semantic_agent.agent.issues import flag, parse_issues, render_issues
-from semantic_agent.agent.prompts import ADVERSE_NOTE, RETRY_NOTE
+from semantic_agent.agent.prompts import ADVERSE_NOTE, QUOTE_NOTE, RETRY_NOTE
 from semantic_agent.agent.prompts_research import INTENT_NOTE
 from semantic_agent.agent.subagents import LIMIT_MARK, RESEARCHER, SUB_DEADLINE, SUB_DEADLINE_S
 from semantic_agent.funcall.readcheck import ReadCheck
@@ -29,6 +29,7 @@ TASK = "task"
 SUB_CONCURRENCY = 2
 RESEARCH_FAIL = "자료 조사 실패"
 ADVERSE_RETRIES = 2
+QUOTE_RETRIES = 1
 ISSUE_HEAD = "쟁점:"
 PURPOSE_HEAD = "목적:"
 JUDGE_PURPOSE = "판단"
@@ -256,8 +257,10 @@ class SubagentGate(AgentMiddleware):
         attempt = self._first_request(request, name, brief)
         malformed = 0
         adverse = 0
+        quote_retry = 0
         followed = self._scope is None or name != RESEARCHER
         start = len(ledger.queries)
+        read_start = len(ledger.items)
         while True:
             result = await self._run_once(attempt, handler)
             if result is None:
@@ -298,6 +301,10 @@ class SubagentGate(AgentMiddleware):
                     followed = True
                     hint = await self._scope.hint(brief.issue, findings.issues, ledger)
                     note = f"{hint}\n\n{INTENT_NOTE}" if hint else ""
+                if not note and findings.dropped and not findings.found and len(ledger.items) > read_start and quote_retry < QUOTE_RETRIES:
+                    quote_retry += 1
+                    log.info("subagent quotes rewritten name=%s round=%d dropped=%d", name, quote_retry, findings.dropped)
+                    note = QUOTE_NOTE
                 if not note:
                     if findings.dropped:
                         log.info("subagent lines dropped name=%s count=%d", name, findings.dropped)

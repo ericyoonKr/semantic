@@ -118,27 +118,50 @@ pub fn kg_terms(question: &str) -> Vec<String> {
     out
 }
 
+const SHAPE_ORDER: [&str; 6] = ["시점별", "나무", "흐름", "항목 목록", "찾아보기", "연결망"];
+
+fn shape_rank(shape: &str) -> usize {
+    SHAPE_ORDER.iter().position(|s| *s == shape).unwrap_or(SHAPE_ORDER.len())
+}
+
 pub fn kg_hits(
-    graphs: &[String],
+    graphs: &[(String, String)],
     terms: &[String],
     mut find: impl FnMut(&str, &str) -> Vec<String>,
 ) -> (Vec<(String, String)>, Option<ToolCall>) {
     let mut hits: Vec<(String, String)> = Vec::new();
-    let mut first: Option<ToolCall> = None;
-    for term in terms {
-        for graph in graphs {
+    let mut first: Option<(usize, ToolCall)> = None;
+    'terms: for term in terms {
+        for (graph, shape) in graphs {
             for name in find(graph, term) {
                 if hits.len() >= KG_HITS_MAX {
-                    return (hits, first);
+                    break 'terms;
                 }
-                if first.is_none() {
-                    first = Some(ToolCall { tool: KG_FIND.to_string(), args: serde_json::json!({ "graph": graph, "text": term }) });
+                let rank = shape_rank(shape);
+                if first.as_ref().is_none_or(|(best, _)| rank < *best) {
+                    first = Some((rank, ToolCall { tool: KG_FIND.to_string(), args: serde_json::json!({ "graph": graph, "text": term }) }));
                 }
                 hits.push((graph.clone(), name));
             }
         }
     }
-    (hits, first)
+    (hits, first.map(|(_, call)| call))
+}
+
+pub const KG_ISSUES_HEAD: &str = "그래프에서 뽑은 쟁점(이 이름을 쟁점으로 삼아 하나씩 조사하고, 질문이 묻는 것과 맞지 않는 이름은 뺀다):";
+pub const KG_ISSUES_MAX: usize = 5;
+
+pub fn kg_issues_line(hits: &[(String, String)]) -> Option<String> {
+    let mut names: Vec<&str> = Vec::new();
+    for (_, name) in hits {
+        if !names.contains(&name.as_str()) {
+            names.push(name);
+        }
+        if names.len() >= KG_ISSUES_MAX {
+            break;
+        }
+    }
+    (!names.is_empty()).then(|| format!("{KG_ISSUES_HEAD} {}", names.join(" / ")))
 }
 
 pub fn kg_found_line(hits: &[(String, String)]) -> Option<String> {

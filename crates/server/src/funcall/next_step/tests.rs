@@ -1,21 +1,29 @@
 use super::{
-    Context, Doc, EXCERPT_HEAD, KG_FOUND_HEAD, KG_HEAD, KG_HITS_MAX, KG_MAX, QUESTION_LAWS_HEAD, Step, StepLog, StepRequest, ToolCall,
-    WHOLE_READ_LINES, asks_for_law, brief, keyword, kg_found_line, kg_hits, kg_line, kg_terms, law_lines, question_laws,
+    Context, Doc, EXCERPT_HEAD, KG_FOUND_HEAD, KG_HEAD, KG_HITS_MAX, KG_ISSUES_HEAD, KG_MAX, QUESTION_LAWS_HEAD, Step, StepLog, StepRequest,
+    ToolCall, WHOLE_READ_LINES, asks_for_law, brief, keyword, kg_found_line, kg_hits, kg_issues_line, kg_line, kg_terms, law_lines,
+    question_laws,
 };
 
 #[test]
 fn knowledge_graph_terms_hits_and_the_first_researcher_call() {
     assert_eq!(kg_terms("국가배상 청구가 인정되기 위한 요건은 무엇인가요"), vec!["국가배상".to_string(), "인정되기".to_string()]);
     assert!(kg_terms("왜?").is_empty());
-    let graphs = vec!["a/claims".to_string(), "b/net".to_string()];
+    let graphs = vec![("a/claims".to_string(), "나무".to_string()), ("b/net".to_string(), "연결망".to_string())];
     let terms = vec!["국가배상".to_string(), "인정되기".to_string()];
     let (hits, first) = kg_hits(&graphs, &terms, |graph, term| {
         if graph == "b/net" && term == "국가배상" { vec!["국가배상청구권".to_string(), "국가배상법".to_string()] } else { Vec::new() }
     });
     assert_eq!(hits, vec![("b/net".to_string(), "국가배상청구권".to_string()), ("b/net".to_string(), "국가배상법".to_string())]);
     assert_eq!(first, Some(ToolCall { tool: "kg_find".into(), args: serde_json::json!({"graph": "b/net", "text": "국가배상"}) }));
+    let shaped = vec![("b/net".to_string(), "연결망".to_string()), ("c/org".to_string(), "시점별".to_string()), ("a/claims".to_string(), "나무".to_string())];
+    let (_, preferred) = kg_hits(&shaped, &["공소청".to_string()], |_, _| vec!["공소청".to_string()]);
+    assert_eq!(preferred.map(|c| c.args["graph"].to_string()), Some("\"c/org\"".to_string()));
     assert_eq!(kg_found_line(&hits), Some(format!("{KG_FOUND_HEAD} b/net: 국가배상청구권 · b/net: 국가배상법")));
     assert_eq!(kg_found_line(&[]), None);
+    assert_eq!(kg_issues_line(&hits), Some(format!("{KG_ISSUES_HEAD} 국가배상청구권 / 국가배상법")));
+    let dup = vec![("a".to_string(), "공소청".to_string()), ("b".to_string(), "공소청".to_string())];
+    assert_eq!(kg_issues_line(&dup), Some(format!("{KG_ISSUES_HEAD} 공소청")));
+    assert_eq!(kg_issues_line(&[]), None);
     let (many, _) = kg_hits(&graphs, &terms[..1], |_, _| (0..20).map(|i| format!("n{i}")).collect());
     assert_eq!(many.len(), KG_HITS_MAX);
     assert!(kg_hits(&graphs, &[], |_, _| vec!["x".into()]).1.is_none());

@@ -10,7 +10,7 @@ use crate::funcall::docs::session_docs;
 use crate::funcall::holdings::{guidance_for, notes_for, scope_for};
 use crate::funcall::known::law_of_label;
 use crate::funcall::next_step::{
-    Context, KG_FIND_LIMIT, Step, StepReply, StepRequest, ToolCall, asks_for_format, asks_for_law, keyword, kg_found_line, kg_hits, kg_terms,
+    Context, KG_FIND_LIMIT, Step, StepReply, StepRequest, ToolCall, asks_for_format, asks_for_law, keyword, kg_found_line, kg_hits, kg_issues_line, kg_terms,
     question_laws,
 };
 use crate::funcall::quotes::{QuotesReply, QuotesRequest, match_quotes};
@@ -127,6 +127,7 @@ pub async fn next_step(
     state.coverage.require(&req.request_id, &laws);
     if legal && let Some(line) = kg_found_line(&hits) {
         ctx.scope.push(line);
+        ctx.scope.extend(kg_issues_line(&hits));
     }
     let step = state.steps.next(sid.as_str(), &req, legal, &docs, &laws, &ctx);
     let researcher_first = if matches!(step, Step::Task { .. }) { first } else { None };
@@ -147,14 +148,14 @@ pub async fn next_step(
 }
 
 async fn kg_lookup(state: &AppState, graphs: &[(String, String)], question: &str) -> (Vec<(String, String)>, Option<ToolCall>) {
-    let names: Vec<String> = graphs.iter().map(|(graph, _)| graph.clone()).collect();
     let terms = kg_terms(question);
-    if names.is_empty() || terms.is_empty() {
+    if !state.cfg.kg_first || graphs.is_empty() || terms.is_empty() {
         return (Vec::new(), None);
     }
     let kg = state.kg.clone();
+    let graphs = graphs.to_vec();
     let out = tokio::task::spawn_blocking(move || {
-        kg_hits(&names, &terms, |graph, term| {
+        kg_hits(&graphs, &terms, |graph, term| {
             let q = kg::FindQuery { by: kg::FindBy::Text(term), kind: None, limit: KG_FIND_LIMIT, as_of: None };
             kg.find(graph, &q).map(|found| found.nodes.into_iter().map(|n| n.name).collect()).unwrap_or_default()
         })
