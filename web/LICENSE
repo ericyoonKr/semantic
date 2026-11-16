@@ -1,0 +1,52 @@
+Copyright (c) 2026 ericyoonKr. All rights reserved.
+
+이 저장소의 소스 코드와 모든 부속 자료(이하 「소프트웨어」)의 저작권은 저작권자에게 있다.
+
+1. 이용 허락 없음
+   이 소프트웨어에 대해 어떠한 이용 허락(라이선스)도 부여하지 않는다. 저작권자의 사전 서면 동의 없이
+   소프트웨어의 전부 또는 일부를 복제·배포·전송·공개·수정·번역·2차적 저작물 작성·재사용·실행·상업적 이용하는 것을 금지한다.
+
+2. 평가 목적의 예외와 그 밖의 사용 금지
+   저작권자가 제출한 학교 과제의 평가를 맡은 사람은, 그 평가에 한하여 소프트웨어를 열람하고 빌드·실행할 수 있다.
+   평가 외의 다른 목적으로 사용하는 것은 금지한다. 평가를 맡은 사람의 개인적 사용, 실제 법률 문제에의 사용, 제3자에게 보이거나 제공하는 것,
+   평가에 필요한 기간을 넘어 복제본을 보관하는 것을 포함한다.
+
+3. 법률사무 사용 금지와 변호사법 위반 소지
+   이 소프트웨어는 법률과 인공지능을 결합한 사례를 보이기 위한 학교 과제의 시연물이다. 법률 자문이나 법률사무 처리를 위한 것이 아니며,
+   그 결과는 변호사의 검토를 거친 것이 아니다.
+   변호사가 아닌 사람이 이 소프트웨어를 사용하여 다른 사람의 법률사건에 관하여 감정·법률상담·법률관계 문서 작성 그 밖의 법률사무를 취급하면
+   변호사법(제109조 등) 위반의 소지가 있다. 개인이 사용하는 경우에도 변호사법 위반의 소지가 있다.
+
+4. 책임
+   이 소프트웨어를 무단으로 복제하거나 사용하여 생긴 변호사법 위반 등 모든 민사·형사·행정상 책임은 전적으로 무단으로 복제하거나 사용한 사람에게 있다.
+   저작권자는 그 책임을 지지 않는다.
+   소프트웨어는 「있는 그대로」 제공되며, 저작권자는 어떠한 보증도 하지 않고, 사용으로 생긴 손해에 책임지지 않는다.
+
+5. 학습·수집 금지
+   소프트웨어를 기계학습 모델의 학습·평가·미세조정 자료로 쓰거나, 검색 색인·데이터셋에 넣는 것을 금지한다.
+
+6. 제3자 라이브러리
+   소프트웨어가 의존하는 제3자 라이브러리는 각자의 라이선스를 따른다. 이 문서는 그 라이브러리에 적용되지 않는다.
+
+---
+
+Copyright (c) 2026 ericyoonKr. All rights reserved.
+
+1. No license is granted. Copying, distribution, publication, modification, derivative works, reuse, execution,
+   and commercial use of this software, in whole or in part, are prohibited without the copyright holder's prior
+   written permission.
+2. Sole exception: persons assigned to grade the copyright holder's school submission may view, build, and run the
+   software solely for that grading. Any other use is prohibited, including personal use by graders, use on real
+   legal matters, showing or providing it to third parties, and retaining copies beyond the grading period.
+3. This software is a school demonstration of combining law and artificial intelligence. It is not legal advice and
+   is not for handling legal affairs; its output has not been reviewed by an attorney. Handling another person's
+   legal matters with this software (opinions, legal consultation, drafting legal documents, or other legal affairs)
+   by a person who is not an attorney may violate the Korean Attorney-at-Law Act (including Article 109).
+   Use by an individual may also violate that Act.
+4. All civil, criminal, and administrative liability arising from unauthorized copying or use of this software,
+   including any violation of the Attorney-at-Law Act, rests solely with the person who copied or used it without
+   authorization. The copyright holder bears no such liability. The software is provided "AS IS", without warranty
+   of any kind, and the copyright holder is not liable for any damages arising from its use.
+5. Use as training, evaluation, or fine-tuning data for machine-learning models, or inclusion in search indexes or
+   datasets, is prohibited.
+6. Third-party dependencies remain under their own licenses.
